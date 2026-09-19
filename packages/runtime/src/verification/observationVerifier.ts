@@ -40,8 +40,10 @@ function textComplete(
   return observation.coverage.text.status === "complete";
 }
 
-function escapeRegex(value: string): string {
-  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+function escapeRegexChar(value: string): string {
+  return /[|\\{}()[\]^$+.*?]/.test(value)
+    ? "\\" + value
+    : value;
 }
 
 /**
@@ -49,7 +51,8 @@ function escapeRegex(value: string): string {
  * - * 匹配任意长度
  * - ? 匹配单字符
  *
- * 这样避免把 Agent 提供的 pattern 直接交给正则引擎形成 ReDoS 面。
+ * 逐字符编译，避免先 escape 再替换导致 ? 被误当成 literal。
+ * Agent 提供的其它正则元字符全部按普通字符处理。
  */
 export function safeGlobMatches(
   value: string,
@@ -59,12 +62,19 @@ export function safeGlobMatches(
     return false;
   }
 
-  const source = "^" +
-    escapeRegex(pattern)
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".") +
-    "$";
+  let source = "^";
 
+  for (const char of pattern) {
+    if (char === "*") {
+      source += ".*";
+    } else if (char === "?") {
+      source += ".";
+    } else {
+      source += escapeRegexChar(char);
+    }
+  }
+
+  source += "$";
   return new RegExp(source, "u").test(value);
 }
 
