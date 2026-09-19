@@ -1,0 +1,138 @@
+import { describe, expect, it } from "vitest";
+import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
+import {
+  TabRevisionRegistry,
+  TabStateStore,
+} from "@browser-agent-next/runtime";
+import { DomObservationCoordinator } from "./observationCoordinator.js";
+import type { DomFrameSnapshot } from "../../content/domFrameSource.js";
+
+function snapshot(
+  name: string,
+): DomFrameSnapshot {
+  return {
+    source: "dom",
+    frameEpoch: "frame-epoch-a",
+    elements: [
+      {
+        stableId: "s1",
+        kind: "element",
+        semantic: { role: "button", name },
+        state: { visible: true, enabled: true, focused: false },
+        capabilities: [{ kind: "click" }],
+      },
+    ],
+    coverage: {
+      actionable: { status: "complete", returned: 1, totalKnown: 1 },
+      forms: { status: "complete", returned: 0, totalKnown: 0 },
+      text: { status: "unknown", returned: 0, reason: "not-scanned" },
+    },
+    openShadowRootCount: 0,
+  };
+}
+
+function input(name: string) {
+  return {
+    tab: {
+      tabId: 7,
+      title: "Fixture",
+      url: "https://fixture.test/",
+      origin: "https://fixture.test",
+      ownedBySession: true,
+    },
+    frames: [
+      {
+        frameId: "main",
+        documentEpoch: "doc-a",
+        accessible: true,
+      },
+    ],
+    viewport: {
+      width: 1280,
+      height: 720,
+      scrollX: 0,
+      scrollY: 0,
+      scrollWidth: 1280,
+      scrollHeight: 720,
+    },
+    mainDocumentEpoch: "doc-a",
+    transport: {
+      async send(_tabId: number, _frameId: string, request: { requestId: string }) {
+        return {
+          type: "perception.observe-dom.result" as const,
+          requestId: request.requestId,
+          ok: true as const,
+          snapshot: snapshot(name),
+        };
+      },
+    },
+  };
+}
+
+describe("DomObservationCoordinator", () => {
+  it("assembles and stores a canonical observation", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const states = new TabStateStore();
+    const coordinator = new DomObservationCoordinator(
+      refs,
+      new TabRevisionRegistry("runtime-a"),
+      states,
+    );
+
+    const observation = await coordinator.observe(input("Save"));
+
+    expect(observation.revision.id).toBe("runtime-a:t7:1");
+    expect(observation.elements[0]).toMatchObject({
+      ref: "@e_1",
+      semantic: { role: "button", name: "Save" },
+    });
+    expect(states.get(7, observation.revision.id)).toBeDefined();
+  });
+
+  it("keeps a persistent ref and emits a keyed delta on a later observation", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const states = new TabStateStore();
+    const coordinator = new DomObservationCoordinator(
+      refs,
+      new TabRevisionRegistry("runtime-a"),
+      states,
+    );
+
+    const first = await coordinator.observe(input("Save"));
+
+    const second = await coordinator.observe({
+      ...input("Save changes"),
+      sinceRevision: first.revision.id,
+    });
+
+    expect(second.elements[0]!.ref).toBe(first.elements[0]!.ref);
+    expect(second.delta).toMatchObject({
+      baseRevision: first.revision.id,
+      revision: second.revision.id,
+      changes: [
+        {
+          type: "update",
+          ref: first.elements[0]!.ref,
+        },
+      ],
+    });
+  });
+
+  it("reports an unavailable delta baseline instead of fabricating a delta", async () => {
+    const coordinator = new DomObservationCoordinator(
+      new InMemoryPersistentRefStore(),
+      new TabRevisionRegistry("runtime-a"),
+      new TabStateStore(),
+    );
+
+    const observation = await coordinator.observe({
+      ...input("Save"),
+      sinceRevision: "missing",
+    });
+
+    expect(observation.delta).toBeUndefined();
+    expect(observation.warnings).toContain(
+      "delta baseline unavailable: missing",
+    );
+  });
+});

@@ -22,18 +22,22 @@
 - [x] conservative expected-source coverage aggregation
 - [x] linked DOM/AX persistent identity contract
 - [x] frame-local DOM perception source
-- [x] background DOM identity adapter
-- [ ] content/background message wiring
-- [ ] live frame lifecycle / epoch invalidation
+- [x] typed content/background DOM observation protocol
+- [x] multi-frame DOM collector
+- [x] background canonical DOM observation coordinator
+- [x] observation → TabStateStore → delta pipeline
+- [ ] real Chrome frame transport binding
+- [ ] live frame/document lifecycle
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
 - [ ] component adapter source
-- [ ] canonical background observation coordinator
+- [ ] browser-level perception E2E
 
 ## Phase 2 — Persistent identity
-- [ ] DOM stable-id live transport integration
+- [x] DOM stable-id contract
+- [ ] DOM stable-id real Chrome transport integration
 - [ ] AX backend-node live integration
-- [ ] frame/document epochs driven by browser lifecycle
+- [ ] frame/document epochs driven by Chrome lifecycle
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
@@ -41,10 +45,12 @@
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
+- [x] tab-scoped revision registry
 - [x] normalized keyed delta
 - [x] unchanged response
 - [x] baseline-reset/full-fallback contract
-- [ ] live observation integration
+- [x] transport-neutral live observation coordinator
+- [ ] Chrome lifecycle invalidation integration
 
 ## Phase 4 — Strict executor
 - [x] pure strict preflight contract

@@ -10,110 +10,96 @@ Implemented:
 - explicit expected-source contract;
 - conservative source coverage aggregation;
 - strong-evidence-only cross-source semantic merge;
-- linked persistent identities for one canonical ref;
+- linked persistent identities;
 - canonical BrowserObservation assembler;
-- frame-local DOM perception source;
-- background DOM identity adapter.
+- frame-local DOM source;
+- typed content/background DOM observation protocol;
+- multi-frame DOM collector;
+- background canonical observation coordinator;
+- live-state-compatible revision and delta pipeline.
 
 Not implemented yet:
 
-- content/background transport wiring;
-- live frame lifecycle and invalidation;
+- actual `chrome.runtime` / frame messaging registration;
+- Chrome-driven frame lifecycle and document epochs;
 - live AX source;
-- DOM ↔ AX backend-node correspondence bridge;
-- component adapter source;
-- canonical background observation coordinator.
+- DOM ↔ AX backend-node correspondence;
+- component adapters;
+- real-browser E2E.
 
-## DOM source
+## End-to-end DOM observation path
 
-The first concrete source is deliberately split into two layers:
+The current code now has a complete transport-neutral path:
 
 ```text
-Content Script
-  document/window
-      ↓
+Document
+  ↓
 DomFramePerceptionSource
-      ↓
-frameEpoch + stableId + semantic facts
-      ↓
-Background
-      ↓
-adaptDomFrameSnapshot(tabId, frameId)
-      ↓
+  ↓
+ObserveDomFrameResponse
+  ↓
+DomFrameTransport
+  ↓
+collectDomSource
+  ↓
 PerceptionSourceResult
+  ↓
+ObservationAssembler
+  ↓
+BrowserObservation
+  ↓
+TabStateStore
+  ↓
+optional keyed Delta
 ```
 
-The page-side content source never invents or receives a tab id.
+Only the Chrome-specific transport binding is still missing.
 
-### Stable identity
+## Process boundary
 
-A content-script instance owns a `WeakMap<Element, stableId>`.
+The content script never receives a tab id.
 
-The same live DOM object keeps the same id across repeated scans:
+It returns:
 
 ```text
-Element A → s1
-scan again → s1
-Element B → s2
+frameEpoch + stableId
 ```
 
-A future content-script reinjection creates a new `frameEpoch`; therefore reused local ids such as `s1` cannot collide with the previous document instance.
+Background adds:
 
-### Initial actionable surface
+```text
+tabId + frameId
+```
 
-The generic DOM source currently recognizes conservative, explicit controls:
+before creating a canonical strong DOM identity.
 
-- native links/buttons;
-- inputs/textarea/select;
-- contenteditable;
-- supported explicit ARIA roles.
+## Frame degradation
 
-It deliberately does not infer arbitrary clickable `div` elements from CSS classes or event listeners. Component adapters and AX will extend coverage later.
+Multi-frame collection is fail-visible.
 
-### Values
+If a frame is inaccessible or its content observation fails:
 
-Value capture is **off by default**.
+```text
+coverage → partial
+degradedFrames → includes frame
+warning → recorded
+```
 
-Even when explicitly enabled:
+The collector never drops a failed child frame and then reports a complete action space.
 
-- password values are never emitted.
+## Delta
 
-This is a data-minimization rule, not merely a model-redaction rule.
+The coordinator accepts `sinceRevision`.
 
-### Open shadow roots
+If the baseline is retained and document/state identity is compatible, the result may carry a keyed delta.
 
-The initial DOM source recursively scans open shadow roots.
+If the baseline is missing or incompatible, the result remains a full observation with an explicit warning.
 
-Closed shadow roots remain outside DOM-source coverage and are represented separately by the higher-level observation coverage/trust model.
-
-### Geometry
-
-The source records bounding rect and whether the element intersects the viewport.
-
-It does **not** treat observation-time geometry as proof that a future click is safe. Strict execution still performs a fresh hit test immediately before dispatch.
-
-## Cross-source merge rule
-
-Visible semantic similarity is not identity evidence.
-
-Two candidates merge only through an explicit strong correspondence key produced from browser-level evidence.
-
-Forbidden evidence:
-
-- same role;
-- same accessible name;
-- same text;
-- nearby coordinates;
-- same list position.
-
-## Coverage
-
-Every expected source must be named. If AX+DOM are expected and one is missing, the overall observation is not complete.
+A delta remains an optimization only. It is not a freshness proof for actions.
 
 ## Next
 
-1. Add content/background message contracts and a frame lifecycle.
-2. Feed DOM source results through the canonical assembler.
-3. Persist observations in TabStateStore.
-4. Add AX discovery.
-5. Add explicit DOM↔AX backend-node correspondence.
+1. Bind `DomFrameTransport` to real Chrome frame messaging.
+2. Drive frame/document epochs from Chrome lifecycle events.
+3. Add browser-level tests for same-node survival and replacement-node invalidation.
+4. Add AX source and exact DOM↔AX correspondence.
