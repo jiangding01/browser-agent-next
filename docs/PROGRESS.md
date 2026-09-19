@@ -75,3 +75,10 @@ deterministic Verification
 ## 合并状态
 
 PR #2 继续保持 Draft；完成最终 Review 前不要合并。
+
+## 信任边界修订
+
+- Native Host token 被明确定义为 control-plane authentication；
+- 它不自动等价于人工批准；
+- 如果 Coding Agent 本身拥有同 UID 任意文件读取 + localhost 网络权限，不能把 0600 token 当成对该 Agent 的 OS 级 hard boundary；
+- 高风险生产部署应使用 Agent 无法访问的 operator/enterprise authorization boundary。

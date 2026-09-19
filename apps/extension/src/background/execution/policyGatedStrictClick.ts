@@ -27,8 +27,12 @@ export interface ExecuteStrictClickInput {
   ref: string;
 
   /**
-   * 只能引用 trusted UI / host 已经签发的 grant。
+   * 只能引用 trusted UI / control-plane host 已经签发的 grant。
    * 没有 grant 时，unknown-effect click 不会执行。
+   *
+   * trusted-host token 证明来自控制平面，但不自动等价于人工批准。
+   * 如果同一 Agent 拥有读取 token 的本地 OS 权限，该 token 不能作为
+   * 对该 Agent 的强隔离边界。详见 docs/SECURITY.md。
    */
   authorizationId?: string;
 }

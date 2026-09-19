@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1 已完成 **Foundation + DOM Perception 基线**，当前可作为下一阶段开发的稳定底座。
+PR #1 已合并；PR #2 正在收口 **Hybrid Perception + Strict Execution + Trusted Control Plane**。
 
 已经完成：
 
@@ -83,3 +83,4 @@ pnpm e2e
 - [Roadmap](./docs/ROADMAP.md)
 - [当前进度](./docs/PROGRESS.md)
 - [PR #1 最终审查](./docs/PR1-FINAL-REVIEW.md)
+- [安全模型](./docs/SECURITY.md)

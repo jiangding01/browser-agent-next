@@ -47,3 +47,4 @@
 43. Native Messaging outbound write 失败必须立即向上层报告失败，不能伪装成已成功入管道并等待超时。
 44. auto-act allowlist 的配置值必须是纯 origin；包含 path/query/fragment/credentials 的 URL 必须拒绝，不能静默扩大为整个 origin。
 45. Native Messaging 一旦发生可能产生半帧的同步写异常，当前 transport 必须 fail closed；不能继续向同一长度流发送后续 frame。
+46. Trusted Native Host token 仅证明 control-plane caller 能访问该 token；如果同一 Coding Agent 拥有同 UID 任意 filesystem/network 能力，不得把该 token 宣称为对该 Agent 的 OS 级 hard authorization。
