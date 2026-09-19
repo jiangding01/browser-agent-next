@@ -12,40 +12,39 @@ feat/hybrid-perception-strict-executor
 
 ```text
 PR #1 Foundation + DOM Perception       ✅ 已合并
-AX Perception                            ✅ main-frame 基线
-AX → canonical pipeline                 ✅ opt-in
-DOM ↔ AX Exact Correspondence           ✅ 代码链路完成
-Hybrid BrowserState E2E                 🚧 下一步
-Stored Observation Strict Executor      ⏭
+AX Perception                            ✅ main-frame
+DOM ↔ AX Exact Correspondence           ✅ Real Chromium E2E
+Stored Observation Strict Coordinator   ✅
+Chrome Strict Click Live Resolver       ✅ 第一阶段
+Strict Prepare Real Chromium E2E        ⏭
+Policy + Dispatch                       ⏭
 ```
 
-## 本轮新增
+## 本轮完成
 
-- isolated-world DOM identity bridge；
-- `WeakMap<Element, stableId>` 增加反向 WeakRef 查找；
-- Chrome Debugger transport 跟踪 Runtime execution context；
-- 使用 `DOM.resolveNode(backendDOMNodeId, executionContextId)` 获取同一个 live Element；
-- bridge 用对象身份返回已存在的 stableId；
-- DOM/AX 只有在 exact bridge 成功时生成相同 mergeKey；
-- canonical assembler 因此可以绑定 DOM + AX strong identities 到同一 Persistent Ref；
-- element/field 分类在 exact identity merge 时收敛为更具体的 field。
-
-## 明确未使用
-
-- role/name 相似度；
-- geometry overlap；
-- nth/index；
-- CSS selector re-find；
-- 临时 data-* attribute。
+- exact DOM↔AX correspondence 已通过真实 Chromium E2E；
+- 新增 stored-observation strict coordinator；
+- strict action 不接受 caller/model 提供 expected semantics；
+- 新增 main-frame DOM+AX strict click live resolver；
+- live resolver 重新验证：
+  - document epoch；
+  - CDP frame；
+  - backend node ↔ stableId；
+  - connected live Element；
+  - DOM actionability；
+  - viewport；
+  - hit-test；
+  - fresh AX role/name/disabled；
+- 当前只生成 ephemeral prepared target，**还没有真实 click dispatch**。
 
 ## 下一步
 
-1. Real Chromium isolated-world correspondence E2E；
-2. main-frame Hybrid BrowserState 默认化；
-3. child-frame CDP mapping；
-4. Stored Observation Strict Executor；
-5. fresh viewport + hit-test。
+1. Strict prepare browser E2E；
+2. background dry-run command；
+3. Effect / Policy gate；
+4. mouse dispatch；
+5. Verification。
 
 ## 合并状态
 
-PR #2 仍为 Draft，当前不要合并。
+PR #2 继续保持 Draft，当前不要合并。
