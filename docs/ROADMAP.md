@@ -50,10 +50,10 @@
 - [x] CDP mouse dispatch primitive
 - [x] ambiguous outcome / no-auto-retry guard
 - [x] observation verification engine
-- [ ] trusted authorization ingress
-- [ ] Policy-gated execute command
-- [ ] execute → fresh observe → verify integration
-- [ ] replacement-node adversarial execution E2E
+- [x] trusted authorization ingress
+- [x] Policy-gated execute command
+- [x] execute → fresh observe → verify integration
+- [x] replacement-node adversarial execution E2E
 
 ## Phase 5 — Effects and authorization
 - [x] conservative generic-click effect assessment
@@ -61,7 +61,7 @@
 - [x] exact-origin allowlist
 - [x] trusted grant exact binding / TTL / single-use
 - [x] navigation/tab revocation lifecycle
-- [ ] trusted host ingress
+- [x] trusted host ingress
 
 ## Phase 6 — High-level API
 - [ ] browser.observe

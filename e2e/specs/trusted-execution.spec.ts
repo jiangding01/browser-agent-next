@@ -418,21 +418,6 @@ test(
       await target.goto(mainUrl);
       await target.waitForLoadState("load");
 
-      await target.evaluate(() => {
-        const button = document.querySelector(
-          "#main-action",
-        );
-        if (!button) {
-          throw new Error(
-            "main action missing",
-          );
-        }
-
-        button.addEventListener("click", () => {
-          location.href = "/done.html";
-        });
-      });
-
       const harness = await context.newPage();
       await harness.goto(
         "chrome-extension://" +
@@ -500,6 +485,115 @@ test(
         },
       });
 
+      // 授权签发后，把目标替换成外观完全相同的新节点。
+      // 旧 ref / grant 绝不能因为 role/name 相同而点击 replacement。
+      await target.evaluate(() => {
+        const oldButton = document.querySelector(
+          "#main-action",
+        );
+        if (!oldButton) {
+          throw new Error("main action missing");
+        }
+
+        const replacement =
+          oldButton.cloneNode(true) as HTMLElement;
+        oldButton.replaceWith(replacement);
+      });
+
+      const rejectedReplacement =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "execution.execute-strict-click",
+            requestId: "execute-replacement",
+            actionId: "action-replacement",
+            authorizationId: "auth-1",
+            tabId,
+            observedRevision:
+              current.revision.id,
+            ref: save.ref,
+            verification: {
+              mode: "all",
+              conditions: [{
+                type: "url_matches",
+                pattern:
+                  fixtureOrigin +
+                  "/done.html",
+              }],
+            },
+            verifyTimeoutMs: 500,
+          },
+        );
+
+      expect(rejectedReplacement).toMatchObject({
+        ok: false,
+        error: {
+          code: "TARGET_IDENTITY_MISMATCH",
+        },
+      });
+
+      await expect(target).toHaveURL(mainUrl);
+
+      const refreshed =
+        await observe(harness, tabId);
+      const replacementSave =
+        refreshed.elements.find(
+          (element) =>
+            element.semantic.name === "Save",
+        );
+
+      if (!replacementSave) {
+        throw new Error(
+          "replacement Save ref unavailable",
+        );
+      }
+
+      expect(replacementSave.ref).not.toBe(
+        save.ref,
+      );
+
+      await target.evaluate(() => {
+        const button = document.querySelector(
+          "#main-action",
+        );
+        if (!button) {
+          throw new Error(
+            "replacement main action missing",
+          );
+        }
+
+        button.addEventListener("click", () => {
+          location.href = "/done.html";
+        });
+      });
+
+      const secondAuth =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId: "auth-req-2",
+            authorizationId: "auth-2",
+            tabId,
+            observedRevision:
+              refreshed.revision.id,
+            ref: replacementSave.ref,
+            ttlMs: 5_000,
+          },
+        );
+
+      expect(secondAuth).toMatchObject({
+        ok: true,
+        result: {
+          id: "auth-2",
+          origin: fixtureOrigin,
+        },
+      });
+
       const executeResponse =
         await trustedRequest(
           rpcPort,
@@ -507,13 +601,13 @@ test(
           {
             type:
               "execution.execute-strict-click",
-            requestId: "execute-1",
-            actionId: "action-1",
-            authorizationId: "auth-1",
+            requestId: "execute-2",
+            actionId: "action-2",
+            authorizationId: "auth-2",
             tabId,
             observedRevision:
-              current.revision.id,
-            ref: save.ref,
+              refreshed.revision.id,
+            ref: replacementSave.ref,
             verification: {
               mode: "all",
               conditions: [{
@@ -532,7 +626,7 @@ test(
         result: {
           execution: {
             status: "executed",
-            actionId: "action-1",
+            actionId: "action-2",
           },
           verification: {
             verified: true,
