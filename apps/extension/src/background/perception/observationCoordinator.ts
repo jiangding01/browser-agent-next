@@ -50,12 +50,12 @@ export class DomObservationCoordinator {
   private readonly assembler;
 
   constructor(
-    refs: InMemoryPersistentRefStore,
+    private readonly refs: InMemoryPersistentRefStore,
     private readonly revisions: TabRevisionRegistry,
     private readonly states: TabStateStore,
     private readonly lifecycle?: DomFrameLifecycleRecorder,
   ) {
-    this.assembler = createObservationAssembler(refs);
+    this.assembler = createObservationAssembler(this.refs);
   }
 
   async observe(input: ObserveTabInput): Promise<BrowserObservation> {
@@ -132,6 +132,33 @@ export class DomObservationCoordinator {
           "delta baseline unavailable: " + input.sinceRevision,
         ],
       };
+    }
+
+    if (
+      previous &&
+      previous.observation.revision.documentEpoch === observation.revision.documentEpoch &&
+      previous.observation.scope.kind === observation.scope.kind &&
+      previous.observation.scope.ref === observation.scope.ref &&
+      observation.coverage.actionable.status === "complete"
+    ) {
+      const currentRefs = new Set(
+        observation.elements
+          .filter((element) => element.kind === "element" || element.kind === "field")
+          .map((element) => element.ref),
+      );
+
+      for (const previousElement of previous.observation.elements) {
+        if (
+          (previousElement.kind === "element" || previousElement.kind === "field") &&
+          !currentRefs.has(previousElement.ref)
+        ) {
+          this.refs.tombstone(
+            previousElement.ref,
+            observation.revision.id,
+            "not-present-in-complete-observation",
+          );
+        }
+      }
     }
 
     this.states.put(finalObservation);

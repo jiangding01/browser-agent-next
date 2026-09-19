@@ -7,7 +7,7 @@ import {
 import { DomObservationCoordinator } from "./observationCoordinator.js";
 import type { DomFrameSnapshot } from "../../content/domFrameSource.js";
 
-function snapshot(name: string): DomFrameSnapshot {
+function snapshot(name: string, stableId = "s1"): DomFrameSnapshot {
   return {
     source: "dom",
     frameEpoch: "frame-epoch-a",
@@ -21,7 +21,7 @@ function snapshot(name: string): DomFrameSnapshot {
     },
     elements: [
       {
-        stableId: "s1",
+        stableId,
         kind: "element",
         semantic: { role: "button", name },
         state: { visible: true, enabled: true, focused: false },
@@ -37,7 +37,7 @@ function snapshot(name: string): DomFrameSnapshot {
   };
 }
 
-function input(name: string) {
+function input(name: string, stableId = "s1") {
   return {
     tab: {
       tabId: 7,
@@ -69,7 +69,7 @@ function input(name: string) {
           type: "perception.observe-dom.result" as const,
           requestId: request.requestId,
           ok: true as const,
-          snapshot: snapshot(name),
+          snapshot: snapshot(name, stableId),
         };
       },
     },
@@ -106,7 +106,6 @@ describe("DomObservationCoordinator", () => {
     );
 
     const first = await coordinator.observe(input("Save"));
-
     const second = await coordinator.observe({
       ...input("Save changes"),
       sinceRevision: first.revision.id,
@@ -123,6 +122,62 @@ describe("DomObservationCoordinator", () => {
         },
       ],
     });
+  });
+
+  it("tombstones a disappeared actionable ref only after a complete same-document observation", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const states = new TabStateStore();
+    const coordinator = new DomObservationCoordinator(
+      refs,
+      new TabRevisionRegistry("runtime-a"),
+      states,
+    );
+
+    const first = await coordinator.observe(input("Save", "s1"));
+    const oldRef = first.elements[0]!.ref;
+
+    const second = await coordinator.observe({
+      ...input("Save", "s2"),
+      sinceRevision: first.revision.id,
+    });
+
+    expect(second.elements[0]!.ref).not.toBe(oldRef);
+    expect(refs.byRef(oldRef)?.tombstoneReason).toBe(
+      "not-present-in-complete-observation",
+    );
+  });
+
+  it("does not tombstone missing refs when current coverage is partial", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const states = new TabStateStore();
+    const coordinator = new DomObservationCoordinator(
+      refs,
+      new TabRevisionRegistry("runtime-a"),
+      states,
+    );
+
+    const first = await coordinator.observe(input("Save", "s1"));
+    const oldRef = first.elements[0]!.ref;
+
+    const partial = input("Save", "s2");
+    partial.domFrames.push({
+      frameId: "web:7",
+      transportFrameId: 7,
+      accessible: false,
+    });
+    partial.frames.push({
+      frameId: "web:7",
+      parentFrameId: "web:0",
+      documentEpoch: "chrome-document:doc-child",
+      accessible: false,
+    });
+
+    await coordinator.observe({
+      ...partial,
+      sinceRevision: first.revision.id,
+    });
+
+    expect(refs.byRef(oldRef)?.tombstonedAtRevision).toBeUndefined();
   });
 
   it("reports an unavailable delta baseline instead of fabricating a delta", async () => {

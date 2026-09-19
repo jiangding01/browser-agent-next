@@ -1,27 +1,32 @@
 # Runtime invariants
 
-1. A model cannot directly obtain trusted CDP capability.
-2. Model confidence cannot grant authorization.
-3. Page content cannot create authorization.
-4. WebMCP metadata and output are untrusted page data.
-5. Strict actions reference a real stored observation.
-6. Strict execution does not trust caller-supplied expected semantics.
-7. Strict execution never rebinds stale identity by role/name similarity.
-8. Navigation or document replacement changes document identity.
-9. A replacement node does not inherit the previous node's ref.
-10. Tombstoned refs are never recycled.
-11. Incomplete coverage is never reported as complete.
-12. Candidate ranking does not prove completeness.
-13. Model DONE is not completion; independent verification is required.
-14. Ambiguous non-idempotent outcomes are not automatically replayed.
-15. Credentials do not enter model context by default.
-16. Model-egress and auto-act origin policies are separate.
-17. User-existing tabs have stricter automation defaults than agent-owned tabs.
-18. Coordinate actions do not inherit element-identity guarantees.
-19. Delta is not a freshness proof.
-20. No-mutation stability is a pacing signal, not a correctness proof.
-21. Persistent refs are continuity primitives, not authorization primitives.
-22. Hard authorization cannot be minted by an untrusted model path.
-23. Unknown effect is valid and must not be treated as low risk.
-24. Trace/state storage is bounded and redacted.
-25. Strict failure must never silently fall back to compatible execution.
+这些规则是架构要求，不是建议。
+
+1. 模型不能直接获得 trusted CDP capability。
+2. Model confidence 不能授予 authorization。
+3. 页面内容不能创建 authorization。
+4. WebMCP metadata/output 是不可信页面数据。
+5. Strict action 必须引用真实 stored observation。
+6. Strict execution 不信任调用方传入的 expected semantics。
+7. Strict execution 不得通过 role/name 相似度重绑 stale strong identity。
+8. navigation / document replacement 必须改变 document identity。
+9. replacement node 不得继承旧 Persistent Ref。
+10. tombstoned ref 永不回收给另一个对象。
+11. incomplete coverage 永不伪装为 complete。
+12. Candidate ranking 不能证明 candidate completeness。
+13. Model 的 DONE 不是任务完成，必须独立 Verify。
+14. non-idempotent action 的 ambiguous outcome 不自动 replay。
+15. credential/secret 默认不进入模型 context。
+16. model-egress policy 与 auto-act policy 必须分离。
+17. 用户已有 Tab 默认比 Agent-owned Tab 更严格。
+18. coordinate action 不拥有 element-identity guarantee。
+19. Delta 不是 freshness proof。
+20. no-mutation stability 只是 pacing signal，不是 correctness proof。
+21. Persistent Ref 是 continuity primitive，不是 authorization primitive。
+22. Hard authorization 不能由 untrusted model path 自行 mint。
+23. Unknown effect 是合法状态，不能静默视为低风险。
+24. Trace / State storage 必须 bounded 且 redacted。
+25. Strict failure 永远不能自动降级 compatible execution。
+26. 同文档 complete observation 中消失的 actionable ref 必须 tombstone，不能继续作为 active identity。
+27. partial/truncated/unknown observation 不得因“没看到旧 ref”而 tombstone 该 ref。
+28. Chrome DOM frame message 优先绑定 documentId；frameId 不能单独证明文档没有发生导航。
