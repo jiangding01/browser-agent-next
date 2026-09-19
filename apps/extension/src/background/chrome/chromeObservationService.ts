@@ -9,7 +9,14 @@ import {
   type ChromeTabsMessagingApi,
 } from "./chromeDomTransport.js";
 import type { ChromeDebuggerReadTransport } from "./chromeDebuggerTransport.js";
-import { collectMainAxSource } from "../perception/axSource.js";
+import {
+  collectMainAxSource,
+  type CollectedAxSource,
+} from "../perception/axSource.js";
+import {
+  IsolatedWorldDomIdentityResolver,
+  linkMainFrameDomAx,
+} from "../perception/domAxCorrespondence.js";
 import type { DomObservationCoordinator } from "../perception/observationCoordinator.js";
 
 export interface ChromeTabRecord {
@@ -70,13 +77,14 @@ export class ChromeDomObservationService {
 
     const includeAx = input.options?.includeAx === true;
     let extraSources = undefined;
+    let collectedAx: CollectedAxSource | undefined;
 
     if (includeAx) {
       if (!this.debuggerTransport) {
         throw new Error("AX perception requested but debugger transport is unavailable");
       }
 
-      const ax = await collectMainAxSource({
+      collectedAx = await collectMainAxSource({
         tabId: input.tabId,
         mainDocumentEpoch: catalog.mainDocumentEpoch,
         transport: this.debuggerTransport,
@@ -86,7 +94,7 @@ export class ChromeDomObservationService {
           : {}),
       });
 
-      extraSources = [ax];
+      extraSources = [collectedAx];
     }
 
     return this.coordinator.observe({
@@ -103,6 +111,34 @@ export class ChromeDomObservationService {
       mainDocumentEpoch: catalog.mainDocumentEpoch,
       transport: this.transport,
       ...(extraSources !== undefined ? { extraSources } : {}),
+      ...(collectedAx !== undefined && this.debuggerTransport !== undefined
+        ? {
+            refineSources: async ({
+              dom,
+              extraSources: sources,
+            }: {
+              dom: import("../perception/domCollector.js").CollectedDomSource;
+              extraSources: import("@browser-agent-next/perception").PerceptionSourceResult[];
+            }) => {
+              const linked = await linkMainFrameDomAx({
+                tabId: input.tabId,
+                mainFrameId: catalog.mainFrameId,
+                dom,
+                ax: collectedAx!,
+                resolver: new IsolatedWorldDomIdentityResolver(
+                  this.debuggerTransport!,
+                ),
+              });
+
+              return {
+                dom: linked.dom,
+                extraSources: sources.map((source) =>
+                  source === collectedAx ? linked.ax : source,
+                ),
+              };
+            },
+          }
+        : {}),
       validateBeforeCommit: async () => {
         const current = await discoverChromeDomFrames(
           this.webNavigation,

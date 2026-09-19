@@ -15,6 +15,7 @@ import {
 } from "@browser-agent-next/runtime";
 import {
   collectDomSource,
+  type CollectedDomSource,
   type DomFrameTarget,
   type DomFrameTransport,
 } from "./domCollector.js";
@@ -50,6 +51,14 @@ export interface ObserveTabInput {
    */
   extraSources?: PerceptionSourceResult[];
 
+  refineSources?: (input: {
+    dom: CollectedDomSource;
+    extraSources: PerceptionSourceResult[];
+  }) => Promise<{
+    dom: CollectedDomSource;
+    extraSources: PerceptionSourceResult[];
+  }>;
+
   /**
    * Revalidate browser-level document topology after content collection but
    * before revision/ref/state commit. Any navigation race invalidates the
@@ -80,13 +89,24 @@ export class DomObservationCoordinator {
     const requestId =
       "observe:t" + input.tab.tabId + ":" + Date.now().toString(36);
 
-    const dom = await collectDomSource({
+    let dom = await collectDomSource({
       tabId: input.tab.tabId,
       frames: input.domFrames,
       transport: input.transport,
       requestId,
       ...(input.domOptions !== undefined ? { options: input.domOptions } : {}),
     });
+
+    let extraSources = input.extraSources ?? [];
+
+    if (input.refineSources) {
+      const refined = await input.refineSources({
+        dom,
+        extraSources,
+      });
+      dom = refined.dom;
+      extraSources = refined.extraSources;
+    }
 
     await input.validateBeforeCommit?.();
 
@@ -105,10 +125,11 @@ export class DomObservationCoordinator {
       dom.frameEpochByFrame,
     );
 
-    const extraSources = input.extraSources ?? [];
     const expectedSources: PerceptionSourceKind[] = [
-      "dom",
-      ...extraSources.map((source) => source.source),
+      ...new Set([
+        "dom" as PerceptionSourceKind,
+        ...extraSources.map((source) => source.source),
+      ]),
     ];
 
     const observation = this.assembler.assemble({

@@ -103,6 +103,9 @@ describe("ChromeDomObservationService", () => {
     };
 
     expect(input.extraSources).toHaveLength(1);
+    expect(
+      (observe.mock.calls[0]?.[0] as { refineSources?: unknown }).refineSources,
+    ).toEqual(expect.any(Function));
     expect(input.extraSources?.[0]).toMatchObject({
       source: "ax",
       elements: [

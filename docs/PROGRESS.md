@@ -14,33 +14,38 @@ feat/hybrid-perception-strict-executor
 PR #1 Foundation + DOM Perception       ✅ 已合并
 AX Perception                            ✅ main-frame 基线
 AX → canonical pipeline                 ✅ opt-in
-DOM ↔ AX Strong Correspondence          🚧 下一步
-Hybrid BrowserState                     ⏭
+DOM ↔ AX Exact Correspondence           ✅ 代码链路完成
+Hybrid BrowserState E2E                 🚧 下一步
 Stored Observation Strict Executor      ⏭
 ```
 
 ## 本轮新增
 
-- AX `includeAx` opt-in observation；
-- AX source 可以进入 canonical assembler / state / delta pipeline；
-- 默认仍 DOM-only，避免 identity 未合并时重复暴露同一 control；
-- child frame 存在时 AX coverage 自动降级为 partial；
-- production background 已实例化只读 debugger transport。
+- isolated-world DOM identity bridge；
+- `WeakMap<Element, stableId>` 增加反向 WeakRef 查找；
+- Chrome Debugger transport 跟踪 Runtime execution context；
+- 使用 `DOM.resolveNode(backendDOMNodeId, executionContextId)` 获取同一个 live Element；
+- bridge 用对象身份返回已存在的 stableId；
+- DOM/AX 只有在 exact bridge 成功时生成相同 mergeKey；
+- canonical assembler 因此可以绑定 DOM + AX strong identities 到同一 Persistent Ref；
+- element/field 分类在 exact identity merge 时收敛为更具体的 field。
 
-## 当前安全边界
+## 明确未使用
 
-AX 与 DOM 仍保持独立 strong identity。
-
-不使用 role/name/geometry 相似度做 merge。
+- role/name 相似度；
+- geometry overlap；
+- nth/index；
+- CSS selector re-find；
+- 临时 data-* attribute。
 
 ## 下一步
 
-1. exact DOM↔AX backend-node correspondence；
-2. linked Persistent Ref；
-3. main-frame Hybrid BrowserState；
-4. child-frame CDP mapping；
-5. Stored Observation Strict Executor。
+1. Real Chromium isolated-world correspondence E2E；
+2. main-frame Hybrid BrowserState 默认化；
+3. child-frame CDP mapping；
+4. Stored Observation Strict Executor；
+5. fresh viewport + hit-test。
 
 ## 合并状态
 
-PR #2 仍为 Draft，当前不需要合并。
+PR #2 仍为 Draft，当前不要合并。

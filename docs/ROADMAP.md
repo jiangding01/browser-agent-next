@@ -19,21 +19,8 @@
 ## Phase 1 — Perception IR
 
 ### DOM baseline — PR #1
-- [x] source-neutral perception candidate contract
-- [x] canonical BrowserObservation assembler
-- [x] conservative expected-source coverage aggregation
-- [x] frame-local DOM perception source
-- [x] Chrome document-targeted frame transport
-- [x] Chrome webNavigation frame discovery
-- [x] multi-frame DOM collector
-- [x] background canonical DOM observation coordinator
-- [x] observation → TabStateStore → delta pipeline
-- [x] DOM lifecycle invalidation registry
-- [x] MV3 manifest / production entries
-- [x] extension bundle build
-- [x] browser-level lifecycle E2E
-- [x] collection-time navigation race validation
-- [x] complete-observation disappeared-ref tombstone
+- [x] DOM source / persistent identity / real Chrome lifecycle baseline
+- [x] real Chromium MV3 E2E
 
 ### Hybrid perception — PR #2
 - [x] minimal read-only Chrome Debugger transport
@@ -42,33 +29,31 @@
 - [x] AX coverage / truncation
 - [x] AX opt-in canonical pipeline integration
 - [x] child-frame-present 时 AX coverage fail-visible
-- [ ] DOM stableId ↔ AX backendDOMNodeId exact correspondence
+- [x] isolated-world DOM identity bridge
+- [x] backendDOMNodeId → live Element → stableId exact correspondence
+- [x] exact mergeKey → linked Persistent Ref pipeline
+- [ ] exact correspondence real Chromium E2E
 - [ ] main-frame Hybrid BrowserState 默认化
 - [ ] child frame webNavigation ↔ CDP frame mapping
 - [ ] component adapter source
 
 ## Phase 2 — Persistent identity
 - [x] DOM stable-id contract
-- [x] DOM stable-id Chrome transport contract
-- [x] MV3 production wiring
-- [x] complete-observation disappearance tombstone
 - [x] Chrome documentId lifecycle contract
-- [x] child/main navigation invalidation behavior
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
-- [x] lifecycle E2E
+- [x] DOM lifecycle E2E
 - [x] AX main-frame backend-node identity
-- [ ] DOM ↔ AX linked live identity
+- [x] DOM ↔ AX exact linked identity code path
+- [ ] DOM ↔ AX real-browser lifecycle E2E
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
 - [x] runtime-global monotonic revision ids
 - [x] normalized keyed delta
-- [x] unchanged response
 - [x] baseline-reset/full-fallback contract
 - [x] live DOM observation coordinator
-- [x] main-navigation state invalidation
 - [x] real-browser lifecycle validation
 
 ## Phase 4 — Strict executor
