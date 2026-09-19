@@ -87,3 +87,16 @@ Vision / Computer Use
 ```
 
 Use the lowest intelligence level that safely solves the step.
+
+## Workspace test resolution
+
+Published/runtime package exports intentionally point at `dist/`, but repository tests need to execute TypeScript source before packages are built.
+
+The root `vitest.config.ts` therefore aliases workspace package names to their `src/index.ts` entrypoints. This is a **test-only source-resolution rule** and does not change runtime package exports.
+
+Consequences:
+
+- `pnpm test` works from a clean checkout without a prior build;
+- cross-package tests exercise current source rather than stale `dist`;
+- production/build resolution remains `dist/`;
+- package tests should be run through the root test command unless a package later gets its own equivalent Vitest config.
