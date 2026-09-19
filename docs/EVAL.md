@@ -2,6 +2,25 @@
 
 Evaluation is a first-class runtime feature, not a post-release benchmark.
 
+## 当前自动化门禁
+
+CI 现在分为两层：
+
+```text
+unit/type/build
+      ↓
+real Chromium MV3 E2E
+```
+
+第二层加载真实构建产物 `apps/extension/dist`，不是 mock transport。
+
+当前 browser E2E 验证：
+
+- 同一 live DOM node 重复观察保持同 ref；
+- same-looking replacement node 获得新 ref；
+- child document reload 只改变 child identity；
+- main document reload 改变 document epoch 和 refs。
+
 ## Failure attribution
 
 A task failure must be attributable to a layer:
@@ -40,7 +59,7 @@ Otherwise a CandidateBuilder failure is incorrectly blamed on the model.
 
 ## Fixture format
 
-A future fixture should contain:
+A future decision fixture should contain:
 
 ```ts
 interface DecisionFixture {
@@ -77,29 +96,14 @@ Use a set of acceptable targets rather than one exact target where the UI admits
 
 A shadow decision never causes a side effect.
 
-Record:
+Record candidate coverage/count, predicted operation/ref, confidence, model/version, latency/tokens/cost, agreement with executed policy, and independent verification when available.
 
-- candidate coverage;
-- candidate count;
-- predicted operation/ref;
-- confidence;
-- model/version;
-- latency/tokens/cost;
-- agreement with the executed policy;
-- independent final verification when available.
-
-Agreement with another agent is **agreement**, not ground-truth accuracy.
+Agreement with another agent is agreement, not ground-truth accuracy.
 
 ## Confidence calibration
 
 Never pick a universal threshold such as 0.8 by intuition.
 
-Calibrate per:
-
-- operation/effect;
-- page family;
-- candidate-count bucket;
-- CJK/Latin/mixed;
-- model version.
+Calibrate per operation/effect, page family, candidate-count bucket, language bucket and model version.
 
 For production auto-act, release against a wrong-action risk target with a statistical confidence bound, not just point accuracy.

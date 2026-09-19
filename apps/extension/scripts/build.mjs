@@ -33,7 +33,13 @@ await Promise.all([
   }),
 ]);
 
-await cp(
-  path.join(root, "manifest.json"),
-  path.join(dist, "manifest.json"),
-);
+await Promise.all([
+  cp(
+    path.join(root, "manifest.json"),
+    path.join(dist, "manifest.json"),
+  ),
+  cp(
+    path.join(root, "e2e-harness.html"),
+    path.join(dist, "e2e-harness.html"),
+  ),
+]);

@@ -14,59 +14,36 @@ PR #1 继续保持 Draft。
 
 ```text
 Phase 0 Foundation        基本完成
-Phase 1 Perception IR     接近收口
+Phase 1 Perception IR     浏览器 E2E 门禁接入中
 ```
 
-## 最新完成
+## 本轮新增
 
-在 MV3 打包和 Chrome document-targeted transport 基础上，补齐了一个重要 identity 生命周期缺口：
+新增真实 Chromium + MV3 Extension 的 Playwright E2E 门禁。
 
-- 同文档 complete observation 中，如果旧 actionable ref 不再出现，会被 tombstone；
-- replacement node 即使 role/name 完全相同，也会获得新 ref；
-- partial/truncated/unknown observation 不会因为“没看到”就错误 tombstone 旧 ref；
-- 对应规则已经写入 `docs/INVARIANTS.md`。
-
-这保证了：
+测试加载的是正式构建产物：
 
 ```text
-旧 Save button A
-↓ DOM replacement
-新 Save button B
-↓
-A ref tombstone
-B gets new ref
+apps/extension/dist
 ```
 
-而不是留下两个都 active 的“保存”身份。
+而不是 fake transport。
 
-## 当前真实 Chrome 链路
+首批 browser lifecycle 用例覆盖：
 
-```text
-runtime.sendMessage(perception.observe-tab)
-        ↓
-MV3 background
-        ↓
-webNavigation.getAllFrames
-        ↓
-documentId-targeted tabs.sendMessage
-        ↓
-all-frame content script
-        ↓
-DOM perception
-        ↓
-Persistent Ref / tombstone reconcile
-        ↓
-BrowserObservation / Delta
-```
+1. 同一个 live DOM node 重复 observation → ref 不变；
+2. 同文案 replacement node → ref 必须变化；
+3. child frame reload → child ref 变化、main ref 保持；
+4. main document reload → document epoch 和 refs 都变化。
 
-## 下一步
+CI 新增独立 `browser-e2e` job，只有 unit/type/build 全绿后才运行。
 
-1. 增加 Playwright real Chromium extension E2E。
-2. 覆盖 same node、replacement、main reload、child reload。
-3. 尝试构造真实 inaccessible-frame fixture；若浏览器环境无法稳定构造，则保留 unit/integration fail-visible gate 并记录原因。
-4. E2E 全绿后做最后一轮 Invariants 对抗式 Review。
-5. 再决定 PR #1 是否可以合并。
+## 说明
+
+本提交只是把 browser E2E gate 接入仓库；只有 GitHub CI 实际跑绿后，Roadmap 才会把 lifecycle E2E 标为完成。
 
 ## 合并状态
 
 **现在仍不要合并 PR #1。**
+
+等待 real Chromium E2E 实际跑绿，然后做最后一轮 Invariants 对抗式 Review。

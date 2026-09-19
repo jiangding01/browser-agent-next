@@ -13,6 +13,7 @@
 - [x] baseline trace/metrics schema
 - [x] evaluation methodology
 - [x] initial normalized regression fixture corpus
+- [x] real Chromium MV3 E2E gate added
 - [ ] import representative sanitized fixtures from real browser flows
 
 ## Phase 1 — Perception IR
@@ -31,7 +32,7 @@
 - [x] DOM lifecycle invalidation registry
 - [x] MV3 manifest / production entries
 - [x] extension bundle build
-- [ ] browser-level perception E2E
+- [ ] browser-level perception E2E passing in CI
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
 - [ ] component adapter source
@@ -40,13 +41,14 @@
 - [x] DOM stable-id contract
 - [x] DOM stable-id Chrome transport contract
 - [x] MV3 production wiring
+- [x] complete-observation disappearance tombstone
 - [ ] AX backend-node live integration
 - [x] Chrome documentId lifecycle contract
 - [x] child/main navigation invalidation behavior
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
-- [ ] lifecycle E2E
+- [ ] lifecycle E2E passing in CI
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
@@ -56,7 +58,7 @@
 - [x] baseline-reset/full-fallback contract
 - [x] live DOM observation coordinator
 - [x] main-navigation state invalidation
-- [ ] real-browser lifecycle validation
+- [ ] real-browser lifecycle validation passing
 
 ## Phase 4 — Strict executor
 - [x] pure strict preflight contract
