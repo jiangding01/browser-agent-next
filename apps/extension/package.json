@@ -1,0 +1,19 @@
+{
+  "name": "@browser-agent-next/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@browser-agent-next/core": "workspace:*",
+    "@browser-agent-next/perception": "workspace:*",
+    "@browser-agent-next/refs": "workspace:*",
+    "@browser-agent-next/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
