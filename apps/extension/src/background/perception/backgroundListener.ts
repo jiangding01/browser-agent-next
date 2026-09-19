@@ -2,33 +2,13 @@ import {
   isObserveTabRequest,
   type ObserveTabResponse,
 } from "../../protocol/perception.js";
+import type {
+  BackgroundMessageSender,
+  ExtensionBackgroundRuntimeApi,
+} from "../runtimeApi.js";
 import type { ChromeDomObservationService } from "../chrome/chromeObservationService.js";
 
-export interface BackgroundMessageSender {
-  id?: string;
-}
-
-export interface BackgroundRuntimeMessageEvent {
-  addListener(
-    listener: (
-      message: unknown,
-      sender: BackgroundMessageSender,
-      sendResponse: (response: ObserveTabResponse) => void,
-    ) => boolean | void,
-  ): void;
-  removeListener(
-    listener: (
-      message: unknown,
-      sender: BackgroundMessageSender,
-      sendResponse: (response: ObserveTabResponse) => void,
-    ) => boolean | void,
-  ): void;
-}
-
-export interface BackgroundRuntimeApi {
-  id: string;
-  onMessage: BackgroundRuntimeMessageEvent;
-}
+export type BackgroundRuntimeApi = ExtensionBackgroundRuntimeApi;
 
 function boundedError(error: unknown): string {
   const message = error instanceof Error ? error.message : "tab perception failed";

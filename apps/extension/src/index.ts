@@ -1,4 +1,5 @@
 export * from "./protocol/perception.js";
+export * from "./protocol/execution.js";
 export * from "./content/domFrameSource.js";
 export * from "./content/perceptionHandler.js";
 export * from "./background/chrome/chromeDebuggerTransport.js";
@@ -9,3 +10,4 @@ export * from "./background/perception/domSourceAdapter.js";
 export * from "./background/perception/domCollector.js";
 export * from "./background/perception/observationCoordinator.js";
 export * from "./background/execution/chromeStrictClickResolver.js";
+export * from "./background/execution/chromeStrictExecutionService.js";

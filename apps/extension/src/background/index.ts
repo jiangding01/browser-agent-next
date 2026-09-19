@@ -1,5 +1,6 @@
 import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
 import {
+  StoredObservationStrictCoordinator,
   TabRevisionRegistry,
   TabStateStore,
 } from "@browser-agent-next/runtime";
@@ -7,6 +8,15 @@ import {
   type BackgroundRuntimeApi,
   registerObserveTabBackgroundListener,
 } from "./perception/backgroundListener.js";
+import {
+  registerStrictExecutionBackgroundListener,
+} from "./execution/backgroundListener.js";
+import {
+  ChromeStrictExecutionService,
+} from "./execution/chromeStrictExecutionService.js";
+import {
+  ChromeStrictMainFrameClickResolver,
+} from "./execution/chromeStrictClickResolver.js";
 import {
   type ChromeLifecycleApi,
   bindChromeDomLifecycle,
@@ -21,6 +31,12 @@ import {
 } from "./chrome/chromeDebuggerTransport.js";
 import type { ChromeWebNavigationApi } from "./chrome/chromeFrameDiscovery.js";
 import { DomLifecycleRegistry } from "./chrome/domLifecycleRegistry.js";
+import {
+  IsolatedWorldDomIdentityResolver,
+} from "./perception/domAxCorrespondence.js";
+import {
+  IsolatedWorldDomStableIdInspector,
+} from "./perception/domStableIdInspector.js";
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
 
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
@@ -51,13 +67,47 @@ const coordinator = new DomObservationCoordinator(
   states,
   lifecycle,
 );
-const debuggerTransport = new ChromeDebuggerReadTransport(chrome.debugger);
-const service = new ChromeDomObservationService(
+
+const debuggerTransport =
+  new ChromeDebuggerReadTransport(chrome.debugger);
+
+const identityResolver =
+  new IsolatedWorldDomIdentityResolver(debuggerTransport);
+
+const domInspector =
+  new IsolatedWorldDomStableIdInspector(debuggerTransport);
+
+const perceptionService = new ChromeDomObservationService(
   chrome.tabs,
   chrome.webNavigation,
   coordinator,
   debuggerTransport,
 );
 
+const strictResolver =
+  new ChromeStrictMainFrameClickResolver(
+    refs,
+    chrome.webNavigation,
+    debuggerTransport,
+    identityResolver,
+    domInspector,
+  );
+
+const strictCoordinator =
+  new StoredObservationStrictCoordinator(
+    states,
+    strictResolver,
+  );
+
+const strictService =
+  new ChromeStrictExecutionService(strictCoordinator);
+
 bindChromeDomLifecycle(chrome, lifecycle);
-registerObserveTabBackgroundListener(chrome.runtime, service);
+registerObserveTabBackgroundListener(
+  chrome.runtime,
+  perceptionService,
+);
+registerStrictExecutionBackgroundListener(
+  chrome.runtime,
+  strictService,
+);
