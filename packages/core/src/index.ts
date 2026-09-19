@@ -4,4 +4,5 @@ export * from "./state/coverage.js";
 export * from "./effects/types.js";
 export * from "./actions/types.js";
 export * from "./verification/types.js";
+export * from "./trace/types.js";
 export * from "./errors/codes.js";

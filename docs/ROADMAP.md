@@ -10,8 +10,9 @@
 - [x] bounded TabStateStore
 - [x] conservative BrowserState delta builder
 - [x] browser-independent strict preflight contract
+- [x] baseline trace/metrics schema
+- [x] evaluation methodology
 - [ ] real-world fixture corpus
-- [ ] baseline metrics schema
 
 ## Phase 1 — Perception IR
 - [ ] canonical BrowserObservation assembler

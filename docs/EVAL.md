@@ -1,0 +1,105 @@
+# Evaluation strategy
+
+Evaluation is a first-class runtime feature, not a post-release benchmark.
+
+## Failure attribution
+
+A task failure must be attributable to a layer:
+
+| Layer | Primary metrics |
+|---|---|
+| Perception | element recall, field coverage, degraded-frame rate |
+| Identity | ref survival, wrong-rebind rate |
+| Candidate | Recall@K, complete-action-space rate |
+| Decision | conditional target accuracy, confidence calibration |
+| Policy | unsafe-action prevention, false-block rate |
+| Executor | wrong-target rate, stale refusal rate |
+| Effect | no-effect / unexpected-effect rate |
+| Verification | false-positive / false-negative rate |
+| Task | end-to-end success |
+| Performance | p50/p95 observe, decision, preflight and action latency |
+
+Do not collapse these into one "agent success rate".
+
+## Candidate evaluation
+
+Two numbers must be separated:
+
+```text
+Candidate Recall@K
+=
+was an acceptable target included?
+
+Decision Conditional Accuracy
+=
+given that an acceptable target was included,
+did the decision provider choose one?
+```
+
+Otherwise a CandidateBuilder failure is incorrectly blamed on the model.
+
+## Fixture format
+
+A future fixture should contain:
+
+```ts
+interface DecisionFixture {
+  name: string;
+  observation: BrowserObservation;
+  microGoal: string;
+
+  acceptableOperations: string[];
+  acceptableTargets?: string[];
+
+  tags: string[];
+}
+```
+
+Use a set of acceptable targets rather than one exact target where the UI admits multiple valid next steps.
+
+## Required adversarial fixture families
+
+- same role/name on multiple elements;
+- replacement node with identical visible text;
+- iframe reload;
+- SPA navigation;
+- modal/overlay covering target;
+- disabled-to-enabled transitions;
+- virtualized lists;
+- dynamic forms;
+- candidate truncation / incomplete coverage;
+- prompt-injection-like element text;
+- WebMCP tool-description injection;
+- unknown side effects;
+- CJK / Latin / mixed-language pages.
+
+## Shadow mode
+
+A shadow decision never causes a side effect.
+
+Record:
+
+- candidate coverage;
+- candidate count;
+- predicted operation/ref;
+- confidence;
+- model/version;
+- latency/tokens/cost;
+- agreement with the executed policy;
+- independent final verification when available.
+
+Agreement with another agent is **agreement**, not ground-truth accuracy.
+
+## Confidence calibration
+
+Never pick a universal threshold such as 0.8 by intuition.
+
+Calibrate per:
+
+- operation/effect;
+- page family;
+- candidate-count bucket;
+- CJK/Latin/mixed;
+- model version.
+
+For production auto-act, release against a wrong-action risk target with a statistical confidence bound, not just point accuracy.
