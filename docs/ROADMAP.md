@@ -41,17 +41,23 @@
 - [x] semantic compatibility integration
 - [x] viewport + isolated-world hit-test integration
 - [x] no semantic stale fallback
-- [ ] strict prepare real Chromium E2E
-- [ ] background dry-run command
-- [ ] Policy-gated mouse dispatch
+- [x] strict prepare real Chromium E2E
+- [x] generic click defaults to unknown effect
+- [x] trusted authorization grant contract
+- [x] commit-before-dispatch second strict prepare
+- [x] CDP mouse dispatch primitive
+- [ ] trusted authorization ingress
+- [ ] Policy-gated execute command
 - [ ] post-action Verification
 - [ ] replacement-node adversarial execution E2E
 
 ## Phase 5 — Effects and authorization
-- [ ] effect classifier
-- [ ] origin policy
-- [ ] owned-tab policy
-- [ ] authorization token contract
+- [x] conservative generic-click effect assessment
+- [x] origin policy interface
+- [x] trusted grant exact binding / TTL / single-use
+- [ ] trusted host ingress
+- [ ] configurable origin allowlist
+- [ ] authorization revocation lifecycle
 
 ## Phase 6 — High-level API
 - [ ] browser.observe

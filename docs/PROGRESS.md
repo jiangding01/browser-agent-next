@@ -12,38 +12,44 @@ feat/hybrid-perception-strict-executor
 
 ```text
 PR #1 Foundation + DOM Perception       ✅ 已合并
-AX Perception                            ✅ main-frame
-DOM ↔ AX Exact Correspondence           ✅ Real Chromium E2E
-Stored Observation Strict Coordinator   ✅
-Chrome Strict Click Live Resolver       ✅ 第一阶段
-Strict Prepare Real Chromium E2E        ⏭
-Policy + Dispatch                       ⏭
+Hybrid Perception                        ✅ main-frame exact correspondence
+Strict Prepare                           ✅ Real Chromium E2E
+Policy-gated Dispatch                    ✅ 基础设施
+Trusted Authorization ingress            ⏭
+Post-action Verification                 ⏭
 ```
 
 ## 本轮完成
 
-- exact DOM↔AX correspondence 已通过真实 Chromium E2E；
-- 新增 stored-observation strict coordinator；
-- strict action 不接受 caller/model 提供 expected semantics；
-- 新增 main-frame DOM+AX strict click live resolver；
-- live resolver 重新验证：
-  - document epoch；
-  - CDP frame；
-  - backend node ↔ stableId；
-  - connected live Element；
-  - DOM actionability；
-  - viewport；
-  - hit-test；
-  - fresh AX role/name/disabled；
-- 当前只生成 ephemeral prepared target，**还没有真实 click dispatch**。
+- 新增短期 trusted authorization grant store；
+- grant 精确绑定 tab/revision/ref/action/effect；
+- 默认 single-use + TTL；
+- unknown generic click 无授权时 fail closed；
+- origin policy 在 dispatch 前执行；
+- 新增真实 CDP left-click dispatcher；
+- 执行前先 prepare；
+- 授权通过后 commit 前再次 prepare，避免复用 stale point；
+- 尚未向 Agent 暴露 execute 命令。
+
+## 为什么现在还不暴露真实 click
+
+当前授权 store 只能由进程内 trusted code 写入。
+
+还没有：
+
+- trusted Native Host ingress；
+- 用户授权 UI；
+- cryptographically/transport-authenticated grant channel。
+
+所以即使 click primitive 已经存在，也不会通过普通 extension message 给 Agent 调用。
 
 ## 下一步
 
-1. Strict prepare browser E2E；
-2. background dry-run command；
-3. Effect / Policy gate；
-4. mouse dispatch；
-5. Verification。
+1. 设计 trusted-host authorization ingress；
+2. origin allowlist；
+3. policy-gated execute internal command；
+4. post-action verification；
+5. real Chromium execute E2E。
 
 ## 合并状态
 
