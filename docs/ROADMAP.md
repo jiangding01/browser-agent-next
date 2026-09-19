@@ -3,10 +3,13 @@
 ## Phase 0 — Foundation and evaluation
 - [x] monorepo scaffold
 - [x] BrowserState protocol types
-- [x] coverage contract
+- [x] coverage contract + helpers
 - [x] action/effect/verification contracts
 - [x] PersistentRefStore foundation
 - [x] conservative effect policy
+- [x] bounded TabStateStore
+- [x] conservative BrowserState delta builder
+- [x] browser-independent strict preflight contract
 - [ ] real-world fixture corpus
 - [ ] baseline metrics schema
 
@@ -21,20 +24,22 @@
 - [ ] DOM stable-id integration
 - [ ] AX backend-node integration
 - [ ] frame/document epochs
-- [ ] tombstones
+- [x] tombstone semantics and retention bound
 - [ ] lifecycle E2E
 
 ## Phase 3 — Revision and delta
-- [ ] bounded TabStateStore
-- [ ] normalized keyed delta
-- [ ] unchanged response
-- [ ] baseline-reset behavior
+- [x] bounded TabStateStore
+- [x] normalized keyed delta
+- [x] unchanged response
+- [x] baseline-reset/full-fallback contract
+- [ ] live observation integration
 
 ## Phase 4 — Strict executor
-- [ ] stored-observation preflight
+- [x] pure strict preflight contract
+- [ ] stored-observation coordinator
 - [ ] strong live identity resolution
-- [ ] semantic compatibility
-- [ ] viewport + hit test
+- [ ] semantic compatibility integration
+- [ ] viewport + hit test integration
 - [ ] no semantic stale fallback
 - [ ] replacement-node adversarial E2E
 

@@ -14,6 +14,10 @@ export interface RefRecord {
   tombstoneReason?: string;
 }
 
+export interface PersistentRefStoreOptions {
+  maxTombstones?: number;
+}
+
 export function identityKey(identity: StrongIdentity): string {
   if (identity.source === "dom") {
     return ["dom", identity.tabId, identity.frameEpoch, identity.stableId].join(":");
@@ -31,10 +35,21 @@ export class InMemoryPersistentRefStore {
   private readonly byIdentity = new Map<string, string>();
   private readonly records = new Map<string, RefRecord>();
   private readonly counters: Record<RefKind, number> = { element: 0, field: 0, content: 0 };
+  private readonly tombstoneOrder: string[] = [];
+  private readonly maxTombstones: number;
+
+  constructor(options: PersistentRefStoreOptions = {}) {
+    const max = options.maxTombstones ?? 4096;
+    if (!Number.isInteger(max) || max < 0) {
+      throw new Error("maxTombstones must be a non-negative integer");
+    }
+    this.maxTombstones = max;
+  }
 
   getOrCreate(identity: StrongIdentity, kind: RefKind, revision: string): string {
     const key = identityKey(identity);
     const existingRef = this.byIdentity.get(key);
+
     if (existingRef) {
       const existing = this.records.get(existingRef);
       if (existing && !existing.tombstonedAtRevision) {
@@ -46,12 +61,22 @@ export class InMemoryPersistentRefStore {
 
     this.counters[kind] += 1;
     const ref = "@" + prefix(kind) + "_" + this.counters[kind].toString(36).toUpperCase();
+
     this.byIdentity.set(key, ref);
-    this.records.set(ref, { ref, identity, kind, createdAtRevision: revision, lastSeenRevision: revision });
+    this.records.set(ref, {
+      ref,
+      identity,
+      kind,
+      createdAtRevision: revision,
+      lastSeenRevision: revision,
+    });
+
     return ref;
   }
 
-  byRef(ref: string): Readonly<RefRecord> | undefined { return this.records.get(ref); }
+  byRef(ref: string): Readonly<RefRecord> | undefined {
+    return this.records.get(ref);
+  }
 
   markSeen(ref: string, revision: string): void {
     const record = this.records.get(ref);
@@ -62,24 +87,38 @@ export class InMemoryPersistentRefStore {
   tombstone(ref: string, revision: string, reason: string): void {
     const record = this.records.get(ref);
     if (!record || record.tombstonedAtRevision) return;
+
     record.tombstonedAtRevision = revision;
     record.tombstoneReason = reason;
+
     const key = identityKey(record.identity);
-    if (this.byIdentity.get(key) === ref) this.byIdentity.delete(key);
+    if (this.byIdentity.get(key) === ref) {
+      this.byIdentity.delete(key);
+    }
+
+    this.tombstoneOrder.push(ref);
+    this.trimTombstones();
   }
 
-  invalidateFrame(selector: { tabId: number; frameEpoch?: string; cdpFrameId?: string }, revision: string, reason = "frame-invalidated"): void {
-    for (const record of this.records.values()) {
+  invalidateFrame(
+    selector: { tabId: number; frameEpoch?: string; cdpFrameId?: string },
+    revision: string,
+    reason = "frame-invalidated",
+  ): void {
+    for (const record of [...this.records.values()]) {
       if (record.tombstonedAtRevision || record.identity.tabId !== selector.tabId) continue;
-      const matches = record.identity.source === "dom"
-        ? selector.frameEpoch !== undefined && record.identity.frameEpoch === selector.frameEpoch
-        : selector.cdpFrameId !== undefined && record.identity.cdpFrameId === selector.cdpFrameId;
+
+      const matches =
+        record.identity.source === "dom"
+          ? selector.frameEpoch !== undefined && record.identity.frameEpoch === selector.frameEpoch
+          : selector.cdpFrameId !== undefined && record.identity.cdpFrameId === selector.cdpFrameId;
+
       if (matches) this.tombstone(record.ref, revision, reason);
     }
   }
 
   invalidateTab(tabId: number, revision: string, reason = "tab-invalidated"): void {
-    for (const record of this.records.values()) {
+    for (const record of [...this.records.values()]) {
       if (!record.tombstonedAtRevision && record.identity.tabId === tabId) {
         this.tombstone(record.ref, revision, reason);
       }
@@ -88,5 +127,21 @@ export class InMemoryPersistentRefStore {
 
   activeRecords(): ReadonlyArray<Readonly<RefRecord>> {
     return [...this.records.values()].filter((record) => !record.tombstonedAtRevision);
+  }
+
+  tombstoneCount(): number {
+    return this.tombstoneOrder.length;
+  }
+
+  private trimTombstones(): void {
+    while (this.tombstoneOrder.length > this.maxTombstones) {
+      const oldest = this.tombstoneOrder.shift();
+      if (oldest !== undefined) {
+        const record = this.records.get(oldest);
+        if (record?.tombstonedAtRevision) {
+          this.records.delete(oldest);
+        }
+      }
+    }
   }
 }
