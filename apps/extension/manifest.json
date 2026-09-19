@@ -6,7 +6,8 @@
   "minimum_chrome_version": "106",
   "permissions": [
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>"

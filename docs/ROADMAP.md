@@ -35,10 +35,15 @@
 - [x] collection-time navigation race validation
 - [x] complete-observation disappeared-ref tombstone
 
-### Hybrid perception — next PR
-- [ ] live AX source
-- [ ] DOM ↔ AX backend-node strong correspondence
-- [ ] Hybrid BrowserState validation
+### Hybrid perception — PR #2
+- [x] minimal read-only Chrome Debugger transport
+- [x] main-frame live AX source
+- [x] AX backend-node strong identity
+- [x] AX coverage / truncation
+- [ ] AX 接入 canonical observation pipeline
+- [ ] DOM stableId ↔ AX backendDOMNodeId exact correspondence
+- [ ] main-frame Hybrid BrowserState
+- [ ] child frame webNavigation ↔ CDP frame mapping
 - [ ] component adapter source
 
 ## Phase 2 — Persistent identity
@@ -52,7 +57,8 @@
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
 - [x] lifecycle E2E
-- [ ] AX backend-node live integration
+- [x] AX main-frame backend-node identity
+- [ ] DOM ↔ AX linked live identity
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore

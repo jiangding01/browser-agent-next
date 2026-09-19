@@ -5,70 +5,48 @@
 ## 当前分支
 
 ```text
-feat/bootstrap-runtime-foundation
+feat/hybrid-perception-strict-executor
 ```
-
-PR #1 已完成 Foundation + DOM Perception 收口。
 
 ## 当前阶段
 
 ```text
-Phase 0 Foundation             ✅ 基线完成
-Phase 1 DOM Perception baseline ✅ 基线完成
-Phase 1 AX / Hybrid Perception  ⏭ 下一 PR
-Phase 4 Strict Executor         ⏭ Hybrid Perception 后
+PR #1 Foundation + DOM Perception       ✅ 已合并
+AX Perception                            🚧 开始实现
+DOM ↔ AX Strong Correspondence          ⏭ 下一步
+Hybrid BrowserState                     ⏭
+Stored Observation Strict Executor      ⏭
 ```
 
-## 已完成
+## 本轮新增
 
-- BrowserObservation / StateRevision；
-- explicit observation coverage；
-- PersistentRefStore + bounded tombstones；
-- TabStateStore；
-- keyed observation delta；
-- strict target preflight；
-- effect policy；
-- eval fixtures / trace schema；
-- DOM frame-local perception；
-- Chrome `documentId` targeted messaging；
-- webNavigation frame discovery；
-- main/child navigation invalidation；
-- MV3 Extension build；
-- real Chromium lifecycle E2E；
-- observation commit 前 frame/document catalog 二次校验；
-- same-document complete observation 的 disappeared-ref tombstone。
+- 新建下一阶段开发分支；
+- Manifest 增加 Chrome `debugger` permission；
+- 新增最小化的只读 `ChromeDebuggerReadTransport`；
+- 新增 main-frame live AX source；
+- AX strong identity 使用：
+  `tabId + cdpFrameId + documentEpoch + backendDOMNodeId`；
+- AX actionable coverage / truncation 显式建模；
+- 未引入 role/name/geometry 猜测式 DOM↔AX merge。
 
-## Real Chromium E2E
+## 当前边界
 
-已验证：
+AX source 暂时只覆盖 main frame。
 
-- same live node → same ref；
-- same-looking replacement node → new ref；
-- child frame reload → child ref 变化、main ref 保持；
-- main document reload → document epoch 变化、旧 refs 失效。
+原因是：
 
-## 最终对抗式 Review
+`webNavigation.frameId` 与 CDP `Page.FrameId` 不属于同一个命名空间。
 
-见：
+在建立可靠映射前，不会通过 URL 或顺序猜 child frame 对应关系。
 
-`docs/PR1-FINAL-REVIEW.md`
+## 下一步
 
-当前未发现需要阻止 PR #1 合并的 design blocker。
+1. AX source 接入 canonical observation pipeline；
+2. 设计 exact DOM stableId → backendDOMNodeId bridge；
+3. main-frame Hybrid BrowserState；
+4. child frame CDP mapping；
+5. stored-observation Strict Executor coordinator。
 
 ## 合并状态
 
-**PR #1 现在可以合并。**
-
-合并后建议新建：
-
-```text
-feat/hybrid-perception-strict-executor
-```
-
-继续：
-
-1. live AX source；
-2. DOM ↔ AX strong correspondence；
-3. Hybrid BrowserState；
-4. stored-observation Strict Executor；
-5. live hit-test E2E。
+当前为新阶段早期开发，**不需要合并**。
