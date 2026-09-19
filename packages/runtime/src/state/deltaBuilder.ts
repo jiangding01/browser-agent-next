@@ -7,6 +7,7 @@ import type {
 export interface DeltaBuilderOptions {
   maxChanges?: number;
   maxChangeRatio?: number;
+  minElementsForRatio?: number;
 }
 
 export type DeltaBuildResult =
@@ -106,6 +107,7 @@ export function buildObservationDelta(
 
   const maxChanges = options.maxChanges ?? 200;
   const maxChangeRatio = options.maxChangeRatio ?? 0.6;
+  const minElementsForRatio = options.minElementsForRatio ?? 20;
 
   if (!Number.isInteger(maxChanges) || maxChanges < 1) {
     throw new Error("maxChanges must be a positive integer");
@@ -113,9 +115,22 @@ export function buildObservationDelta(
   if (!Number.isFinite(maxChangeRatio) || maxChangeRatio <= 0 || maxChangeRatio > 1) {
     throw new Error("maxChangeRatio must be within (0, 1]");
   }
+  if (!Number.isInteger(minElementsForRatio) || minElementsForRatio < 1) {
+    throw new Error("minElementsForRatio must be a positive integer");
+  }
 
-  const denominator = Math.max(previous.elements.length, next.elements.length, 1);
-  if (changes.length > maxChanges || changes.length / denominator > maxChangeRatio) {
+  if (changes.length > maxChanges) {
+    return { kind: "full", reason: "delta-too-large" };
+  }
+
+  // Ratio is useful on large pages, but it is pathological on tiny pages:
+  // one legitimate update on a one-button page is 100% of the page. Apply
+  // the ratio guard only once the union action space is large enough.
+  const distinctRefs = new Set([...before.keys(), ...after.keys()]).size;
+  if (
+    distinctRefs >= minElementsForRatio &&
+    changes.length / distinctRefs > maxChangeRatio
+  ) {
     return { kind: "full", reason: "delta-too-large" };
   }
 

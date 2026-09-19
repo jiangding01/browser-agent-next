@@ -64,7 +64,7 @@ describe("buildObservationDelta", () => {
     expect(result.delta.changes).toEqual([]);
   });
 
-  it("produces keyed updates by persistent ref", () => {
+  it("produces keyed updates by persistent ref on a small page", () => {
     const result = buildObservationDelta(
       observation("r1", [button("@e_1", "Continue")]),
       observation("r2", [button("@e_1", "Proceed")]),
@@ -84,7 +84,6 @@ describe("buildObservationDelta", () => {
     const result = buildObservationDelta(
       observation("r1", [button("@e_1", "A")]),
       observation("r2", [button("@e_2", "B")]),
-      { maxChangeRatio: 1 },
     );
 
     expect(result.kind).toBe("delta");
@@ -104,13 +103,18 @@ describe("buildObservationDelta", () => {
     });
   });
 
-  it("falls back when too much changed", () => {
-    const result = buildObservationDelta(
-      observation("r1", [button("@e_1", "A"), button("@e_2", "B")]),
-      observation("r2", [button("@e_3", "C"), button("@e_4", "D")]),
-      { maxChangeRatio: 0.5 },
+  it("uses ratio protection on sufficiently large observations", () => {
+    const before = Array.from({ length: 20 }, (_, index) => button("@e_" + index, "A" + index));
+    const after = before.map((element, index) =>
+      index < 13 ? button(element.ref, "Changed" + index) : element,
     );
 
-    expect(result).toEqual({ kind: "full", reason: "delta-too-large" });
+    expect(
+      buildObservationDelta(
+        observation("r1", before),
+        observation("r2", after),
+        { maxChangeRatio: 0.6 },
+      ),
+    ).toEqual({ kind: "full", reason: "delta-too-large" });
   });
 });
