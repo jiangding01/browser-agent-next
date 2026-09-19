@@ -4,3 +4,4 @@ export * from "./state/deltaBuilder.js";
 export * from "./state/tabRevisionRegistry.js";
 export * from "./execution/strictPreflight.js";
 export * from "./execution/storedObservationStrictCoordinator.js";
+export * from "./verification/observationVerifier.js";

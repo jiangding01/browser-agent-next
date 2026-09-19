@@ -18,23 +18,25 @@ Policy-gated Dispatch                    ✅ 基础设施
 Exact Origin Policy                      ✅
 Authorization Lifecycle Revocation       ✅
 Ambiguous Outcome Guard                  ✅
+Observation Verification Engine          ✅
 Trusted Authorization ingress            ⏭
-Post-action Verification                 ⏭
+Execute + Verify Integration              ⏭
 ```
 
 ## 本轮完成
 
-- 新增 `ACTION_OUTCOME_UNKNOWN`；
-- mouse dispatch 按 input phase 建模；
-- mousePressed 后的失败不再被当作“安全未执行”；
-- Policy executor 将此类情况转换为 deterministic runtime error；
-- 文档明确禁止对此类结果自动 retry。
+- VerificationResult 增加 `conclusive`；
+- observation verifier 支持 URL/title/ref/field/text/dialog 的可证明验证；
+- incomplete coverage 不会被误判为“目标不存在”；
+- download/network 缺少事件源时返回 inconclusive；
+- URL/title pattern 使用安全有界 glob，而不是直接执行任意 RegExp；
+- all/any 聚合保留三值语义：pass / fail / unknown。
 
 ## 下一步
 
 1. trusted-host authorization ingress；
 2. policy-gated execute internal command；
-3. post-action verification；
+3. execute 后 fresh observation + verification；
 4. real Chromium execute E2E。
 
 ## 合并状态

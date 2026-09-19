@@ -48,9 +48,11 @@
 - [x] lifecycle grant revocation
 - [x] commit-before-dispatch second strict prepare
 - [x] CDP mouse dispatch primitive
+- [x] ambiguous outcome / no-auto-retry guard
+- [x] observation verification engine
 - [ ] trusted authorization ingress
 - [ ] Policy-gated execute command
-- [ ] post-action Verification
+- [ ] execute → fresh observe → verify integration
 - [ ] replacement-node adversarial execution E2E
 
 ## Phase 5 — Effects and authorization

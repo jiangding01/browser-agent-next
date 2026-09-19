@@ -15,7 +15,38 @@ PR #2 已经完成：
 - navigation/tab lifecycle 自动撤销 grant；
 - commit 前二次 strict prepare；
 - CDP mouse dispatch primitive；
-- ambiguous dispatch outcome 显式建模。
+- ambiguous dispatch outcome 显式建模；
+- observation-based verification engine。
+
+## Verification 不是 DONE
+
+Agent / Model 不能通过输出 `DONE` 证明任务完成。
+
+当前 verification engine 对条件给出：
+
+```text
+pass
++ conclusive
+```
+
+因此可以区分：
+
+```text
+false + conclusive
+= 已经有证据证明条件不成立
+
+false + inconclusive
+= 当前 observation 不足以证明成立或不成立
+```
+
+例如：
+
+- complete action space 中 ref 不存在，可以证明 `ref_absent`；
+- partial action space 中 ref 没出现，不能证明它不存在；
+- text coverage=unknown 时“没看到文字”不能等价于文字不存在；
+- download/network 没有事件源时返回 inconclusive，而不是伪造失败。
+
+URL / title 的 `pattern` 当前使用有界 glob（`*` / `?`），不是任意 RegExp，避免把 Agent 输入直接交给潜在 ReDoS 正则。
 
 ## 授权边界
 
@@ -30,35 +61,13 @@ generic click
 → 不执行
 ```
 
-只有 trusted control plane 已经对以下完整绑定签发短期 grant：
+只有 trusted control plane 已经对完整 tab/revision/ref/action/effect 绑定签发短期 grant，才允许继续。
 
-```text
-tabId
-+ observedRevision
-+ ref
-+ actionKind
-+ effectClass
-```
+## Origin / lifecycle
 
-才允许继续。
+Auto-act origin 使用 exact scheme+host+port allowlist，默认空集合。
 
-Agent、页面文本、模型 confidence 都不能自己签发 grant。
-
-## Origin Policy
-
-Auto-act origin 使用 exact allowlist：
-
-```text
-scheme + host + port
-```
-
-不允许 wildcard、suffix 或 substring 匹配。
-
-默认空 allowlist，即 fail closed。
-
-## 授权生命周期
-
-Grant 有 TTL、默认 single-use，并会在 main/child navigation 或 tab removal 时主动撤销。
+Grant 有 TTL、默认 single-use，并在 main/child navigation 或 tab removal 时主动撤销。
 
 ## Prepare / Authorize / Commit
 
@@ -76,45 +85,27 @@ trusted authorization
 strict prepare #2
       ↓
 mouse dispatch
+      ↓
+fresh observation
+      ↓
+verification
 ```
 
-commit 前的第二次 prepare 用于重新验证 document、strong identity、DOM stableId、AX semantics、actionability、viewport 和 hit-test。
+当前最后两步还没有串成公开 execute 命令；verification engine 已具备纯状态验证能力。
 
 ## Ambiguous Outcome
 
-浏览器输入不是事务。
-
-如果：
-
-```text
-mouseMoved  ✅
-mousePressed ✅
-mouseReleased ❌
-```
-
-就不能断言“动作没发生”。
-
-页面可能已经处理 `pointerdown/mousedown`，也可能在 release 失败前触发其他副作用。
-
-因此 Runtime 返回：
+如果 mousePressed 已成功而后续 release 失败，Runtime 返回：
 
 ```text
 ACTION_OUTCOME_UNKNOWN
 ```
 
-并明确禁止自动 retry。
-
-只有明确证明输入尚未进入可能影响页面的阶段，失败才可以由更高层决定是否重新 prepare。
-
-## 当前还没有公开 execute 命令
-
-Mouse dispatcher 和 policy executor 已经存在，但仍未通过 extension message / MCP 暴露给 Agent。
-
-原因是 trusted authorization 的签发链路还没有实现。
+禁止自动 retry。
 
 ## 下一步
 
 1. trusted-host authorization ingress；
 2. 内部 execute message，只接受有效 grant；
-3. post-action Verification；
+3. 把 fresh observation + verification 接到 execute pipeline；
 4. 真实 Chromium policy-gated execution E2E。
