@@ -12,7 +12,8 @@
 - [x] browser-independent strict preflight contract
 - [x] baseline trace/metrics schema
 - [x] evaluation methodology
-- [ ] real-world fixture corpus
+- [x] initial normalized regression fixture corpus
+- [ ] import representative sanitized fixtures from real browser flows
 
 ## Phase 1 — Perception IR
 - [ ] canonical BrowserObservation assembler
