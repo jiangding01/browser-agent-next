@@ -80,6 +80,7 @@ function browserEnv(
 
 function writeNativeHostRegistration(
   home: string,
+  profileDir: string,
   extensionId: string,
 ): void {
   const wrapper = path.join(
@@ -123,8 +124,15 @@ function writeNativeHostRegistration(
     2,
   ) + "\n";
 
-  const candidates =
-    process.platform === "darwin"
+  // Chromium 源码中的 DIR_USER_NATIVE_MESSAGING 基于当前
+  // user-data-dir，而不是只看默认 HOME 配置目录。E2E 使用
+  // launchPersistentContext 的独立 profile，因此首先写入 profile。
+  const candidates = [
+    path.join(
+      profileDir,
+      "NativeMessagingHosts",
+    ),
+    ...(process.platform === "darwin"
       ? [
           path.join(
             home,
@@ -133,6 +141,10 @@ function writeNativeHostRegistration(
           path.join(
             home,
             "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+          ),
+          path.join(
+            home,
+            "Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts",
           ),
         ]
       : [
@@ -144,7 +156,12 @@ function writeNativeHostRegistration(
             home,
             ".config/google-chrome/NativeMessagingHosts",
           ),
-        ];
+          path.join(
+            home,
+            ".config/google-chrome-for-testing/NativeMessagingHosts",
+          ),
+        ]),
+  ];
 
   for (const dir of candidates) {
     mkdirSync(dir, {
@@ -380,14 +397,20 @@ test(
       await discovery.close();
       discovery = undefined;
 
+      const executeProfile = path.join(
+        home,
+        "profile-execute",
+      );
+
       writeNativeHostRegistration(
         home,
+        executeProfile,
         extensionId,
       );
 
       context =
         await chromium.launchPersistentContext(
-          path.join(home, "profile-execute"),
+          executeProfile,
           {
             channel: "chromium",
             headless: true,
