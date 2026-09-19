@@ -4,32 +4,71 @@
 
 ## 当前分支
 
-`feat/bootstrap-runtime-foundation`
+```text
+feat/bootstrap-runtime-foundation
+```
 
-PR #1 继续保持 Draft。
+PR #1 已完成 Foundation + DOM Perception 收口。
 
 ## 当前阶段
 
-Phase 0 Foundation：基本完成。  
-Phase 1 Perception IR：合并前对抗式收口。
+```text
+Phase 0 Foundation             ✅ 基线完成
+Phase 1 DOM Perception baseline ✅ 基线完成
+Phase 1 AX / Hybrid Perception  ⏭ 下一 PR
+Phase 4 Strict Executor         ⏭ Hybrid Perception 后
+```
+
+## 已完成
+
+- BrowserObservation / StateRevision；
+- explicit observation coverage；
+- PersistentRefStore + bounded tombstones；
+- TabStateStore；
+- keyed observation delta；
+- strict target preflight；
+- effect policy；
+- eval fixtures / trace schema；
+- DOM frame-local perception；
+- Chrome `documentId` targeted messaging；
+- webNavigation frame discovery；
+- main/child navigation invalidation；
+- MV3 Extension build；
+- real Chromium lifecycle E2E；
+- observation commit 前 frame/document catalog 二次校验；
+- same-document complete observation 的 disappeared-ref tombstone。
 
 ## Real Chromium E2E
 
-CI #19 已通过真实 Chromium + MV3 Extension 生命周期 E2E：
+已验证：
 
 - same live node → same ref；
 - same-looking replacement node → new ref；
-- child frame reload → main ref 保持、child ref 变化；
-- main document reload → document epoch 和 refs 变化。
+- child frame reload → child ref 变化、main ref 保持；
+- main document reload → document epoch 变化、旧 refs 失效。
 
-## 本轮对抗式 Review 新发现并修正
+## 最终对抗式 Review
 
-1. Canonical forms coverage 之前被固定成 0；现在按合并后的 field 实际计数。
-2. documentId-targeted request 仍存在“旧文档刚返回、随后立即导航”的窄竞态；现在采集后、提交状态前重新校验完整 frame/document catalog。
-3. BrowserObservation URL 改为与 documentId 同源的 main-frame URL，避免 tabs.get 与 frame catalog 来自不同导航时刻。
-4. 明确 MV3 service-worker restart 语义：裸 ref 不跨 stateEpoch 构成权威身份，Strict Action 必须绑定仍存在的 observedRevision。
-5. 明确 coverage.complete 是 observation profile 的完整性，不等价于发现网页所有隐式交互区域。
+见：
+
+`docs/PR1-FINAL-REVIEW.md`
+
+当前未发现需要阻止 PR #1 合并的 design blocker。
 
 ## 合并状态
 
-本轮修正后的完整 CI（含 browser-e2e）再次全绿后，再完成 PR 描述/文档最终收口；在此之前仍不要合并 PR #1。
+**PR #1 现在可以合并。**
+
+合并后建议新建：
+
+```text
+feat/hybrid-perception-strict-executor
+```
+
+继续：
+
+1. live AX source；
+2. DOM ↔ AX strong correspondence；
+3. Hybrid BrowserState；
+4. stored-observation Strict Executor；
+5. live hit-test E2E。

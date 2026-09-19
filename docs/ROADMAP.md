@@ -17,13 +17,12 @@
 - [ ] import representative sanitized fixtures from real browser flows
 
 ## Phase 1 — Perception IR
+
+### DOM baseline — PR #1
 - [x] source-neutral perception candidate contract
 - [x] canonical BrowserObservation assembler
-- [x] strong-evidence-only semantic merge
 - [x] conservative expected-source coverage aggregation
-- [x] linked DOM/AX persistent identity contract
 - [x] frame-local DOM perception source
-- [x] typed content/background DOM observation protocol
 - [x] Chrome document-targeted frame transport
 - [x] Chrome webNavigation frame discovery
 - [x] multi-frame DOM collector
@@ -32,9 +31,14 @@
 - [x] DOM lifecycle invalidation registry
 - [x] MV3 manifest / production entries
 - [x] extension bundle build
-- [x] browser-level perception E2E passing in CI
+- [x] browser-level lifecycle E2E
+- [x] collection-time navigation race validation
+- [x] complete-observation disappeared-ref tombstone
+
+### Hybrid perception — next PR
 - [ ] live AX source
-- [ ] DOM ↔ AX backend-node correspondence bridge
+- [ ] DOM ↔ AX backend-node strong correspondence
+- [ ] Hybrid BrowserState validation
 - [ ] component adapter source
 
 ## Phase 2 — Persistent identity
@@ -42,13 +46,13 @@
 - [x] DOM stable-id Chrome transport contract
 - [x] MV3 production wiring
 - [x] complete-observation disappearance tombstone
-- [ ] AX backend-node live integration
 - [x] Chrome documentId lifecycle contract
 - [x] child/main navigation invalidation behavior
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
-- [x] lifecycle E2E passing in CI
+- [x] lifecycle E2E
+- [ ] AX backend-node live integration
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
@@ -58,7 +62,7 @@
 - [x] baseline-reset/full-fallback contract
 - [x] live DOM observation coordinator
 - [x] main-navigation state invalidation
-- [x] real-browser lifecycle validation passing
+- [x] real-browser lifecycle validation
 
 ## Phase 4 — Strict executor
 - [x] pure strict preflight contract

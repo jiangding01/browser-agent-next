@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-当前正在进行 **Phase 1 — Perception IR**。
+PR #1 已完成 **Foundation + DOM Perception 基线**，当前可作为下一阶段开发的稳定底座。
 
 已经完成：
 
@@ -25,9 +25,36 @@
 - DOM frame-local perception；
 - Chrome `documentId` 定向 frame messaging；
 - webNavigation frame discovery；
-- main/child navigation identity invalidation。
+- main/child navigation identity invalidation；
+- 可加载的 MV3 Extension；
+- 真实 Chromium lifecycle E2E；
+- 采集期间导航竞态防护；
+- complete observation 下 actionable ref 消失后的 tombstone。
 
-下一步是把这些能力接成真正可加载的 MV3 Extension，并跑 real Chrome lifecycle E2E。
+真实 Chromium 已验证：
+
+```text
+same live node
+→ same ref
+
+same-looking replacement node
+→ new ref
+
+child frame reload
+→ main ref 保持 / child ref 变化
+
+main document reload
+→ document epoch 变化 / refs 失效
+```
+
+下一阶段将进入：
+
+```text
+AX Perception
+→ DOM ↔ AX 强身份关联
+→ Hybrid BrowserState
+→ Stored Observation Strict Executor
+```
 
 ## 核心原则
 
@@ -43,6 +70,7 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm e2e
 ```
 
 ## 文档
@@ -54,3 +82,4 @@ pnpm build
 - [评测](./docs/EVAL.md)
 - [Roadmap](./docs/ROADMAP.md)
 - [当前进度](./docs/PROGRESS.md)
+- [PR #1 最终审查](./docs/PR1-FINAL-REVIEW.md)
