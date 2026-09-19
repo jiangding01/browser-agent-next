@@ -44,13 +44,26 @@ function combineFrameCoverage(
     };
   }
 
+  if (states.length === 0) {
+    return {
+      status: "unknown",
+      returned,
+      reason: "no-successful-frames",
+    };
+  }
+
   if (states.some((state) => state.status === "truncated")) {
+    const allTotalsKnown = states.every(
+      (state) => state.totalKnown !== undefined,
+    );
+    const totalKnown = allTotalsKnown
+      ? states.reduce((sum, state) => sum + (state.totalKnown ?? 0), 0)
+      : undefined;
+
     return {
       status: "truncated",
       returned,
-      totalKnown: states.every((state) => state.totalKnown !== undefined)
-        ? states.reduce((sum, state) => sum + (state.totalKnown ?? 0), 0)
-        : undefined,
+      ...(totalKnown !== undefined ? { totalKnown } : {}),
       reason: "one-or-more-frames-truncated",
     };
   }
