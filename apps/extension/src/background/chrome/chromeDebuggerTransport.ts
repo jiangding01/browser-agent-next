@@ -2,6 +2,16 @@ export interface ChromeDebuggerTarget {
   tabId?: number;
 }
 
+export interface ChromeDebuggerEventApi {
+  addListener(
+    listener: (
+      source: ChromeDebuggerTarget,
+      method: string,
+      params?: unknown,
+    ) => void,
+  ): void;
+}
+
 export interface ChromeDebuggerApi {
   attach(target: ChromeDebuggerTarget, requiredVersion: string): Promise<void>;
   detach(target: ChromeDebuggerTarget): Promise<void>;
@@ -10,6 +20,7 @@ export interface ChromeDebuggerApi {
     method: string,
     commandParams?: Record<string, unknown>,
   ): Promise<unknown>;
+  onEvent?: ChromeDebuggerEventApi;
   onDetach: {
     addListener(
       listener: (
@@ -20,13 +31,66 @@ export interface ChromeDebuggerApi {
   };
 }
 
+export interface RuntimeExecutionContext {
+  id: number;
+  origin?: string;
+  name?: string;
+  auxData?: {
+    frameId?: string;
+    isDefault?: boolean;
+    type?: string;
+  };
+}
+
 export class ChromeDebuggerReadTransport {
   private readonly attached = new Set<number>();
+  private readonly contextsByTab = new Map<
+    number,
+    Map<number, RuntimeExecutionContext>
+  >();
 
   constructor(private readonly debuggerApi: ChromeDebuggerApi) {
+    this.debuggerApi.onEvent?.addListener((source, method, params) => {
+      const tabId = source.tabId;
+      if (tabId === undefined) return;
+
+      if (method === "Runtime.executionContextsCleared") {
+        this.contextsByTab.delete(tabId);
+        return;
+      }
+
+      if (method === "Runtime.executionContextDestroyed") {
+        const id = (
+          params as { executionContextId?: unknown } | undefined
+        )?.executionContextId;
+
+        if (typeof id === "number") {
+          this.contextsByTab.get(tabId)?.delete(id);
+        }
+        return;
+      }
+
+      if (method !== "Runtime.executionContextCreated") return;
+
+      const context = (
+        params as { context?: RuntimeExecutionContext } | undefined
+      )?.context;
+
+      if (!context || typeof context.id !== "number") return;
+
+      let contexts = this.contextsByTab.get(tabId);
+      if (!contexts) {
+        contexts = new Map();
+        this.contextsByTab.set(tabId, contexts);
+      }
+
+      contexts.set(context.id, context);
+    });
+
     this.debuggerApi.onDetach.addListener((source) => {
       if (source.tabId !== undefined) {
         this.attached.delete(source.tabId);
+        this.contextsByTab.delete(source.tabId);
       }
     });
   }
@@ -42,17 +106,17 @@ export class ChromeDebuggerReadTransport {
 
     this.attached.add(tabId);
 
-    // AX perception only needs read-oriented domains. Keep the transport
-    // deliberately narrower than the legacy browser-agent CDP wrapper.
     await this.safeSend(tabId, "DOM.enable");
     await this.safeSend(tabId, "Accessibility.enable");
     await this.safeSend(tabId, "Page.enable");
+    await this.safeSend(tabId, "Runtime.enable");
   }
 
   async detach(tabId: number): Promise<void> {
     if (!this.attached.has(tabId)) return;
     await this.debuggerApi.detach({ tabId });
     this.attached.delete(tabId);
+    this.contextsByTab.delete(tabId);
   }
 
   async send<T>(
@@ -66,6 +130,15 @@ export class ChromeDebuggerReadTransport {
       method,
       params,
     ) as Promise<T>;
+  }
+
+  contextsForFrame(
+    tabId: number,
+    cdpFrameId: string,
+  ): RuntimeExecutionContext[] {
+    return [...(this.contextsByTab.get(tabId)?.values() ?? [])].filter(
+      (context) => context.auxData?.frameId === cdpFrameId,
+    );
   }
 
   isAttached(tabId: number): boolean {

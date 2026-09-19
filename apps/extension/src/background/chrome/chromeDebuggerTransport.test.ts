@@ -2,15 +2,29 @@ import { describe, expect, it, vi } from "vitest";
 import { ChromeDebuggerReadTransport } from "./chromeDebuggerTransport.js";
 
 describe("ChromeDebuggerReadTransport", () => {
-  it("同一 tab 只 attach 一次，并启用只读感知所需 domain", async () => {
+  it("同一 tab 只 attach 一次，并记录 isolated-world execution context", async () => {
     const attach = vi.fn(async () => undefined);
     const sendCommand = vi.fn(async () => ({}));
-    let detachListener: ((source: { tabId?: number }, reason: string) => void) | undefined;
+    let eventListener:
+      | ((
+          source: { tabId?: number },
+          method: string,
+          params?: unknown,
+        ) => void)
+      | undefined;
+    let detachListener:
+      | ((source: { tabId?: number }, reason: string) => void)
+      | undefined;
 
     const transport = new ChromeDebuggerReadTransport({
       attach,
       async detach() {},
       sendCommand,
+      onEvent: {
+        addListener(listener) {
+          eventListener = listener;
+        },
+      },
       onDetach: {
         addListener(listener) {
           detachListener = listener;
@@ -24,17 +38,31 @@ describe("ChromeDebuggerReadTransport", () => {
     expect(attach).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith(
       { tabId: 7 },
-      "DOM.enable",
-      {},
-    );
-    expect(sendCommand).toHaveBeenCalledWith(
-      { tabId: 7 },
-      "Accessibility.enable",
+      "Runtime.enable",
       {},
     );
 
+    eventListener?.(
+      { tabId: 7 },
+      "Runtime.executionContextCreated",
+      {
+        context: {
+          id: 41,
+          name: "",
+          auxData: {
+            frameId: "cdp-main",
+            isDefault: false,
+            type: "isolated",
+          },
+        },
+      },
+    );
+
+    expect(transport.contextsForFrame(7, "cdp-main")).toHaveLength(1);
+
     detachListener?.({ tabId: 7 }, "target_closed");
     expect(transport.isAttached(7)).toBe(false);
+    expect(transport.contextsForFrame(7, "cdp-main")).toEqual([]);
   });
 
   it("把 debugger 冲突转换为可诊断错误", async () => {
