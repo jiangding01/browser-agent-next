@@ -9,3 +9,7 @@ export * from "./background/perception/domCollector.js";
 export * from "./background/perception/observationCoordinator.js";
 export * from "./background/execution/chromeStrictClickDispatcher.js";
 export * from "./background/execution/policyGatedStrictClick.js";
+export * from "./protocol/trustedHost.js";
+export * from "./background/execution/trustedHostExecutionService.js";
+export * from "./background/execution/trustedNativeIngress.js";
+export * from "./background/execution/authorizationLifecycle.js";
