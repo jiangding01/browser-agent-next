@@ -11,7 +11,10 @@ import type {
   StoredObservationStrictCoordinator,
 } from "@browser-agent-next/runtime";
 import type { PreparedStrictClickTarget } from "./chromeStrictClickResolver.js";
-import type { ChromeStrictClickDispatcher } from "./chromeStrictClickDispatcher.js";
+import {
+  StrictClickDispatchError,
+  type ChromeStrictClickDispatcher,
+} from "./chromeStrictClickDispatcher.js";
 
 export interface StrictClickOriginPolicy {
   isAllowed(origin: string): boolean;
@@ -74,8 +77,6 @@ export class PolicyGatedStrictClickExecutor {
         : {}),
     };
 
-    // Phase 1: prepare once to load trusted observation semantics and ensure
-    // the requested target is currently live before we even consider auth.
     const preparedBeforePolicy = await this.coordinator.prepare(
       input.tabId,
       action,
@@ -120,16 +121,34 @@ export class PolicyGatedStrictClickExecutor {
       );
     }
 
-    // Phase 2: commit 前再做一次完整 strict prepare。
-    // 授权检查期间页面可能变化；绝不能直接复用旧 point。
+    // commit 前再次读取 live identity/actionability，绝不复用第一次 point。
     const preparedForCommit = await this.coordinator.prepare(
       input.tabId,
       action,
     );
 
-    await this.dispatcher.dispatch(
-      preparedForCommit.prepared,
-    );
+    try {
+      await this.dispatcher.dispatch(
+        preparedForCommit.prepared,
+      );
+    } catch (error) {
+      if (
+        error instanceof StrictClickDispatchError &&
+        error.outcomeMayHaveChanged
+      ) {
+        throw new BrowserRuntimeError(
+          "ACTION_OUTCOME_UNKNOWN",
+          "strict click dispatch failed after input may already have affected the page; automatic retry is forbidden",
+          {
+            phase: error.phase,
+            ref: input.ref,
+            actionId: input.actionId,
+          },
+        );
+      }
+
+      throw error;
+    }
 
     return {
       actionId: input.actionId,

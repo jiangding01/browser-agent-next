@@ -17,17 +17,18 @@ Strict Prepare                           ✅ Real Chromium E2E
 Policy-gated Dispatch                    ✅ 基础设施
 Exact Origin Policy                      ✅
 Authorization Lifecycle Revocation       ✅
+Ambiguous Outcome Guard                  ✅
 Trusted Authorization ingress            ⏭
 Post-action Verification                 ⏭
 ```
 
 ## 本轮完成
 
-- Extension 显式声明对 `@browser-agent-next/policy` 的 workspace dependency；
-- 新增 exact-origin allowlist；
-- origin policy 默认空集合，fail closed；
-- grant 在 main navigation / child navigation / tab removal 时主动撤销；
-- 保持 unknown-effect generic click 无授权不执行。
+- 新增 `ACTION_OUTCOME_UNKNOWN`；
+- mouse dispatch 按 input phase 建模；
+- mousePressed 后的失败不再被当作“安全未执行”；
+- Policy executor 将此类情况转换为 deterministic runtime error；
+- 文档明确禁止对此类结果自动 retry。
 
 ## 下一步
 
