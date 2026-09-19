@@ -65,4 +65,30 @@ describe("NativeMessagingTransport", () => {
       ok: true,
     });
   });
+  it("底层写入抛错时立即返回 false，不伪装为成功发送", () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const originalWrite = output.write.bind(output);
+
+    let calls = 0;
+    output.write = ((...args: Parameters<typeof originalWrite>) => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error("broken pipe");
+      }
+      return originalWrite(...args);
+    }) as typeof output.write;
+
+    const transport = new NativeMessagingTransport({
+      input,
+      output,
+    });
+
+    expect(
+      transport.send({
+        type: "trusted-host.result",
+        requestId: "req-write-fail",
+      }),
+    ).toBe(false);
+  });
 });
