@@ -21,16 +21,19 @@
 - [x] strong-evidence-only semantic merge
 - [x] conservative expected-source coverage aggregation
 - [x] linked DOM/AX persistent identity contract
-- [ ] live DOM source
+- [x] frame-local DOM perception source
+- [x] background DOM identity adapter
+- [ ] content/background message wiring
+- [ ] live frame lifecycle / epoch invalidation
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
 - [ ] component adapter source
-- [ ] real frame degradation/coverage integration
+- [ ] canonical background observation coordinator
 
 ## Phase 2 — Persistent identity
-- [ ] DOM stable-id live integration
+- [ ] DOM stable-id live transport integration
 - [ ] AX backend-node live integration
-- [ ] frame/document epochs
+- [ ] frame/document epochs driven by browser lifecycle
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound

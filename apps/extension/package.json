@@ -2,5 +2,13 @@
   "name": "@browser-agent-next/extension",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@browser-agent-next/core": "workspace:*",
+    "@browser-agent-next/perception": "workspace:*"
+  }
 }

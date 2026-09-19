@@ -12,5 +12,5 @@
       "@browser-agent-next/perception": ["packages/perception/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts"]
+  "include": ["packages/**/*.ts", "apps/**/*.ts"]
 }
