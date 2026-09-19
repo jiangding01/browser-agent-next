@@ -118,17 +118,27 @@ export function mergePerceptionCandidates(
       );
     }
 
+    const name = firstDefined(
+      candidates,
+      ["ax", "dom", "adapter"],
+      (candidate) => candidate.semantic.name,
+    );
+    const description = firstDefined(
+      candidates,
+      ["ax", "dom", "adapter"],
+      (candidate) => candidate.semantic.description,
+    );
+    const text = firstDefined(
+      candidates,
+      ["dom", "ax", "adapter"],
+      (candidate) => candidate.semantic.text,
+    );
+
     const semantic: ElementState["semantic"] = {
       role,
-      ...(firstDefined(candidates, ["ax", "dom", "adapter"], (c) => c.semantic.name) !== undefined
-        ? { name: firstDefined(candidates, ["ax", "dom", "adapter"], (c) => c.semantic.name) }
-        : {}),
-      ...(firstDefined(candidates, ["ax", "dom", "adapter"], (c) => c.semantic.description) !== undefined
-        ? { description: firstDefined(candidates, ["ax", "dom", "adapter"], (c) => c.semantic.description) }
-        : {}),
-      ...(firstDefined(candidates, ["dom", "ax", "adapter"], (c) => c.semantic.text) !== undefined
-        ? { text: firstDefined(candidates, ["dom", "ax", "adapter"], (c) => c.semantic.text) }
-        : {}),
+      ...(name !== undefined ? { name } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(text !== undefined ? { text } : {}),
     };
 
     const state: ElementState["state"] = {
