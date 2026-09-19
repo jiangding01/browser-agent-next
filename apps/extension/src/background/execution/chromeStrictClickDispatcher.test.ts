@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ChromeStrictClickDispatcher } from "./chromeStrictClickDispatcher.js";
 
 describe("ChromeStrictClickDispatcher", () => {
@@ -15,7 +15,11 @@ describe("ChromeStrictClickDispatcher", () => {
         method: string,
         params?: Record<string, unknown>,
       ): Promise<T> {
-        calls.push({ tabId, method, params });
+        calls.push({
+          tabId,
+          method,
+          ...(params !== undefined ? { params } : {}),
+        });
         return undefined as T;
       },
     });
