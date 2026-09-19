@@ -84,3 +84,4 @@ pnpm e2e
 - [当前进度](./docs/PROGRESS.md)
 - [PR #1 最终审查](./docs/PR1-FINAL-REVIEW.md)
 - [安全模型](./docs/SECURITY.md)
+- [PR #2 最终审查](./docs/PR2-FINAL-REVIEW.md)

@@ -20,7 +20,7 @@ Authorization Lifecycle Revocation       ✅
 Trusted Native Host Ingress              ✅
 Execute → Fresh Observe → Verify         ✅
 Adversarial Replacement Execution E2E    ✅ 新增
-PR #2 Final Invariants Review            ⏭
+PR #2 Final Invariants Review            ✅
 ```
 
 ## 本轮新增
@@ -74,7 +74,7 @@ deterministic Verification
 
 ## 合并状态
 
-PR #2 继续保持 Draft；完成最终 Review 前不要合并。
+PR #2 最终 Review 已完成；等待最新 HEAD CI/E2E 全绿后即可合并。
 
 ## 信任边界修订
 

@@ -54,6 +54,7 @@
 - [x] Policy-gated execute command
 - [x] execute → fresh observe → verify integration
 - [x] replacement-node adversarial execution E2E
+- [x] PR #2 final adversarial review
 
 ## Phase 5 — Effects and authorization
 - [x] conservative generic-click effect assessment
