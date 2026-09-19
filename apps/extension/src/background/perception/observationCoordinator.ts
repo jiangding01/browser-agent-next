@@ -2,7 +2,11 @@ import type {
   BrowserObservation,
   FrameState,
 } from "@browser-agent-next/core";
-import { createObservationAssembler } from "@browser-agent-next/perception";
+import {
+  createObservationAssembler,
+  type PerceptionSourceKind,
+  type PerceptionSourceResult,
+} from "@browser-agent-next/perception";
 import type { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
 import {
   buildObservationDelta,
@@ -11,6 +15,7 @@ import {
 } from "@browser-agent-next/runtime";
 import {
   collectDomSource,
+  type CollectedDomSource,
   type DomFrameTarget,
   type DomFrameTransport,
 } from "./domCollector.js";
@@ -38,6 +43,21 @@ export interface ObserveTabInput {
 
   transport: DomFrameTransport;
   sinceRevision?: string;
+
+  /**
+   * 可选的额外 perception source，例如 AX。
+   * extraSources 在 commit 前与 DOM 一起接受同一份 browser document catalog
+   * revalidation；任何导航竞态都会使整次 observation 失败。
+   */
+  extraSources?: PerceptionSourceResult[];
+
+  refineSources?: (input: {
+    dom: CollectedDomSource;
+    extraSources: PerceptionSourceResult[];
+  }) => Promise<{
+    dom: CollectedDomSource;
+    extraSources: PerceptionSourceResult[];
+  }>;
 
   /**
    * Revalidate browser-level document topology after content collection but
@@ -69,13 +89,24 @@ export class DomObservationCoordinator {
     const requestId =
       "observe:t" + input.tab.tabId + ":" + Date.now().toString(36);
 
-    const dom = await collectDomSource({
+    let dom = await collectDomSource({
       tabId: input.tab.tabId,
       frames: input.domFrames,
       transport: input.transport,
       requestId,
       ...(input.domOptions !== undefined ? { options: input.domOptions } : {}),
     });
+
+    let extraSources = input.extraSources ?? [];
+
+    if (input.refineSources) {
+      const refined = await input.refineSources({
+        dom,
+        extraSources,
+      });
+      dom = refined.dom;
+      extraSources = refined.extraSources;
+    }
 
     await input.validateBeforeCommit?.();
 
@@ -94,14 +125,21 @@ export class DomObservationCoordinator {
       dom.frameEpochByFrame,
     );
 
+    const expectedSources: PerceptionSourceKind[] = [
+      ...new Set([
+        "dom" as PerceptionSourceKind,
+        ...extraSources.map((source) => source.source),
+      ]),
+    ];
+
     const observation = this.assembler.assemble({
       tab: input.tab,
       revision,
       scope: { kind: "page" },
       viewport,
       frames: input.frames,
-      expectedSources: ["dom"],
-      sources: [dom],
+      expectedSources,
+      sources: [dom, ...extraSources],
       shadowDom: {
         openRootsCovered: input.domOptions?.includeOpenShadowRoots !== false,
         closedRootsUnknown: true,

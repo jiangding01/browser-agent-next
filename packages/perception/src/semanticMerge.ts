@@ -79,8 +79,10 @@ export function mergePerceptionCandidates(
     const kinds = new Set(candidates.map((candidate) => candidate.kind));
     const frames = new Set(candidates.map((candidate) => candidate.frameId));
 
-    if (kinds.size !== 1) {
-      throw new Error("cannot merge perception candidates with different ref kinds");
+    if (kinds.has("content") && kinds.size > 1) {
+      throw new Error(
+        "cannot merge content candidates with actionable element/field candidates",
+      );
     }
     if (frames.size !== 1) {
       throw new Error("cannot merge perception candidates across frames");
@@ -185,9 +187,13 @@ export function mergePerceptionCandidates(
 
     const sources = new Set(candidates.map((candidate) => candidate.source));
 
+    const kind = kinds.has("field")
+      ? "field"
+      : candidates[0]!.kind;
+
     result.push({
       identities: candidates.map((candidate) => candidate.identity),
-      kind: candidates[0]!.kind,
+      kind,
       semantic,
       state,
       ...(value !== undefined ? { value } : {}),

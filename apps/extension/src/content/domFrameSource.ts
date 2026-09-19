@@ -90,15 +90,33 @@ function mintEpoch(): string {
 
 export class StableDomIdRegistry {
   private readonly ids = new WeakMap<Element, string>();
+  private readonly elementsById = new Map<string, WeakRef<Element>>();
   private counter = 0;
 
   idFor(element: Element): string {
     const existing = this.ids.get(element);
     if (existing) return existing;
+
     this.counter += 1;
     const id = "s" + this.counter;
     this.ids.set(element, id);
+    this.elementsById.set(id, new WeakRef(element));
     return id;
+  }
+
+  existingIdFor(element: Element): string | undefined {
+    return this.ids.get(element);
+  }
+
+  resolve(stableId: string): Element | undefined {
+    const element = this.elementsById.get(stableId)?.deref();
+
+    if (!element || !element.isConnected) {
+      this.elementsById.delete(stableId);
+      return undefined;
+    }
+
+    return element;
   }
 }
 
@@ -398,6 +416,15 @@ export class DomFramePerceptionSource {
 
   constructor(frameEpoch = mintEpoch()) {
     this.frameEpoch = frameEpoch;
+  }
+
+  stableIdOf(element: Element): string | undefined {
+    if (!element.isConnected) return undefined;
+    return this.stableIds.existingIdFor(element);
+  }
+
+  resolveStableId(stableId: string): Element | undefined {
+    return this.stableIds.resolve(stableId);
   }
 
   scan(

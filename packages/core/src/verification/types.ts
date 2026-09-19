@@ -12,6 +12,27 @@ export type VerifyCondition =
   | { type: "download_started"; filenamePattern?: string }
   | { type: "network_request_completed"; urlPattern: string };
 
-export interface VerificationSpec { mode: "all" | "any"; conditions: VerifyCondition[]; }
-export interface VerificationEvidence { condition: VerifyCondition; pass: boolean; observed?: unknown; }
-export interface VerificationResult { verified: boolean; evidence: VerificationEvidence[]; revision?: string; }
+export interface VerificationSpec {
+  mode: "all" | "any";
+  conditions: VerifyCondition[];
+}
+
+export interface VerificationEvidence {
+  condition: VerifyCondition;
+  pass: boolean;
+
+  /**
+   * false 表示当前 observation 无法证明 pass/fail，而不是“验证失败”。
+   */
+  conclusive: boolean;
+
+  observed?: unknown;
+  reason?: string;
+}
+
+export interface VerificationResult {
+  verified: boolean;
+  conclusive: boolean;
+  evidence: VerificationEvidence[];
+  revision?: string;
+}

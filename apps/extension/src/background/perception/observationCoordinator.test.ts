@@ -183,6 +183,71 @@ describe("DomObservationCoordinator", () => {
     expect(refs.byRef(oldRef)?.tombstonedAtRevision).toBeUndefined();
   });
 
+  it("refineSources 可在 assembler 前把 DOM 与 AX 收敛为同一 Persistent Ref", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const coordinator = new DomObservationCoordinator(
+      refs,
+      new TabRevisionRegistry("runtime-a"),
+      new TabStateStore(),
+    );
+
+    const base = input("Save");
+
+    const observation = await coordinator.observe({
+      ...base,
+      extraSources: [
+        {
+          source: "ax",
+          coverage: {
+            actionable: { status: "complete", returned: 1, totalKnown: 1 },
+            forms: { status: "complete", returned: 0, totalKnown: 0 },
+            text: { status: "unknown", returned: 0 },
+          },
+          elements: [
+            {
+              source: "ax",
+              identity: {
+                source: "ax",
+                tabId: 7,
+                cdpFrameId: "cdp-main",
+                documentEpoch: "chrome-document:doc-a",
+                backendNodeId: 42,
+              },
+              kind: "element",
+              semantic: { role: "button", name: "Save" },
+              state: { visible: true, enabled: true, focused: false },
+              frameId: "web:0",
+              capabilities: [{ kind: "click" }],
+            },
+          ],
+        },
+      ],
+      refineSources: async ({ dom, extraSources }) => {
+        const key = "backend:cdp-main:chrome-document:doc-a:42";
+        return {
+          dom: {
+            ...dom,
+            elements: dom.elements.map((element) => ({
+              ...element,
+              mergeKey: key,
+            })),
+          },
+          extraSources: extraSources.map((source) => ({
+            ...source,
+            elements: source.elements.map((element) => ({
+              ...element,
+              mergeKey: key,
+            })),
+          })),
+        };
+      },
+    });
+
+    expect(observation.elements).toHaveLength(1);
+    const record = refs.byRef(observation.elements[0]!.ref);
+    expect(record?.aliases).toHaveLength(1);
+  });
+
   it("reports an unavailable delta baseline instead of fabricating a delta", async () => {
     const coordinator = new DomObservationCoordinator(
       new InMemoryPersistentRefStore(),

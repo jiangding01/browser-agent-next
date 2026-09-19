@@ -6,7 +6,9 @@
   "minimum_chrome_version": "106",
   "permissions": [
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "debugger",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -17,8 +19,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/index.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/index.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true,
       "match_origin_as_fallback": true

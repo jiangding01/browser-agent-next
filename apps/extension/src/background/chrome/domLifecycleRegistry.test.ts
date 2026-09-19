@@ -1,76 +1,73 @@
-import { describe, expect, it } from "vitest";
-import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
-import { TabStateStore } from "@browser-agent-next/runtime";
+import { describe, expect, it, vi } from "vitest";
 import { DomLifecycleRegistry } from "./domLifecycleRegistry.js";
 
-describe("DomLifecycleRegistry", () => {
-  it("invalidates only the previous child-frame DOM epoch on child navigation", () => {
-    const refs = new InMemoryPersistentRefStore();
-    const states = new TabStateStore();
-    const lifecycle = new DomLifecycleRegistry(refs, states);
+function registry() {
+  const refs = {
+    invalidateTab: vi.fn(),
+    invalidateFrame: vi.fn(),
+  };
+  const states = {
+    clearTab: vi.fn(),
+  };
+  const authorizations = {
+    clearTab: vi.fn(),
+  };
 
-    const child = refs.getOrCreate(
-      {
-        source: "dom",
-        tabId: 1,
-        frameEpoch: "child-epoch-a",
-        stableId: "s1",
-      },
-      "element",
-      "r1",
-    );
+  return {
+    refs,
+    states,
+    authorizations,
+    lifecycle: new DomLifecycleRegistry(
+      refs as never,
+      states as never,
+      authorizations,
+    ),
+  };
+}
 
-    const main = refs.getOrCreate(
-      {
-        source: "dom",
-        tabId: 1,
-        frameEpoch: "main-epoch-a",
-        stableId: "s2",
-      },
-      "element",
-      "r1",
-    );
-
-    lifecycle.recordObserved(1, {
-      "web:0": "main-epoch-a",
-      "web:7": "child-epoch-a",
-    });
+describe("DomLifecycleRegistry authorization lifecycle", () => {
+  it("main navigation 同时失效 refs、state 和未消费授权", () => {
+    const {
+      refs,
+      states,
+      authorizations,
+      lifecycle,
+    } = registry();
 
     lifecycle.committed({
-      tabId: 1,
-      frameId: 7,
-      documentId: "doc-child-b",
+      tabId: 7,
+      frameId: 0,
+      documentId: "doc-next",
     });
 
-    expect(refs.byRef(child)?.tombstonedAtRevision).toBe(
-      "navigation:doc-child-b",
+    expect(refs.invalidateTab).toHaveBeenCalledWith(
+      7,
+      "navigation:doc-next",
+      "main-document-committed",
     );
-    expect(refs.byRef(main)?.tombstonedAtRevision).toBeUndefined();
+    expect(states.clearTab).toHaveBeenCalledWith(7);
+    expect(authorizations.clearTab).toHaveBeenCalledWith(7);
   });
 
-  it("invalidates the whole tab on main-frame commit", () => {
-    const refs = new InMemoryPersistentRefStore();
-    const lifecycle = new DomLifecycleRegistry(refs, new TabStateStore());
+  it("child navigation 也保守撤销 tab-scoped grant", () => {
+    const { authorizations, lifecycle } = registry();
 
-    const ref = refs.getOrCreate(
-      {
-        source: "dom",
-        tabId: 1,
-        frameEpoch: "main-epoch-a",
-        stableId: "s1",
-      },
-      "element",
-      "r1",
-    );
-
-    lifecycle.committed({
-      tabId: 1,
-      frameId: 0,
-      documentId: "doc-main-b",
+    lifecycle.recordObserved(7, {
+      "web:2": "frame-epoch-child",
     });
 
-    expect(refs.byRef(ref)?.tombstonedAtRevision).toBe(
-      "navigation:doc-main-b",
-    );
+    lifecycle.committed({
+      tabId: 7,
+      frameId: 2,
+      documentId: "child-next",
+    });
+
+    expect(authorizations.clearTab).toHaveBeenCalledWith(7);
+  });
+
+  it("tab removal 撤销对应授权", () => {
+    const { authorizations, lifecycle } = registry();
+    lifecycle.tabRemoved(7);
+    expect(authorizations.clearTab).toHaveBeenCalledWith(7);
   });
 });
