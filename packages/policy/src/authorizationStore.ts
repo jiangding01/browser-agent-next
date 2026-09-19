@@ -85,6 +85,17 @@ export class InMemoryAuthorizationStore {
     }
 
     const issuedAt = this.now();
+    const existing = this.grants.get(input.id);
+
+    if (existing) {
+      if (existing.expiresAt > issuedAt) {
+        throw new Error(
+          "authorization id already exists and is still active",
+        );
+      }
+      this.grants.delete(input.id);
+    }
+
     const grant: AuthorizationGrant = {
       id: input.id,
       tabId: input.tabId,
@@ -98,7 +109,6 @@ export class InMemoryAuthorizationStore {
       source: input.source,
     };
 
-    this.grants.delete(grant.id);
     this.grants.set(grant.id, grant);
     this.trim();
     return grant;

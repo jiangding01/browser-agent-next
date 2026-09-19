@@ -115,4 +115,45 @@ describe("InMemoryAuthorizationStore", () => {
       reason: "expired",
     });
   });
+  it("拒绝覆盖仍然有效的同名授权，避免 grant 绑定被静默改写", () => {
+    let now = 1_000;
+    const store = new InMemoryAuthorizationStore({
+      now: () => now,
+    });
+
+    store.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: "click",
+      effectClass: "unknown",
+      ttlMs: 100,
+      source: "trusted-host",
+    });
+
+    expect(() => store.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-2",
+      ref: "@e_2",
+      actionKind: "click",
+      effectClass: "unknown",
+      ttlMs: 100,
+      source: "trusted-host",
+    })).toThrow(/already exists/);
+
+    now = 1_100;
+
+    expect(() => store.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-2",
+      ref: "@e_2",
+      actionKind: "click",
+      effectClass: "unknown",
+      ttlMs: 100,
+      source: "trusted-host",
+    })).not.toThrow();
+  });
 });

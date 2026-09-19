@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   chmodSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   unlinkSync,
@@ -19,11 +20,41 @@ export function ensureTrustedToken(
     recursive: true,
     mode: 0o700,
   });
+
+  const dirStat = lstatSync(dir);
+  if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
+    throw new Error(
+      "trusted RPC state directory must be a real directory, not a symlink",
+    );
+  }
   chmodSync(dir, 0o700);
 
   const tokenPath = join(dir, filename);
 
   try {
+    const tokenStat = lstatSync(tokenPath);
+    if (!tokenStat.isFile() || tokenStat.isSymbolicLink()) {
+      throw new Error(
+        "trusted RPC token path must be a regular file, not a symlink",
+      );
+    }
+
+    if (
+      typeof process.getuid === "function" &&
+      tokenStat.uid !== process.getuid()
+    ) {
+      throw new Error(
+        "trusted RPC token file must be owned by the current user",
+      );
+    }
+
+    const tokenStat = lstatSync(tokenPath);
+    if (!tokenStat.isFile() || tokenStat.isSymbolicLink()) {
+      throw new Error(
+        "trusted RPC token path must be a regular file after create race",
+      );
+    }
+
     const existing = readFileSync(
       tokenPath,
       "utf8",

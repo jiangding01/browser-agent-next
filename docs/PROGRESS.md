@@ -58,12 +58,19 @@ deterministic Verification
 
 任何 identity / document / semantic / actionability / hit-test 变化都会在 dispatch 前 fail closed。
 
+## 本轮安全加固
+
+- active authorization id 禁止被同名 grant 静默覆盖；
+- 过期 grant ID 可以重新使用；
+- trusted RPC token/state path 拒绝 symlink；
+- token file 校验当前用户 ownership；
+- Native Messaging 写失败立即返回失败，不再伪装成功等待 timeout。
+
 ## 下一步
 
 1. 对 PR #2 做最终 Invariants 对抗式 Review；
-2. 检查 trusted RPC / native-host 安装与失败模式；
-3. 收口 PR #2 文档；
-4. CI/E2E 全绿后判断是否可合并。
+2. 收口 PR #2 文档与安装说明；
+3. CI/E2E 全绿后判断是否可合并。
 
 ## 合并状态
 

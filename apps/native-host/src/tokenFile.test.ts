@@ -3,6 +3,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +23,29 @@ afterEach(() => {
       force: true,
     });
   }
+  it("拒绝把 trusted token 路径指向符号链接", () => {
+    if (process.platform === "win32") return;
+
+    const dir = mkdtempSync(
+      join(tmpdir(), "browser-agent-next-token-"),
+    );
+    dirs.push(dir);
+
+    const target = join(dir, "target.txt");
+    writeFileSync(
+      target,
+      "a".repeat(64),
+      "utf8",
+    );
+    symlinkSync(
+      target,
+      join(dir, "trusted-rpc.token"),
+    );
+
+    expect(() => ensureTrustedToken(dir)).toThrow(
+      /regular file|symlink/,
+    );
+  });
 });
 
 describe("ensureTrustedToken", () => {

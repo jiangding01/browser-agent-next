@@ -42,3 +42,6 @@
 38. execute 后的 observation/verification 可以重试，但 non-idempotent action 本身不得因 Verify inconclusive 自动 retry。
 39. trusted authorization ingress 必须与普通 runtime message ingress 分离；普通页面或 Agent message 不得调用 grant issue / real dispatch。
 40. grant 签发后若 live node 被 same-looking replacement 替换，旧 revision/ref/grant 仍必须在 dispatch 前因 strong identity mismatch 被拒绝。
+41. active authorization id 不得被同名 grant 静默覆盖；重复 ID 只有在旧 grant 已过期后才允许重新签发。
+42. trusted RPC token path 必须是当前用户拥有的普通文件，不能接受符号链接；state directory 也不能是 symlink。
+43. Native Messaging outbound write 失败必须立即向上层报告失败，不能伪装成已成功入管道并等待超时。

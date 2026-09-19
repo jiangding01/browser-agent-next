@@ -64,7 +64,7 @@ export class NativeMessagingTransport extends EventEmitter {
       return true;
     } catch (error) {
       this.emit("transport-error", error);
-      return true;
+      return false;
     }
   }
 
