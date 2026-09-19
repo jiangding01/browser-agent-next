@@ -8,6 +8,8 @@ import {
   ChromeDomFrameTransport,
   type ChromeTabsMessagingApi,
 } from "./chromeDomTransport.js";
+import type { ChromeDebuggerReadTransport } from "./chromeDebuggerTransport.js";
+import { collectMainAxSource } from "../perception/axSource.js";
 import type { DomObservationCoordinator } from "../perception/observationCoordinator.js";
 
 export interface ChromeTabRecord {
@@ -28,6 +30,8 @@ export interface ObserveChromeTabInput {
     maxElements?: number;
     includeValues?: boolean;
     includeOpenShadowRoots?: boolean;
+    includeAx?: boolean;
+    maxAxElements?: number;
   };
 }
 
@@ -46,6 +50,7 @@ export class ChromeDomObservationService {
     private readonly tabs: ChromeTabsApi,
     private readonly webNavigation: ChromeWebNavigationApi,
     private readonly coordinator: DomObservationCoordinator,
+    private readonly debuggerTransport?: ChromeDebuggerReadTransport,
   ) {
     this.transport = new ChromeDomFrameTransport(tabs);
   }
@@ -63,6 +68,27 @@ export class ChromeDomObservationService {
       throw new Error("main frame URL is unavailable");
     }
 
+    const includeAx = input.options?.includeAx === true;
+    let extraSources = undefined;
+
+    if (includeAx) {
+      if (!this.debuggerTransport) {
+        throw new Error("AX perception requested but debugger transport is unavailable");
+      }
+
+      const ax = await collectMainAxSource({
+        tabId: input.tabId,
+        mainDocumentEpoch: catalog.mainDocumentEpoch,
+        transport: this.debuggerTransport,
+        hasChildFrames: catalog.frames.length > 1,
+        ...(input.options?.maxAxElements !== undefined
+          ? { maxElements: input.options.maxAxElements }
+          : {}),
+      });
+
+      extraSources = [ax];
+    }
+
     return this.coordinator.observe({
       tab: {
         tabId: input.tabId,
@@ -76,6 +102,7 @@ export class ChromeDomObservationService {
       mainFrameId: catalog.mainFrameId,
       mainDocumentEpoch: catalog.mainDocumentEpoch,
       transport: this.transport,
+      ...(extraSources !== undefined ? { extraSources } : {}),
       validateBeforeCommit: async () => {
         const current = await discoverChromeDomFrames(
           this.webNavigation,
@@ -92,7 +119,19 @@ export class ChromeDomObservationService {
         ? { sinceRevision: input.sinceRevision }
         : {}),
       ...(input.options !== undefined
-        ? { domOptions: input.options }
+        ? {
+            domOptions: {
+              ...(input.options.maxElements !== undefined
+                ? { maxElements: input.options.maxElements }
+                : {}),
+              ...(input.options.includeValues !== undefined
+                ? { includeValues: input.options.includeValues }
+                : {}),
+              ...(input.options.includeOpenShadowRoots !== undefined
+                ? { includeOpenShadowRoots: input.options.includeOpenShadowRoots }
+                : {}),
+            },
+          }
         : {}),
     });
   }

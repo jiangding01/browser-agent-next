@@ -40,9 +40,10 @@
 - [x] main-frame live AX source
 - [x] AX backend-node strong identity
 - [x] AX coverage / truncation
-- [ ] AX 接入 canonical observation pipeline
+- [x] AX opt-in canonical pipeline integration
+- [x] child-frame-present 时 AX coverage fail-visible
 - [ ] DOM stableId ↔ AX backendDOMNodeId exact correspondence
-- [ ] main-frame Hybrid BrowserState
+- [ ] main-frame Hybrid BrowserState 默认化
 - [ ] child frame webNavigation ↔ CDP frame mapping
 - [ ] component adapter source
 

@@ -34,7 +34,15 @@ export interface ObserveTabRequest {
   tabId: number;
   ownedBySession: boolean;
   sinceRevision?: string;
-  options?: ObserveDomFrameRequest["options"];
+  options?: ObserveDomFrameRequest["options"] & {
+    /**
+     * AX 目前作为显式 opt-in source 接入 canonical pipeline。
+     * 在 exact DOM↔AX correspondence 完成前，不默认开启，避免同一 live
+     * control 以两个独立 ref 暴露给上层。
+     */
+    includeAx?: boolean;
+    maxAxElements?: number;
+  };
 }
 
 export type ObserveTabResponse =
@@ -86,15 +94,32 @@ export function isObserveTabRequest(value: unknown): value is ObserveTabRequest 
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
 
+  if (
+    candidate.type !== "perception.observe-tab" ||
+    typeof candidate.requestId !== "string" ||
+    candidate.requestId.length === 0 ||
+    !Number.isInteger(candidate.tabId) ||
+    typeof candidate.tabId !== "number" ||
+    candidate.tabId < 0 ||
+    typeof candidate.ownedBySession !== "boolean" ||
+    (candidate.sinceRevision !== undefined &&
+      typeof candidate.sinceRevision !== "string")
+  ) {
+    return false;
+  }
+
+  if (candidate.options === undefined) return true;
+  if (typeof candidate.options !== "object" || candidate.options === null) {
+    return false;
+  }
+
+  const options = candidate.options as Record<string, unknown>;
+
   return (
-    candidate.type === "perception.observe-tab" &&
-    typeof candidate.requestId === "string" &&
-    candidate.requestId.length > 0 &&
-    Number.isInteger(candidate.tabId) &&
-    typeof candidate.tabId === "number" &&
-    candidate.tabId >= 0 &&
-    typeof candidate.ownedBySession === "boolean" &&
-    (candidate.sinceRevision === undefined ||
-      typeof candidate.sinceRevision === "string")
+    (options.includeAx === undefined || typeof options.includeAx === "boolean") &&
+    (options.maxAxElements === undefined ||
+      (typeof options.maxAxElements === "number" &&
+        Number.isInteger(options.maxAxElements) &&
+        options.maxAxElements > 0))
   );
 }

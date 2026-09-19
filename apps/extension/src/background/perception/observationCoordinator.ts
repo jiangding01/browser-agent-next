@@ -2,7 +2,11 @@ import type {
   BrowserObservation,
   FrameState,
 } from "@browser-agent-next/core";
-import { createObservationAssembler } from "@browser-agent-next/perception";
+import {
+  createObservationAssembler,
+  type PerceptionSourceKind,
+  type PerceptionSourceResult,
+} from "@browser-agent-next/perception";
 import type { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
 import {
   buildObservationDelta,
@@ -38,6 +42,13 @@ export interface ObserveTabInput {
 
   transport: DomFrameTransport;
   sinceRevision?: string;
+
+  /**
+   * 可选的额外 perception source，例如 AX。
+   * extraSources 在 commit 前与 DOM 一起接受同一份 browser document catalog
+   * revalidation；任何导航竞态都会使整次 observation 失败。
+   */
+  extraSources?: PerceptionSourceResult[];
 
   /**
    * Revalidate browser-level document topology after content collection but
@@ -94,14 +105,20 @@ export class DomObservationCoordinator {
       dom.frameEpochByFrame,
     );
 
+    const extraSources = input.extraSources ?? [];
+    const expectedSources: PerceptionSourceKind[] = [
+      "dom",
+      ...extraSources.map((source) => source.source),
+    ];
+
     const observation = this.assembler.assemble({
       tab: input.tab,
       revision,
       scope: { kind: "page" },
       viewport,
       frames: input.frames,
-      expectedSources: ["dom"],
-      sources: [dom],
+      expectedSources,
+      sources: [dom, ...extraSources],
       shadowDom: {
         openRootsCovered: input.domOptions?.includeOpenShadowRoots !== false,
         closedRootsUnknown: true,

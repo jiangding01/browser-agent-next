@@ -15,12 +15,17 @@ import {
   ChromeDomObservationService,
   type ChromeTabsApi,
 } from "./chrome/chromeObservationService.js";
+import {
+  ChromeDebuggerReadTransport,
+  type ChromeDebuggerApi,
+} from "./chrome/chromeDebuggerTransport.js";
 import type { ChromeWebNavigationApi } from "./chrome/chromeFrameDiscovery.js";
 import { DomLifecycleRegistry } from "./chrome/domLifecycleRegistry.js";
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
 
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
   runtime: BackgroundRuntimeApi;
+  debugger: ChromeDebuggerApi;
   tabs: ChromeLifecycleApi["tabs"] & ChromeTabsApi;
   webNavigation: ChromeLifecycleApi["webNavigation"] & ChromeWebNavigationApi;
 }
@@ -46,10 +51,12 @@ const coordinator = new DomObservationCoordinator(
   states,
   lifecycle,
 );
+const debuggerTransport = new ChromeDebuggerReadTransport(chrome.debugger);
 const service = new ChromeDomObservationService(
   chrome.tabs,
   chrome.webNavigation,
   coordinator,
+  debuggerTransport,
 );
 
 bindChromeDomLifecycle(chrome, lifecycle);

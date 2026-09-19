@@ -1,142 +1,175 @@
-import { describe, expect, it } from "vitest";
-import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
-import {
-  TabRevisionRegistry,
-  TabStateStore,
-} from "@browser-agent-next/runtime";
-import { DomObservationCoordinator } from "../perception/observationCoordinator.js";
+import { describe, expect, it, vi } from "vitest";
 import { ChromeDomObservationService } from "./chromeObservationService.js";
 
-function mainFrame(
-  documentId = "doc-main",
-  url = "https://fixture.test/path",
-) {
-  return [{
-    frameId: 0,
-    parentFrameId: -1,
-    url,
-    documentId,
-  }];
-}
-
-function contentResponse(requestId: string) {
-  return {
-    type: "perception.observe-dom.result",
-    requestId,
-    ok: true,
-    snapshot: {
-      source: "dom",
-      frameEpoch: "frame-epoch-main",
-      viewport: {
-        width: 1280,
-        height: 720,
-        scrollX: 0,
-        scrollY: 0,
-        scrollWidth: 1280,
-        scrollHeight: 720,
-      },
-      elements: [{
-        stableId: "s1",
-        kind: "element",
-        semantic: { role: "button", name: "Save" },
-        state: { visible: true, enabled: true, focused: false },
-        capabilities: [{ kind: "click" }],
-      }],
-      coverage: {
-        actionable: { status: "complete", returned: 1, totalKnown: 1 },
-        forms: { status: "complete", returned: 0, totalKnown: 0 },
-        text: { status: "unknown", returned: 0, reason: "not-scanned" },
-      },
-      openShadowRootCount: 0,
+function frameCatalog() {
+  return [
+    {
+      frameId: 0,
+      parentFrameId: -1,
+      url: "https://fixture.test/",
+      documentId: "doc-main",
     },
-  } as const;
+  ];
 }
 
 describe("ChromeDomObservationService", () => {
-  it("binds canonical URL to the same catalog as documentId", async () => {
-    const coordinator = new DomObservationCoordinator(
-      new InMemoryPersistentRefStore(),
-      new TabRevisionRegistry("runtime-a"),
-      new TabStateStore(),
-    );
+  it("默认保持 DOM-only，不会静默启用 AX 导致重复 ref", async () => {
+    const observe = vi.fn(async (input: unknown) => input);
 
     const service = new ChromeDomObservationService(
       {
         async get() {
-          return {
-            id: 3,
-            title: "Fixture",
-            url: "https://stale.example/",
-          };
+          return { id: 1, title: "Fixture" };
         },
-        async sendMessage(_tabId, request: unknown, options) {
-          const typed = request as { requestId: string };
-          expect(options).toEqual({ documentId: "doc-main" });
-          return contentResponse(typed.requestId);
+        async sendMessage() {
+          throw new Error("not used");
         },
       },
       {
         async getAllFrames() {
-          return mainFrame();
+          return frameCatalog();
         },
       },
-      coordinator,
+      { observe } as never,
     );
 
-    const observation = await service.observe({
-      tabId: 3,
+    await service.observe({
+      tabId: 1,
       ownedBySession: true,
     });
 
-    expect(observation.tab.url).toBe("https://fixture.test/path");
-    expect(observation.revision.documentEpoch).toBe(
-      "chrome-document:doc-main",
+    expect(observe).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        extraSources: expect.anything(),
+      }),
     );
   });
 
-  it("rejects observation if navigation wins the collection race", async () => {
-    const refs = new InMemoryPersistentRefStore();
-    const states = new TabStateStore();
-    const coordinator = new DomObservationCoordinator(
-      refs,
-      new TabRevisionRegistry("runtime-a"),
-      states,
-    );
-    let discoveryCount = 0;
+  it("显式 includeAx 时把 AX source 接入 canonical coordinator", async () => {
+    const observe = vi.fn(async (input: unknown) => input);
+
+    const debuggerTransport = {
+      async send(_tabId: number, method: string) {
+        if (method === "Page.getFrameTree") {
+          return {
+            frameTree: {
+              frame: {
+                id: "cdp-main",
+                url: "https://fixture.test/",
+              },
+            },
+          };
+        }
+
+        return {
+          nodes: [
+            {
+              nodeId: "ax-1",
+              role: { value: "button" },
+              name: { value: "Save" },
+              backendDOMNodeId: 42,
+            },
+          ],
+        };
+      },
+    };
 
     const service = new ChromeDomObservationService(
       {
         async get() {
-          return {
-            id: 3,
-            title: "Fixture",
-            url: "https://fixture.test/path",
-          };
+          return { id: 1, title: "Fixture" };
         },
-        async sendMessage(_tabId, request: unknown) {
-          const typed = request as { requestId: string };
-          return contentResponse(typed.requestId);
+        async sendMessage() {
+          throw new Error("not used");
         },
       },
       {
         async getAllFrames() {
-          discoveryCount += 1;
-          return discoveryCount === 1
-            ? mainFrame("doc-a")
-            : mainFrame("doc-b");
+          return frameCatalog();
         },
       },
-      coordinator,
+      { observe } as never,
+      debuggerTransport as never,
     );
 
-    await expect(
-      service.observe({
-        tabId: 3,
-        ownedBySession: true,
-      }),
-    ).rejects.toThrow(/changed during observation/);
+    await service.observe({
+      tabId: 1,
+      ownedBySession: true,
+      options: { includeAx: true },
+    });
 
-    expect(states.revisionCount(3)).toBe(0);
-    expect(refs.activeRecords()).toHaveLength(0);
+    const input = observe.mock.calls[0]?.[0] as {
+      extraSources?: Array<{ source: string; elements: unknown[] }>;
+    };
+
+    expect(input.extraSources).toHaveLength(1);
+    expect(input.extraSources?.[0]).toMatchObject({
+      source: "ax",
+      elements: [
+        expect.objectContaining({
+          identity: expect.objectContaining({
+            backendNodeId: 42,
+          }),
+        }),
+      ],
+    });
+  });
+
+  it("存在 child frame 时 AX coverage 不会错误报告 complete", async () => {
+    const observe = vi.fn(async (input: unknown) => input);
+
+    const service = new ChromeDomObservationService(
+      {
+        async get() {
+          return { id: 1, title: "Fixture" };
+        },
+        async sendMessage() {
+          throw new Error("not used");
+        },
+      },
+      {
+        async getAllFrames() {
+          return [
+            ...frameCatalog(),
+            {
+              frameId: 2,
+              parentFrameId: 0,
+              url: "https://fixture.test/child",
+              documentId: "doc-child",
+            },
+          ];
+        },
+      },
+      { observe } as never,
+      {
+        async send(_tabId: number, method: string) {
+          if (method === "Page.getFrameTree") {
+            return {
+              frameTree: {
+                frame: {
+                  id: "cdp-main",
+                  url: "https://fixture.test/",
+                },
+              },
+            };
+          }
+          return { nodes: [] };
+        },
+      } as never,
+    );
+
+    await service.observe({
+      tabId: 1,
+      ownedBySession: true,
+      options: { includeAx: true },
+    });
+
+    const input = observe.mock.calls[0]?.[0] as {
+      extraSources?: Array<{
+        coverage: { actionable: { status: string } };
+      }>;
+    };
+
+    expect(input.extraSources?.[0]?.coverage.actionable.status).toBe("partial");
   });
 });

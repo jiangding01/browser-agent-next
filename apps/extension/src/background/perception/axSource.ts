@@ -73,6 +73,7 @@ export interface CollectMainAxSourceInput {
   mainDocumentEpoch: string;
   transport: ChromeDebuggerReadTransport;
   maxElements?: number;
+  hasChildFrames?: boolean;
 }
 
 function axString(value: AXValue | undefined): string {
@@ -188,7 +189,16 @@ function coverage(
   returned: number,
   totalKnown: number,
   truncated: boolean,
+  hasChildFrames: boolean,
 ): CoverageState {
+  if (hasChildFrames) {
+    return {
+      status: "partial",
+      returned,
+      reason: "ax-main-frame-only-child-frames-present",
+    };
+  }
+
   return {
     status: truncated ? "truncated" : "complete",
     returned,
@@ -258,6 +268,7 @@ export async function collectMainAxSource(
   const totalFieldCount = actionable.filter((node) =>
     FIELD_ROLES.has(normalizedRole(node)),
   ).length;
+  const hasChildFrames = input.hasChildFrames === true;
 
   return {
     source: "ax",
@@ -266,11 +277,13 @@ export async function collectMainAxSource(
         elements.length,
         actionable.length,
         truncated,
+        hasChildFrames,
       ),
       forms: coverage(
         fieldCount,
         totalFieldCount,
         truncated && fieldCount < totalFieldCount,
+        hasChildFrames,
       ),
       text: {
         status: "unknown",
@@ -279,8 +292,10 @@ export async function collectMainAxSource(
       },
     },
     elements,
-    warnings: [
-      "AX source 当前仅覆盖 main frame；child frame AX 将在 CDP frame mapping 完成后接入",
-    ],
+    warnings: hasChildFrames
+      ? [
+          "AX source 当前仅覆盖 main frame；检测到 child frame，因此 AX coverage 标记为 partial",
+        ]
+      : [],
   };
 }

@@ -12,41 +12,35 @@ feat/hybrid-perception-strict-executor
 
 ```text
 PR #1 Foundation + DOM Perception       ✅ 已合并
-AX Perception                            🚧 开始实现
-DOM ↔ AX Strong Correspondence          ⏭ 下一步
+AX Perception                            ✅ main-frame 基线
+AX → canonical pipeline                 ✅ opt-in
+DOM ↔ AX Strong Correspondence          🚧 下一步
 Hybrid BrowserState                     ⏭
 Stored Observation Strict Executor      ⏭
 ```
 
 ## 本轮新增
 
-- 新建下一阶段开发分支；
-- Manifest 增加 Chrome `debugger` permission；
-- 新增最小化的只读 `ChromeDebuggerReadTransport`；
-- 新增 main-frame live AX source；
-- AX strong identity 使用：
-  `tabId + cdpFrameId + documentEpoch + backendDOMNodeId`；
-- AX actionable coverage / truncation 显式建模；
-- 未引入 role/name/geometry 猜测式 DOM↔AX merge。
+- AX `includeAx` opt-in observation；
+- AX source 可以进入 canonical assembler / state / delta pipeline；
+- 默认仍 DOM-only，避免 identity 未合并时重复暴露同一 control；
+- child frame 存在时 AX coverage 自动降级为 partial；
+- production background 已实例化只读 debugger transport。
 
-## 当前边界
+## 当前安全边界
 
-AX source 暂时只覆盖 main frame。
+AX 与 DOM 仍保持独立 strong identity。
 
-原因是：
-
-`webNavigation.frameId` 与 CDP `Page.FrameId` 不属于同一个命名空间。
-
-在建立可靠映射前，不会通过 URL 或顺序猜 child frame 对应关系。
+不使用 role/name/geometry 相似度做 merge。
 
 ## 下一步
 
-1. AX source 接入 canonical observation pipeline；
-2. 设计 exact DOM stableId → backendDOMNodeId bridge；
+1. exact DOM↔AX backend-node correspondence；
+2. linked Persistent Ref；
 3. main-frame Hybrid BrowserState；
-4. child frame CDP mapping；
-5. stored-observation Strict Executor coordinator。
+4. child-frame CDP mapping；
+5. Stored Observation Strict Executor。
 
 ## 合并状态
 
-当前为新阶段早期开发，**不需要合并**。
+PR #2 仍为 Draft，当前不需要合并。
