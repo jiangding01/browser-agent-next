@@ -16,16 +16,23 @@
 - [ ] import representative sanitized fixtures from real browser flows
 
 ## Phase 1 — Perception IR
-- [ ] canonical BrowserObservation assembler
-- [ ] AX source
-- [ ] DOM source
-- [ ] semantic merge
-- [ ] explicit frame degradation/coverage
+- [x] source-neutral perception candidate contract
+- [x] canonical BrowserObservation assembler
+- [x] strong-evidence-only semantic merge
+- [x] conservative expected-source coverage aggregation
+- [x] linked DOM/AX persistent identity contract
+- [ ] live DOM source
+- [ ] live AX source
+- [ ] DOM ↔ AX backend-node correspondence bridge
+- [ ] component adapter source
+- [ ] real frame degradation/coverage integration
 
 ## Phase 2 — Persistent identity
-- [ ] DOM stable-id integration
-- [ ] AX backend-node integration
+- [ ] DOM stable-id live integration
+- [ ] AX backend-node live integration
 - [ ] frame/document epochs
+- [x] linked identity alias contract
+- [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
 - [ ] lifecycle E2E
 

@@ -7,6 +7,7 @@ export type RefKind = "element" | "field" | "content";
 export interface RefRecord {
   ref: string;
   identity: StrongIdentity;
+  aliases: StrongIdentity[];
   kind: RefKind;
   createdAtRevision: string;
   lastSeenRevision: string;
@@ -31,6 +32,20 @@ function prefix(kind: RefKind): string {
   return "r";
 }
 
+function dedupeIdentities(identities: readonly StrongIdentity[]): StrongIdentity[] {
+  const seen = new Set<string>();
+  const result: StrongIdentity[] = [];
+
+  for (const identity of identities) {
+    const key = identityKey(identity);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(identity);
+  }
+
+  return result;
+}
+
 export class InMemoryPersistentRefStore {
   private readonly byIdentity = new Map<string, string>();
   private readonly records = new Map<string, RefRecord>();
@@ -47,29 +62,118 @@ export class InMemoryPersistentRefStore {
   }
 
   getOrCreate(identity: StrongIdentity, kind: RefKind, revision: string): string {
-    const key = identityKey(identity);
-    const existingRef = this.byIdentity.get(key);
+    return this.getOrCreateLinked([identity], kind, revision);
+  }
+
+  /**
+   * Bind multiple strong identities that the perception layer has already
+   * proven refer to the same live object.
+   *
+   * This method never merges two independently allocated active refs. Such a
+   * conflict means the upstream cross-source correspondence is inconsistent
+   * with prior observations and must fail closed instead of silently
+   * rewriting identity history.
+   */
+  getOrCreateLinked(
+    identities: readonly StrongIdentity[],
+    kind: RefKind,
+    revision: string,
+  ): string {
+    const unique = dedupeIdentities(identities);
+    if (unique.length === 0) {
+      throw new Error("at least one strong identity is required");
+    }
+
+    const activeRefs = new Set<string>();
+
+    for (const identity of unique) {
+      const mappedRef = this.byIdentity.get(identityKey(identity));
+      if (!mappedRef) continue;
+      const record = this.records.get(mappedRef);
+      if (record && !record.tombstonedAtRevision) {
+        activeRefs.add(mappedRef);
+      }
+    }
+
+    if (activeRefs.size > 1) {
+      throw new Error(
+        "strong identity conflict: linked identities already belong to different active refs",
+      );
+    }
+
+    const existingRef = [...activeRefs][0];
 
     if (existingRef) {
-      const existing = this.records.get(existingRef);
-      if (existing && !existing.tombstonedAtRevision) {
-        existing.lastSeenRevision = revision;
-        return existing.ref;
+      const record = this.records.get(existingRef);
+      if (!record) {
+        throw new Error("persistent ref store is internally inconsistent");
       }
-      this.byIdentity.delete(key);
+      if (record.kind !== kind) {
+        throw new Error(
+          `ref kind conflict: existing=${record.kind}, requested=${kind}`,
+        );
+      }
+
+      const aliasesByKey = new Map(
+        [record.identity, ...record.aliases].map((identity) => [
+          identityKey(identity),
+          identity,
+        ]),
+      );
+
+      for (const identity of unique) {
+        const key = identityKey(identity);
+        const mappedRef = this.byIdentity.get(key);
+        if (mappedRef && mappedRef !== existingRef) {
+          throw new Error(
+            "strong identity conflict: alias maps to a different active ref",
+          );
+        }
+        this.byIdentity.set(key, existingRef);
+        aliasesByKey.set(key, identity);
+      }
+
+      const primaryKey = identityKey(record.identity);
+      record.aliases = [...aliasesByKey.entries()]
+        .filter(([key]) => key !== primaryKey)
+        .map(([, identity]) => identity);
+      record.lastSeenRevision = revision;
+      return existingRef;
     }
 
     this.counters[kind] += 1;
     const ref = "@" + prefix(kind) + "_" + this.counters[kind].toString(36).toUpperCase();
+    const [primary, ...aliases] = unique;
 
-    this.byIdentity.set(key, ref);
-    this.records.set(ref, {
+    if (!primary) {
+      throw new Error("at least one strong identity is required");
+    }
+
+    for (const identity of unique) {
+      const key = identityKey(identity);
+      const mappedRef = this.byIdentity.get(key);
+      if (mappedRef) {
+        const mapped = this.records.get(mappedRef);
+        if (mapped && !mapped.tombstonedAtRevision) {
+          throw new Error("strong identity unexpectedly became active during allocation");
+        }
+        this.byIdentity.delete(key);
+      }
+    }
+
+    const record: RefRecord = {
       ref,
-      identity,
+      identity: primary,
+      aliases,
       kind,
       createdAtRevision: revision,
       lastSeenRevision: revision,
-    });
+    };
+
+    for (const identity of unique) {
+      this.byIdentity.set(identityKey(identity), ref);
+    }
+    this.records.set(ref, record);
 
     return ref;
   }
@@ -91,9 +195,11 @@ export class InMemoryPersistentRefStore {
     record.tombstonedAtRevision = revision;
     record.tombstoneReason = reason;
 
-    const key = identityKey(record.identity);
-    if (this.byIdentity.get(key) === ref) {
-      this.byIdentity.delete(key);
+    for (const identity of [record.identity, ...record.aliases]) {
+      const key = identityKey(identity);
+      if (this.byIdentity.get(key) === ref) {
+        this.byIdentity.delete(key);
+      }
     }
 
     this.tombstoneOrder.push(ref);
@@ -106,12 +212,15 @@ export class InMemoryPersistentRefStore {
     reason = "frame-invalidated",
   ): void {
     for (const record of [...this.records.values()]) {
-      if (record.tombstonedAtRevision || record.identity.tabId !== selector.tabId) continue;
+      if (record.tombstonedAtRevision) continue;
 
-      const matches =
-        record.identity.source === "dom"
-          ? selector.frameEpoch !== undefined && record.identity.frameEpoch === selector.frameEpoch
-          : selector.cdpFrameId !== undefined && record.identity.cdpFrameId === selector.cdpFrameId;
+      const identities = [record.identity, ...record.aliases];
+      const matches = identities.some((identity) => {
+        if (identity.tabId !== selector.tabId) return false;
+        return identity.source === "dom"
+          ? selector.frameEpoch !== undefined && identity.frameEpoch === selector.frameEpoch
+          : selector.cdpFrameId !== undefined && identity.cdpFrameId === selector.cdpFrameId;
+      });
 
       if (matches) this.tombstone(record.ref, revision, reason);
     }
@@ -119,7 +228,9 @@ export class InMemoryPersistentRefStore {
 
   invalidateTab(tabId: number, revision: string, reason = "tab-invalidated"): void {
     for (const record of [...this.records.values()]) {
-      if (!record.tombstonedAtRevision && record.identity.tabId === tabId) {
+      if (record.tombstonedAtRevision) continue;
+      const identities = [record.identity, ...record.aliases];
+      if (identities.some((identity) => identity.tabId === tabId)) {
         this.tombstone(record.ref, revision, reason);
       }
     }

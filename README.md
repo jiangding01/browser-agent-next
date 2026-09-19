@@ -12,29 +12,28 @@ This project is a clean-slate evolution of `browser-agent`, centered on five sta
 
 ## Status
 
-The repository is in the **runtime foundation** phase.
+The repository is in **Phase 1 — Perception IR**.
 
-Implemented in the initial scaffold:
+Foundation completed so far:
 
-- canonical BrowserState types;
-- observation coverage model;
-- opaque state revisions;
-- typed action/effect/verification contracts;
-- structured runtime error taxonomy;
-- in-memory PersistentRefStore foundation;
-- conservative effect policy;
-- architecture, invariants and migration roadmap.
+- canonical BrowserState contracts;
+- explicit observation coverage;
+- persistent ref store and tombstones;
+- bounded observation state store;
+- keyed state deltas;
+- strict target preflight;
+- effect policy;
+- evaluation fixtures and runtime trace schema.
 
-Not implemented yet:
+Perception work now implemented:
 
-- Chrome Extension / Native Messaging transport;
-- live AX + DOM perception;
-- persistent ref integration with a real page;
-- state delta;
-- strict executor;
-- Jev fast policy;
-- WebMCP;
-- vision fallback.
+- source-neutral DOM / AX / adapter candidate model;
+- strong-evidence-only cross-source merge;
+- linked persistent identities;
+- canonical BrowserObservation assembler;
+- conservative expected-source coverage.
+
+Live Chrome perception is the next step.
 
 ## Architecture
 
@@ -63,8 +62,6 @@ flowchart TB
     V --> P
 ```
 
-The intended invariant is:
-
 > **AI decides. Code authorizes. Executor proves identity. Browser performs. Verifier proves outcome.**
 
 ## Development
@@ -72,7 +69,7 @@ The intended invariant is:
 Requirements:
 
 - Node.js 20.19+
-- pnpm
+- pnpm 10.34.5
 
 ```bash
 pnpm install
@@ -81,10 +78,13 @@ pnpm test
 pnpm build
 ```
 
-Start with:
+## Documentation
 
 - [Design](./docs/DESIGN.md)
 - [Architecture](./docs/ARCHITECTURE.md)
+- [Perception IR](./docs/PERCEPTION.md)
 - [Invariants](./docs/INVARIANTS.md)
+- [Evaluation](./docs/EVAL.md)
 - [Roadmap](./docs/ROADMAP.md)
+- [Progress](./docs/PROGRESS.md)
 - [ADR-0001](./docs/adr/0001-runtime-boundaries.md)

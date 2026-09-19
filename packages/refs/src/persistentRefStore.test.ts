@@ -13,6 +13,43 @@ describe("InMemoryPersistentRefStore", () => {
     expect(store.byRef(first)?.lastSeenRevision).toBe("r2");
   });
 
+  it("links independently sourced identities only when the perception layer proves correspondence", () => {
+    const store = new InMemoryPersistentRefStore();
+    const dom = { source: "dom" as const, tabId: 1, frameEpoch: "frame-a", stableId: "s1" };
+    const ax = {
+      source: "ax" as const,
+      tabId: 1,
+      cdpFrameId: "main",
+      documentEpoch: "doc-a",
+      backendNodeId: 42,
+    };
+
+    const ref = store.getOrCreateLinked([dom, ax], "element", "r1");
+
+    expect(store.getOrCreate(dom, "element", "r2")).toBe(ref);
+    expect(store.getOrCreate(ax, "element", "r3")).toBe(ref);
+    expect(store.byRef(ref)?.aliases).toEqual([ax]);
+  });
+
+  it("fails closed instead of merging two already-distinct active refs", () => {
+    const store = new InMemoryPersistentRefStore();
+    const dom = { source: "dom" as const, tabId: 1, frameEpoch: "frame-a", stableId: "s1" };
+    const ax = {
+      source: "ax" as const,
+      tabId: 1,
+      cdpFrameId: "main",
+      documentEpoch: "doc-a",
+      backendNodeId: 42,
+    };
+
+    store.getOrCreate(dom, "element", "r1");
+    store.getOrCreate(ax, "element", "r1");
+
+    expect(() => store.getOrCreateLinked([dom, ax], "element", "r2")).toThrow(
+      /different active refs/,
+    );
+  });
+
   it("does not recycle a tombstoned ref", () => {
     const store = new InMemoryPersistentRefStore();
     const identity = { source: "dom" as const, tabId: 1, frameEpoch: "frame-a", stableId: "s1" };
@@ -42,24 +79,21 @@ describe("InMemoryPersistentRefStore", () => {
     expect(second).not.toBe(first);
   });
 
-  it("invalidates only refs from the selected frame", () => {
+  it("invalidates a linked ref when either strong frame identity is invalidated", () => {
     const store = new InMemoryPersistentRefStore();
+    const dom = { source: "dom" as const, tabId: 1, frameEpoch: "frame-a", stableId: "s1" };
+    const ax = {
+      source: "ax" as const,
+      tabId: 1,
+      cdpFrameId: "cdp-a",
+      documentEpoch: "doc-a",
+      backendNodeId: 42,
+    };
 
-    const frameA = store.getOrCreate(
-      { source: "dom", tabId: 1, frameEpoch: "frame-a", stableId: "s1" },
-      "element",
-      "r1",
-    );
-    const frameB = store.getOrCreate(
-      { source: "dom", tabId: 1, frameEpoch: "frame-b", stableId: "s2" },
-      "element",
-      "r1",
-    );
+    const ref = store.getOrCreateLinked([dom, ax], "element", "r1");
+    store.invalidateFrame({ tabId: 1, cdpFrameId: "cdp-a" }, "r2");
 
-    store.invalidateFrame({ tabId: 1, frameEpoch: "frame-a" }, "r2");
-
-    expect(store.byRef(frameA)?.tombstonedAtRevision).toBe("r2");
-    expect(store.byRef(frameB)?.tombstonedAtRevision).toBeUndefined();
+    expect(store.byRef(ref)?.tombstonedAtRevision).toBe("r2");
   });
 
   it("bounds retained tombstones without recycling ref ids", () => {

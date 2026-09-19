@@ -8,7 +8,8 @@
       "@browser-agent-next/refs": ["packages/refs/src/index.ts"],
       "@browser-agent-next/policy": ["packages/policy/src/index.ts"],
       "@browser-agent-next/runtime": ["packages/runtime/src/index.ts"],
-      "@browser-agent-next/eval": ["packages/eval/src/index.ts"]
+      "@browser-agent-next/eval": ["packages/eval/src/index.ts"],
+      "@browser-agent-next/perception": ["packages/perception/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts"]
