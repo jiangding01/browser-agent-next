@@ -129,7 +129,7 @@ function json(
 }
 
 export class TrustedRpcServer {
-  private server?: http.Server;
+  private server: http.Server | undefined;
 
   constructor(
     private readonly options: TrustedRpcServerOptions,
