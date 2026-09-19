@@ -10,7 +10,7 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [["list"]],
   webServer: {
-    command: "node e2e/server.mjs",
+    command: "node server.mjs",
     port: 4173,
     reuseExistingServer: false,
     timeout: 10_000,
