@@ -46,6 +46,8 @@ export class NativeMessagingTransport extends EventEmitter {
   }
 
   send(message: unknown): boolean {
+    if (this.closed) return false;
+
     const payload = Buffer.from(
       JSON.stringify(message),
       "utf8",
@@ -64,6 +66,10 @@ export class NativeMessagingTransport extends EventEmitter {
       return true;
     } catch (error) {
       this.emit("transport-error", error);
+
+      // header 可能已经写入。继续发送下一帧会让 Chrome 端长度流失步，
+      // 因此任何同步写异常都必须关闭当前 transport，等待进程/pipe 重建。
+      this.close();
       return false;
     }
   }

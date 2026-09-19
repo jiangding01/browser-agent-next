@@ -45,3 +45,5 @@
 41. active authorization id 不得被同名 grant 静默覆盖；重复 ID 只有在旧 grant 已过期后才允许重新签发。
 42. trusted RPC token path 必须是当前用户拥有的普通文件，不能接受符号链接；state directory 也不能是 symlink。
 43. Native Messaging outbound write 失败必须立即向上层报告失败，不能伪装成已成功入管道并等待超时。
+44. auto-act allowlist 的配置值必须是纯 origin；包含 path/query/fragment/credentials 的 URL 必须拒绝，不能静默扩大为整个 origin。
+45. Native Messaging 一旦发生可能产生半帧的同步写异常，当前 transport 必须 fail closed；不能继续向同一长度流发送后续 frame。

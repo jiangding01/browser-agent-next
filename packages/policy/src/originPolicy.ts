@@ -14,6 +14,18 @@ function canonicalHttpOrigin(value: string): string {
     throw new Error("opaque origins cannot be allowlisted");
   }
 
+  if (
+    url.username ||
+    url.password ||
+    (url.pathname !== "/" && url.pathname !== "") ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "auto-act allowlist entries must be origin-only URLs without path, query, fragment, or credentials",
+    );
+  }
+
   return url.origin;
 }
 

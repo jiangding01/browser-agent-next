@@ -90,5 +90,13 @@ describe("NativeMessagingTransport", () => {
         requestId: "req-write-fail",
       }),
     ).toBe(false);
+
+    // 一旦可能写出了半帧，transport 必须 fail closed，不能继续发送新 frame。
+    expect(
+      transport.send({
+        type: "trusted-host.result",
+        requestId: "req-after-fail",
+      }),
+    ).toBe(false);
   });
 });
