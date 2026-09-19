@@ -210,20 +210,20 @@ describe("DomObservationCoordinator", () => {
                 source: "ax",
                 tabId: 7,
                 cdpFrameId: "cdp-main",
-                documentEpoch: "doc-a",
+                documentEpoch: "chrome-document:doc-a",
                 backendNodeId: 42,
               },
               kind: "element",
               semantic: { role: "button", name: "Save" },
               state: { visible: true, enabled: true, focused: false },
-              frameId: "main",
+              frameId: "web:0",
               capabilities: [{ kind: "click" }],
             },
           ],
         },
       ],
       refineSources: async ({ dom, extraSources }) => {
-        const key = "backend:cdp-main:doc-a:42";
+        const key = "backend:cdp-main:chrome-document:doc-a:42";
         return {
           dom: {
             ...dom,
