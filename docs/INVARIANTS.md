@@ -30,3 +30,7 @@
 26. 同文档 complete observation 中消失的 actionable ref 必须 tombstone，不能继续作为 active identity。
 27. partial/truncated/unknown observation 不得因“没看到旧 ref”而 tombstone 该 ref。
 28. Chrome DOM frame message 优先绑定 documentId；frameId 不能单独证明文档没有发生导航。
+29. content collection 完成后、分配 ref 与写入 StateStore 前，必须重新验证 Chrome frame/document catalog；采集窗口内发生导航或 frame topology 变化时整次 observation 作废。
+30. BrowserObservation 的 canonical URL 必须来自与 documentId 同一份 frame catalog；不得用可能跨导航竞态的独立 tab URL 代替。
+31. Persistent Ref 字符串本身不跨 runtime stateEpoch 构成权威身份；MV3 service worker 重启后旧 observation 必须视为不可用，任何 Strict Action 都必须同时引用仍存在的 observedRevision。
+32. coverage 的 complete 仅表示声明的 observation profile / expectedSources 已完整执行；它不是“网页所有像素、事件监听器和隐式可点击区域都已被发现”的证明，FastPath 仍需独立 eligibility/page policy。

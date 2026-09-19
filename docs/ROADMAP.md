@@ -32,7 +32,7 @@
 - [x] DOM lifecycle invalidation registry
 - [x] MV3 manifest / production entries
 - [x] extension bundle build
-- [ ] browser-level perception E2E passing in CI
+- [x] browser-level perception E2E passing in CI
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
 - [ ] component adapter source
@@ -48,7 +48,7 @@
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
-- [ ] lifecycle E2E passing in CI
+- [x] lifecycle E2E passing in CI
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
@@ -58,7 +58,7 @@
 - [x] baseline-reset/full-fallback contract
 - [x] live DOM observation coordinator
 - [x] main-navigation state invalidation
-- [ ] real-browser lifecycle validation passing
+- [x] real-browser lifecycle validation passing
 
 ## Phase 4 — Strict executor
 - [x] pure strict preflight contract

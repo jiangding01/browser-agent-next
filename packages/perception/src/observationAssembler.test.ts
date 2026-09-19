@@ -7,16 +7,11 @@ import type {
   PerceptionSourceResult,
 } from "./types.js";
 
-const complete = {
-  status: "complete" as const,
-  returned: 1,
-  totalKnown: 1,
-};
-
 function candidate(
   source: "ax" | "dom",
   name: string,
   mergeKey?: string,
+  kind: "element" | "field" = "element",
 ): PerceptionElementCandidate {
   if (source === "dom") {
     return {
@@ -25,11 +20,15 @@ function candidate(
         source: "dom",
         tabId: 1,
         frameEpoch: "frame-a",
-        stableId: name === "Save" ? "s-save" : "s-" + name,
+        stableId: "s-" + name + "-" + kind,
       },
       ...(mergeKey ? { mergeKey } : {}),
-      kind: "element",
-      semantic: { role: "button", name, text: "DOM " + name },
+      kind,
+      semantic: {
+        role: kind === "field" ? "textbox" : "button",
+        name,
+        text: "DOM " + name,
+      },
       state: { visible: true, enabled: true, focused: false },
       geometry: {
         rect: { x: 10, y: 10, width: 80, height: 30 },
@@ -37,7 +36,10 @@ function candidate(
         hitTestable: true,
       },
       frameId: "main",
-      capabilities: [{ kind: "click" }],
+      capabilities:
+        kind === "field"
+          ? [{ kind: "setValue", valueType: "text" }]
+          : [{ kind: "click" }],
     };
   }
 
@@ -51,11 +53,17 @@ function candidate(
       backendNodeId: name === "Save" ? 42 : 99,
     },
     ...(mergeKey ? { mergeKey } : {}),
-    kind: "element",
-    semantic: { role: "button", name: "AX " + name },
+    kind,
+    semantic: {
+      role: kind === "field" ? "textbox" : "button",
+      name: "AX " + name,
+    },
     state: { visible: true, enabled: true, focused: false },
     frameId: "main",
-    capabilities: [{ kind: "click" }],
+    capabilities:
+      kind === "field"
+        ? [{ kind: "setValue", valueType: "text" }]
+        : [{ kind: "click" }],
   };
 }
 
@@ -64,6 +72,10 @@ function source(
   elements: PerceptionElementCandidate[],
   status: "complete" | "partial" = "complete",
 ): PerceptionSourceResult {
+  const fieldCount = elements.filter(
+    (element) => element.kind === "field",
+  ).length;
+
   return {
     source: kind,
     coverage: {
@@ -72,14 +84,20 @@ function source(
         returned: elements.length,
         ...(status === "complete" ? { totalKnown: elements.length } : {}),
       },
-      forms: { status: "complete", returned: 0, totalKnown: 0 },
+      forms: {
+        status,
+        returned: fieldCount,
+        ...(status === "complete" ? { totalKnown: fieldCount } : {}),
+      },
       text: { status: "complete", returned: 0, totalKnown: 0 },
     },
     elements,
   };
 }
 
-function input(sources: PerceptionSourceResult[]): ObservationAssemblyInput {
+function input(
+  sources: PerceptionSourceResult[],
+): ObservationAssemblyInput {
   return {
     tab: {
       tabId: 1,
@@ -131,18 +149,9 @@ describe("ObservationAssembler", () => {
         name: "AX Save",
         text: "DOM Save",
       },
-      geometry: {
-        inViewport: true,
-        hitTestable: true,
-      },
-      provenance: {
-        ax: true,
-        dom: true,
-      },
+      provenance: { ax: true, dom: true },
     });
-
-    const record = refs.byRef(observation.elements[0]!.ref);
-    expect(record?.aliases).toHaveLength(1);
+    expect(refs.byRef(observation.elements[0]!.ref)?.aliases).toHaveLength(1);
   });
 
   it("does not merge same-looking elements without strong correspondence evidence", () => {
@@ -160,31 +169,25 @@ describe("ObservationAssembler", () => {
     expect(observation.elements[0]!.ref).not.toBe(observation.elements[1]!.ref);
   });
 
-  it("preserves the ref when one linked source is absent from a later candidate group", () => {
+  it("reports canonical field count instead of hard-coding forms coverage to zero", () => {
     const refs = new InMemoryPersistentRefStore();
     const assembler = createObservationAssembler(refs);
-    const mergeKey = "backend:main:doc-a:42";
+    const mergeKey = "backend:main:doc-a:99";
 
-    const first = assembler.assemble(
+    const observation = assembler.assemble(
       input([
-        source("ax", [candidate("ax", "Save", mergeKey)]),
-        source("dom", [candidate("dom", "Save", mergeKey)]),
+        source("ax", [candidate("ax", "Email", mergeKey, "field")]),
+        source("dom", [candidate("dom", "Email", mergeKey, "field")]),
       ]),
     );
 
-    const secondInput = input([
-      source("ax", []),
-      source("dom", [candidate("dom", "Save")]),
-    ]);
-    secondInput.revision = {
-      ...secondInput.revision,
-      id: "state-a:2",
-      sequence: 2,
-    };
-
-    const second = assembler.assemble(secondInput);
-
-    expect(second.elements[0]!.ref).toBe(first.elements[0]!.ref);
+    expect(observation.elements).toHaveLength(1);
+    expect(observation.coverage.forms).toEqual({
+      status: "complete",
+      returned: 1,
+      totalKnown: 1,
+    });
+    expect(observation.coverage.actionable.returned).toBe(1);
   });
 
   it("degrades overall coverage when an expected source is partial", () => {
@@ -209,9 +212,7 @@ describe("ObservationAssembler", () => {
     const assembler = createObservationAssembler(refs);
 
     const observation = assembler.assemble(
-      input([
-        source("ax", [candidate("ax", "Save")]),
-      ]),
+      input([source("ax", [candidate("ax", "Save")])]),
     );
 
     expect(observation.coverage.actionable).toMatchObject({

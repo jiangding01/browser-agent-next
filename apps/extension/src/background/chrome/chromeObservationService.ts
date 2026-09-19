@@ -1,6 +1,13 @@
 import type { BrowserObservation } from "@browser-agent-next/core";
-import { discoverChromeDomFrames, type ChromeWebNavigationApi } from "./chromeFrameDiscovery.js";
-import { ChromeDomFrameTransport, type ChromeTabsMessagingApi } from "./chromeDomTransport.js";
+import {
+  discoverChromeDomFrames,
+  sameChromeDocumentCatalog,
+  type ChromeWebNavigationApi,
+} from "./chromeFrameDiscovery.js";
+import {
+  ChromeDomFrameTransport,
+  type ChromeTabsMessagingApi,
+} from "./chromeDomTransport.js";
 import type { DomObservationCoordinator } from "../perception/observationCoordinator.js";
 
 export interface ChromeTabRecord {
@@ -43,15 +50,17 @@ export class ChromeDomObservationService {
     this.transport = new ChromeDomFrameTransport(tabs);
   }
 
-  async observe(input: ObserveChromeTabInput): Promise<BrowserObservation> {
+  async observe(
+    input: ObserveChromeTabInput,
+  ): Promise<BrowserObservation> {
     const [tab, catalog] = await Promise.all([
       this.tabs.get(input.tabId),
       discoverChromeDomFrames(this.webNavigation, input.tabId),
     ]);
 
-    const url = tab.url ?? "";
+    const url = catalog.mainUrl;
     if (!url) {
-      throw new Error("tab URL is unavailable");
+      throw new Error("main frame URL is unavailable");
     }
 
     return this.coordinator.observe({
@@ -67,6 +76,18 @@ export class ChromeDomObservationService {
       mainFrameId: catalog.mainFrameId,
       mainDocumentEpoch: catalog.mainDocumentEpoch,
       transport: this.transport,
+      validateBeforeCommit: async () => {
+        const current = await discoverChromeDomFrames(
+          this.webNavigation,
+          input.tabId,
+        );
+
+        if (!sameChromeDocumentCatalog(catalog, current)) {
+          throw new Error(
+            "Chrome frame/document catalog changed during observation",
+          );
+        }
+      },
       ...(input.sinceRevision !== undefined
         ? { sinceRevision: input.sinceRevision }
         : {}),

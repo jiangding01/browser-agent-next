@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { discoverChromeDomFrames } from "./chromeFrameDiscovery.js";
+import {
+  discoverChromeDomFrames,
+  sameChromeDocumentCatalog,
+  type ChromeDomFrameCatalog,
+} from "./chromeFrameDiscovery.js";
 
 describe("discoverChromeDomFrames", () => {
-  it("uses Chrome documentId as the document epoch and keeps transport ids separate", async () => {
+  it("uses Chrome documentId as document identity", async () => {
     const result = await discoverChromeDomFrames(
       {
         async getAllFrames() {
@@ -25,13 +29,8 @@ describe("discoverChromeDomFrames", () => {
       11,
     );
 
-    expect(result.mainFrameId).toBe("web:0");
     expect(result.mainDocumentEpoch).toBe("chrome-document:doc-main");
-    expect(result.frames[1]).toMatchObject({
-      frameId: "web:7",
-      parentFrameId: "web:0",
-      documentEpoch: "chrome-document:doc-child",
-    });
+    expect(result.mainUrl).toBe("https://example.test/");
     expect(result.domFrames[1]).toMatchObject({
       frameId: "web:7",
       transportFrameId: 7,
@@ -54,5 +53,47 @@ describe("discoverChromeDomFrames", () => {
         1,
       ),
     ).rejects.toThrow(/documentId/);
+  });
+
+  it("detects document or frame topology changes across collection", () => {
+    const stable: ChromeDomFrameCatalog = {
+      frames: [],
+      domFrames: [
+        {
+          frameId: "web:0",
+          transportFrameId: 0,
+          documentId: "doc-main",
+          accessible: true,
+        },
+        {
+          frameId: "web:7",
+          transportFrameId: 7,
+          documentId: "doc-child",
+          accessible: true,
+        },
+      ],
+      mainFrameId: "web:0",
+      mainDocumentEpoch: "chrome-document:doc-main",
+      mainUrl: "https://example.test/",
+    };
+
+    expect(sameChromeDocumentCatalog(stable, {
+      ...stable,
+      domFrames: stable.domFrames.map((frame) => ({ ...frame })),
+    })).toBe(true);
+
+    expect(sameChromeDocumentCatalog(stable, {
+      ...stable,
+      domFrames: stable.domFrames.map((frame) =>
+        frame.frameId === "web:7"
+          ? { ...frame, documentId: "doc-child-new" }
+          : frame,
+      ),
+    })).toBe(false);
+
+    expect(sameChromeDocumentCatalog(stable, {
+      ...stable,
+      domFrames: stable.domFrames.slice(0, 1),
+    })).toBe(false);
   });
 });

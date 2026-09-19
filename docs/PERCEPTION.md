@@ -1,102 +1,32 @@
 # Perception IR
 
-## 状态
+## 当前 read path
 
-Phase 1 正在推进。
+webNavigation.getAllFrames → documentId-targeted frame message → content DOM scan → post-collection frame catalog revalidation → semantic normalization → Persistent Ref → BrowserObservation → StateStore / Delta。
 
-已实现：
+## 采集窗口竞态
 
-- source-neutral perception candidate contract；
-- expected-source 完整性契约；
-- 保守 coverage 聚合；
-- 仅允许强证据的跨源语义合并；
-- 多 strong identity 绑定一个 canonical ref；
-- canonical BrowserObservation assembler；
-- frame-local DOM source；
-- typed Content ↔ Background 消息协议；
-- Chrome `documentId` 定向消息 transport；
-- `webNavigation.getAllFrames` frame discovery；
-- 多 frame DOM collector；
-- Background canonical observation coordinator；
-- BrowserObservation → StateStore → Delta 链路；
-- DOM frame 生命周期失效注册表。
+只在采集前读取一次 documentId 仍不够：旧文档可能完成响应后立刻发生导航，而 background 随后把旧快照提交成当前状态。
 
-仍未完成：
+现在的提交协议是：
 
-- MV3 manifest / bundle entry；
-- real Chrome E2E；
-- AX source；
-- DOM ↔ AX backend-node 强对应；
-- component adapters。
+1. 读取 frame/document catalog；
+2. 所有 content request 绑定对应 documentId；
+3. 收齐 content response；
+4. 再次读取 frame/document catalog；
+5. frame set、documentId 或 main URL 任一变化，则丢弃整次 observation；
+6. 只有稳定窗口才 mint revision、分配 refs、写 StateStore。
 
-## Chrome 文档身份
+## Canonical URL
 
-DOM transport 不只按 frameId 发消息。
+BrowserObservation 的 URL/origin 使用 main frame catalog URL，与 documentId 同源。tabs.get(tabId).url 可能处于另一个导航时刻，不能作为 canonical document URL。
 
-Chrome 106+ 提供 `documentId`，它在 frame 内发生真正文档导航时变化，而 frameId 可以跨导航保持不变。因此当前实现：
+## Coverage 语义
 
-```text
-webNavigation.getAllFrames()
-        ↓
-frameId + documentId
-        ↓
-tabs.sendMessage(..., { documentId })
-```
+coverage.complete 表示声明的 expectedSources/profile 已完整执行，不表示发现网页中所有由 JavaScript 事件形成的隐式可点击像素。
 
-这样 discovery 与 content response 之间若发生导航，消息不会静默命中新文档。
+因此未来 FastPath 仍必须叠加 source-profile eligibility、origin/page allowlist、candidate policy 和 Strict Executor。
 
-main frame 缺少 `documentId` 时直接 fail closed。
+## Runtime restart
 
-## 两种身份各司其职
-
-```text
-Chrome documentId
-→ BrowserObservation / revision 的 document identity
-
-content frameEpoch
-→ DOM stableId 的实例作用域
-
-WeakMap<Element, stableId>
-→ 同一 content 实例内的 live DOM object identity
-```
-
-这三者不能互相替代。
-
-## 生命周期
-
-Background 记录：
-
-```text
-(tabId, canonical frameId) → last observed frameEpoch
-```
-
-收到 child frame `onCommitted`：
-
-- tombstone 该 child frame 上一 content epoch 的 refs；
-- 不影响 main frame refs。
-
-收到 main frame `onCommitted`：
-
-- tombstone 整个 tab 的旧 refs；
-- 清空该 tab 的 observation history；
-- 等下一次 observation 建立新文档身份。
-
-## Coverage
-
-frame 失败不会消失：
-
-```text
-frame message failed / inaccessible
-→ coverage.partial
-→ degradedFrames
-→ warning
-```
-
-因此 FastPath 后续不能把缺 frame 的页面误当作完整 action space。
-
-## 下一步
-
-1. 增加真实 MV3 manifest / content/background bundle。
-2. 用 Chrome 真实页面做 lifecycle E2E。
-3. 验证 same node / replacement node / reload / iframe 四类身份行为。
-4. 之后再接 AX source。
+Persistent Ref continuity 当前保证在同一 runtime stateEpoch 内。MV3 service worker 重启后，内存 StateStore 不包含旧 observedRevision；Strict Action 必须拒绝旧 observation，不能只凭裸 ref 字符串继续执行。

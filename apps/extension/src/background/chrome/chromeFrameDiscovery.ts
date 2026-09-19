@@ -9,7 +9,9 @@ export interface ChromeNavigationFrame {
 }
 
 export interface ChromeWebNavigationApi {
-  getAllFrames(details: { tabId: number }): Promise<ChromeNavigationFrame[] | undefined>;
+  getAllFrames(
+    details: { tabId: number },
+  ): Promise<ChromeNavigationFrame[] | undefined>;
 }
 
 export interface ChromeDomFrameCatalog {
@@ -17,6 +19,7 @@ export interface ChromeDomFrameCatalog {
   domFrames: DomFrameTarget[];
   mainFrameId: string;
   mainDocumentEpoch: string;
+  mainUrl: string;
 }
 
 function canonicalFrameId(frameId: number): string {
@@ -30,7 +33,9 @@ export async function discoverChromeDomFrames(
   const discovered = await api.getAllFrames({ tabId });
 
   if (!discovered?.length) {
-    throw new Error("Chrome returned no webNavigation frames for tab " + tabId);
+    throw new Error(
+      "Chrome returned no webNavigation frames for tab " + tabId,
+    );
   }
 
   const main = discovered.find((frame) => frame.frameId === 0);
@@ -38,7 +43,9 @@ export async function discoverChromeDomFrames(
     throw new Error("Chrome frame catalog has no main frame");
   }
   if (!main.documentId) {
-    throw new Error("main frame documentId is unavailable; Chrome 106+ is required");
+    throw new Error(
+      "main frame documentId is unavailable; Chrome 106+ is required",
+    );
   }
 
   const frames: FrameState[] = discovered.map((frame) => ({
@@ -59,7 +66,9 @@ export async function discoverChromeDomFrames(
   const domFrames: DomFrameTarget[] = discovered.map((frame) => ({
     frameId: canonicalFrameId(frame.frameId),
     transportFrameId: frame.frameId,
-    ...(frame.documentId !== undefined ? { documentId: frame.documentId } : {}),
+    ...(frame.documentId !== undefined
+      ? { documentId: frame.documentId }
+      : {}),
     accessible: Boolean(frame.documentId),
   }));
 
@@ -68,5 +77,38 @@ export async function discoverChromeDomFrames(
     domFrames,
     mainFrameId: canonicalFrameId(0),
     mainDocumentEpoch: "chrome-document:" + main.documentId,
+    mainUrl: main.url,
   };
+}
+
+function documentCatalogKey(
+  catalog: ChromeDomFrameCatalog,
+): string {
+  return catalog.domFrames
+    .map((frame) => ({
+      frameId: frame.frameId,
+      documentId: frame.documentId ?? null,
+      accessible: frame.accessible,
+    }))
+    .sort((a, b) => a.frameId.localeCompare(b.frameId))
+    .map(
+      (frame) =>
+        frame.frameId +
+        "=" +
+        String(frame.documentId) +
+        ":" +
+        String(frame.accessible),
+    )
+    .join("|");
+}
+
+export function sameChromeDocumentCatalog(
+  before: ChromeDomFrameCatalog,
+  after: ChromeDomFrameCatalog,
+): boolean {
+  return (
+    before.mainDocumentEpoch === after.mainDocumentEpoch &&
+    before.mainUrl === after.mainUrl &&
+    documentCatalogKey(before) === documentCatalogKey(after)
+  );
 }

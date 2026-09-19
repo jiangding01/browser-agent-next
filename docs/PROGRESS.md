@@ -4,46 +4,32 @@
 
 ## 当前分支
 
-```text
-feat/bootstrap-runtime-foundation
-```
+`feat/bootstrap-runtime-foundation`
 
 PR #1 继续保持 Draft。
 
 ## 当前阶段
 
-```text
-Phase 0 Foundation        基本完成
-Phase 1 Perception IR     浏览器 E2E 门禁接入中
-```
+Phase 0 Foundation：基本完成。  
+Phase 1 Perception IR：合并前对抗式收口。
 
-## 本轮新增
+## Real Chromium E2E
 
-新增真实 Chromium + MV3 Extension 的 Playwright E2E 门禁。
+CI #19 已通过真实 Chromium + MV3 Extension 生命周期 E2E：
 
-测试加载的是正式构建产物：
+- same live node → same ref；
+- same-looking replacement node → new ref；
+- child frame reload → main ref 保持、child ref 变化；
+- main document reload → document epoch 和 refs 变化。
 
-```text
-apps/extension/dist
-```
+## 本轮对抗式 Review 新发现并修正
 
-而不是 fake transport。
-
-首批 browser lifecycle 用例覆盖：
-
-1. 同一个 live DOM node 重复 observation → ref 不变；
-2. 同文案 replacement node → ref 必须变化；
-3. child frame reload → child ref 变化、main ref 保持；
-4. main document reload → document epoch 和 refs 都变化。
-
-CI 新增独立 `browser-e2e` job，只有 unit/type/build 全绿后才运行。
-
-## 说明
-
-本提交只是把 browser E2E gate 接入仓库；只有 GitHub CI 实际跑绿后，Roadmap 才会把 lifecycle E2E 标为完成。
+1. Canonical forms coverage 之前被固定成 0；现在按合并后的 field 实际计数。
+2. documentId-targeted request 仍存在“旧文档刚返回、随后立即导航”的窄竞态；现在采集后、提交状态前重新校验完整 frame/document catalog。
+3. BrowserObservation URL 改为与 documentId 同源的 main-frame URL，避免 tabs.get 与 frame catalog 来自不同导航时刻。
+4. 明确 MV3 service-worker restart 语义：裸 ref 不跨 stateEpoch 构成权威身份，Strict Action 必须绑定仍存在的 observedRevision。
+5. 明确 coverage.complete 是 observation profile 的完整性，不等价于发现网页所有隐式交互区域。
 
 ## 合并状态
 
-**现在仍不要合并 PR #1。**
-
-等待 real Chromium E2E 实际跑绿，然后做最后一轮 Invariants 对抗式 Review。
+本轮修正后的完整 CI（含 browser-e2e）再次全绿后，再完成 PR 描述/文档最终收口；在此之前仍不要合并 PR #1。

@@ -39,6 +39,13 @@ export interface ObserveTabInput {
   transport: DomFrameTransport;
   sinceRevision?: string;
 
+  /**
+   * Revalidate browser-level document topology after content collection but
+   * before revision/ref/state commit. Any navigation race invalidates the
+   * whole observation.
+   */
+  validateBeforeCommit?: () => Promise<void>;
+
   domOptions?: {
     maxElements?: number;
     includeValues?: boolean;
@@ -69,6 +76,8 @@ export class DomObservationCoordinator {
       requestId,
       ...(input.domOptions !== undefined ? { options: input.domOptions } : {}),
     });
+
+    await input.validateBeforeCommit?.();
 
     const viewport = dom.viewportByFrame[input.mainFrameId];
     if (!viewport) {

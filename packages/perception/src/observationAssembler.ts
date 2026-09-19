@@ -1,6 +1,7 @@
 import type {
   BrowserObservation,
   CoverageState,
+  ElementState,
   ObservationCoverage,
 } from "@browser-agent-next/core";
 import type { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
@@ -30,7 +31,9 @@ function combineCoverage(
     };
   }
 
-  const states = expectedSources.map((source) => bySource.get(source)!.coverage[dimension]);
+  const states = expectedSources.map(
+    (source) => bySource.get(source)!.coverage[dimension],
+  );
 
   if (states.some((state) => state.status === "truncated")) {
     return {
@@ -65,20 +68,30 @@ function combineCoverage(
 
 function buildCoverage(
   input: ObservationAssemblyInput,
-  elementCount: number,
+  elements: readonly ElementState[],
 ): ObservationCoverage {
+  const actionableCount = elements.filter(
+    (element) =>
+      (element.kind === "element" || element.kind === "field") &&
+      element.capabilities.length > 0,
+  ).length;
+
+  const fieldCount = elements.filter(
+    (element) => element.kind === "field",
+  ).length;
+
   return {
     actionable: combineCoverage(
       input.expectedSources,
       input.sources,
       "actionable",
-      elementCount,
+      actionableCount,
     ),
     forms: combineCoverage(
       input.expectedSources,
       input.sources,
       "forms",
-      0,
+      fieldCount,
     ),
     text: combineCoverage(
       input.expectedSources,
@@ -89,7 +102,11 @@ function buildCoverage(
     frames: {
       discovered: input.frames.length,
       accessible: input.frames.filter((frame) => frame.accessible).length,
-      degraded: [...new Set(input.sources.flatMap((source) => source.degradedFrames ?? []))],
+      degraded: [
+        ...new Set(
+          input.sources.flatMap((source) => source.degradedFrames ?? []),
+        ),
+      ],
     },
     shadowDom: input.shadowDom,
     canvas: input.canvas,
@@ -108,7 +125,7 @@ export function createObservationAssembler(
       const candidates = input.sources.flatMap((source) => source.elements);
       const merged = mergePerceptionCandidates(candidates);
 
-      const elements = merged.map((element) => {
+      const elements: ElementState[] = merged.map((element) => {
         const ref = refs.getOrCreateLinked(
           element.identities,
           element.kind,
@@ -132,8 +149,13 @@ export function createObservationAssembler(
       const warnings = [
         ...input.sources.flatMap((source) => source.warnings ?? []),
         ...input.expectedSources
-          .filter((source) => !input.sources.some((actual) => actual.source === source))
-          .map((source) => `expected perception source missing: ${source}`),
+          .filter(
+            (source) =>
+              !input.sources.some((actual) => actual.source === source),
+          )
+          .map(
+            (source) => "expected perception source missing: " + source,
+          ),
       ];
 
       return {
@@ -141,7 +163,7 @@ export function createObservationAssembler(
         tab: input.tab,
         revision: input.revision,
         scope: input.scope,
-        coverage: buildCoverage(input, elements.length),
+        coverage: buildCoverage(input, elements),
         viewport: input.viewport,
         frames: input.frames,
         elements,
