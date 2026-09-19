@@ -4,7 +4,10 @@ import {
   TabRevisionRegistry,
   TabStateStore,
 } from "@browser-agent-next/runtime";
-import { DomObservationCoordinator } from "./observationCoordinator.js";
+import {
+  DomObservationCoordinator,
+  type ObserveTabInput,
+} from "./observationCoordinator.js";
 import type { DomFrameSnapshot } from "../../content/domFrameSource.js";
 
 function snapshot(name: string, stableId = "s1"): DomFrameSnapshot {
@@ -37,7 +40,7 @@ function snapshot(name: string, stableId = "s1"): DomFrameSnapshot {
   };
 }
 
-function input(name: string, stableId = "s1") {
+function input(name: string, stableId = "s1"): ObserveTabInput {
   return {
     tab: {
       tabId: 7,
