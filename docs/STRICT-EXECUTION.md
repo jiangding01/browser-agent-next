@@ -11,6 +11,8 @@ PR #2 已经完成：
 - Strict Prepare 真实 Chromium E2E；
 - policy-gated click commit 基础设施；
 - trusted authorization grant store；
+- exact-origin allowlist；
+- navigation/tab lifecycle 自动撤销 grant；
 - commit 前二次 strict prepare；
 - CDP mouse dispatch primitive。
 
@@ -45,6 +47,46 @@ Grant source 只能是：
 - trusted-host
 
 Agent、页面文本、模型 confidence 都不能自己签发 grant。
+
+## Origin Policy
+
+Auto-act origin 使用 exact allowlist：
+
+```text
+scheme + host + port
+```
+
+不允许 wildcard、suffix 或 substring 匹配。
+
+例如允许：
+
+```text
+https://example.com
+```
+
+并不允许：
+
+```text
+http://example.com
+https://example.com:8443
+https://evil.example.com
+```
+
+默认空 allowlist，即 fail closed。
+
+## 授权生命周期
+
+Grant 不仅有 TTL 和 single-use，还随 browser lifecycle 主动撤销。
+
+当前任何：
+
+- main navigation；
+- child-frame navigation；
+- tab removal；
+
+都会清除该 tab 尚未消费的授权。
+
+这是刻意保守的：grant 绑定 observedRevision，页面拓扑变化后不应继续有效。
 
 ## Prepare / Authorize / Commit
 
@@ -92,9 +134,8 @@ Mouse dispatcher 和 policy executor 已经存在，但仍未通过 extension me
 
 ## 下一步
 
-1. trusted-host authorization API；
-2. origin allowlist 配置；
-3. 内部 execute message，只接受有效 grant；
-4. post-action Verification；
-5. 非幂等结果不明确时禁止自动 retry；
-6. 真实 Chromium policy-gated execution E2E。
+1. trusted-host authorization ingress；
+2. 内部 execute message，只接受有效 grant；
+3. post-action Verification；
+4. 非幂等结果不明确时禁止自动 retry；
+5. 真实 Chromium policy-gated execution E2E。

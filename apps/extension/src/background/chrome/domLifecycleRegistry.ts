@@ -8,12 +8,17 @@ export interface ChromeNavigationCommitted {
   documentId: string;
 }
 
+export interface TabScopedAuthorizationRevoker {
+  clearTab(tabId: number): void;
+}
+
 export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
   private readonly frameEpochsByTab = new Map<number, Map<string, string>>();
 
   constructor(
     private readonly refs: InMemoryPersistentRefStore,
     private readonly states: TabStateStore,
+    private readonly authorizations?: TabScopedAuthorizationRevoker,
   ) {}
 
   recordObserved(
@@ -35,8 +40,13 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
     const marker = "navigation:" + event.documentId;
 
     if (event.frameId === 0) {
-      this.refs.invalidateTab(event.tabId, marker, "main-document-committed");
+      this.refs.invalidateTab(
+        event.tabId,
+        marker,
+        "main-document-committed",
+      );
       this.states.clearTab(event.tabId);
+      this.authorizations?.clearTab(event.tabId);
       this.frameEpochsByTab.delete(event.tabId);
       return;
     }
@@ -56,6 +66,9 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
       );
     }
 
+    // Authorization 当前绑定整个 observedRevision。任意 frame navigation 都可能
+    // 改变 action/effect 上下文，因此保守撤销该 tab 上所有未消费 grant。
+    this.authorizations?.clearTab(event.tabId);
     byFrame?.delete(canonical);
   }
 
@@ -66,6 +79,7 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
       "tab-removed",
     );
     this.states.clearTab(tabId);
+    this.authorizations?.clearTab(tabId);
     this.frameEpochsByTab.delete(tabId);
   }
 }

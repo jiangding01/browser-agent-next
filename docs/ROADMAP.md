@@ -44,6 +44,8 @@
 - [x] strict prepare real Chromium E2E
 - [x] generic click defaults to unknown effect
 - [x] trusted authorization grant contract
+- [x] exact origin allowlist
+- [x] lifecycle grant revocation
 - [x] commit-before-dispatch second strict prepare
 - [x] CDP mouse dispatch primitive
 - [ ] trusted authorization ingress
@@ -54,10 +56,10 @@
 ## Phase 5 — Effects and authorization
 - [x] conservative generic-click effect assessment
 - [x] origin policy interface
+- [x] exact-origin allowlist
 - [x] trusted grant exact binding / TTL / single-use
+- [x] navigation/tab revocation lifecycle
 - [ ] trusted host ingress
-- [ ] configurable origin allowlist
-- [ ] authorization revocation lifecycle
 
 ## Phase 6 — High-level API
 - [ ] browser.observe
