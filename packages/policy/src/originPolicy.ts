@@ -55,3 +55,30 @@ export class ExactOriginAllowlist implements OriginPolicy {
     return [...this.origins].sort();
   }
 }
+
+/**
+ * 由 trusted control plane 动态同步的精确 origin allowlist。
+ *
+ * 默认空集合；普通页面、Agent message、模型输出都不能修改它。
+ */
+export class MutableExactOriginAllowlist implements OriginPolicy {
+  private current = new ExactOriginAllowlist([]);
+
+  replace(origins: readonly string[]): string[] {
+    const next = new ExactOriginAllowlist(origins);
+    this.current = next;
+    return next.values();
+  }
+
+  isAllowed(origin: string): boolean {
+    return this.current.isAllowed(origin);
+  }
+
+  values(): string[] {
+    return this.current.values();
+  }
+
+  clear(): void {
+    this.current = new ExactOriginAllowlist([]);
+  }
+}

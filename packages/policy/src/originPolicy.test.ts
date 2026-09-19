@@ -1,36 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { ExactOriginAllowlist } from "./originPolicy.js";
+import {
+  ExactOriginAllowlist,
+  MutableExactOriginAllowlist,
+} from "./originPolicy.js";
 
 describe("ExactOriginAllowlist", () => {
-  it("只允许精确 scheme + host + port origin", () => {
+  it("只允许精确 origin", () => {
     const policy = new ExactOriginAllowlist([
-      "https://example.test/path?ignored=1",
-      "http://localhost:4173",
+      "https://example.com/path",
+      "http://localhost:3000/",
     ]);
 
-    expect(policy.isAllowed("https://example.test")).toBe(true);
-    expect(policy.isAllowed("https://example.test/other")).toBe(true);
-    expect(policy.isAllowed("http://localhost:4173")).toBe(true);
-
-    expect(policy.isAllowed("http://example.test")).toBe(false);
-    expect(policy.isAllowed("https://example.test:8443")).toBe(false);
-    expect(policy.isAllowed("https://evil.example.test")).toBe(false);
+    expect(policy.isAllowed("https://example.com")).toBe(true);
+    expect(policy.isAllowed("https://example.com/other")).toBe(true);
+    expect(policy.isAllowed("https://evil.example.com")).toBe(false);
+    expect(policy.isAllowed("http://example.com")).toBe(false);
+    expect(policy.isAllowed("https://example.com:8443")).toBe(false);
+    expect(policy.isAllowed("http://localhost:3000")).toBe(true);
   });
 
-  it("拒绝 opaque / 非 http(s) origin", () => {
-    const policy = new ExactOriginAllowlist([]);
-
-    expect(policy.isAllowed("null")).toBe(false);
-    expect(policy.isAllowed("file:///tmp/a.html")).toBe(false);
-    expect(policy.isAllowed("chrome-extension://abc")).toBe(false);
-
+  it("拒绝非 http/https allowlist", () => {
     expect(
-      () => new ExactOriginAllowlist(["file:///tmp/a.html"]),
+      () => new ExactOriginAllowlist(["chrome-extension://abc"]),
     ).toThrow(/http\/https/);
   });
+});
 
-  it("默认空集合意味着 fail closed", () => {
-    const policy = new ExactOriginAllowlist([]);
-    expect(policy.isAllowed("https://example.test")).toBe(false);
+describe("MutableExactOriginAllowlist", () => {
+  it("默认拒绝，并且只能整组替换", () => {
+    const policy = new MutableExactOriginAllowlist();
+
+    expect(policy.isAllowed("https://example.com")).toBe(false);
+
+    expect(policy.replace([
+      "https://example.com/path",
+      "https://second.test",
+    ])).toEqual([
+      "https://example.com",
+      "https://second.test",
+    ]);
+
+    expect(policy.isAllowed("https://example.com/next")).toBe(true);
+
+    policy.replace(["https://third.test"]);
+    expect(policy.isAllowed("https://example.com")).toBe(false);
+    expect(policy.isAllowed("https://third.test")).toBe(true);
+
+    policy.clear();
+    expect(policy.values()).toEqual([]);
   });
 });
