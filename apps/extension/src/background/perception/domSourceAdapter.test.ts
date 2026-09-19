@@ -6,6 +6,14 @@ function frameSnapshot(): DomFrameSnapshot {
   return {
     source: "dom",
     frameEpoch: "frame-epoch-a",
+    viewport: {
+      width: 100,
+      height: 100,
+      scrollX: 0,
+      scrollY: 0,
+      scrollWidth: 100,
+      scrollHeight: 100,
+    },
     elements: [
       {
         stableId: "s1",
@@ -22,11 +30,7 @@ function frameSnapshot(): DomFrameSnapshot {
     coverage: {
       actionable: { status: "complete", returned: 1, totalKnown: 1 },
       forms: { status: "complete", returned: 0, totalKnown: 0 },
-      text: {
-        status: "unknown",
-        returned: 0,
-        reason: "dom-source-does-not-scan-general-page-text",
-      },
+      text: { status: "unknown", returned: 0, reason: "not-scanned" },
     },
     openShadowRootCount: 0,
   };
@@ -36,7 +40,7 @@ describe("adaptDomFrameSnapshot", () => {
   it("attaches tab/frame identity outside the content script", () => {
     const result = adaptDomFrameSnapshot({
       tabId: 7,
-      frameId: "main",
+      frameId: "web:0",
       snapshot: frameSnapshot(),
     });
 
@@ -47,7 +51,7 @@ describe("adaptDomFrameSnapshot", () => {
         frameEpoch: "frame-epoch-a",
         stableId: "s1",
       },
-      frameId: "main",
+      frameId: "web:0",
       semantic: { role: "button", name: "Save" },
     });
   });

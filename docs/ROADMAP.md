@@ -23,21 +23,25 @@
 - [x] linked DOM/AX persistent identity contract
 - [x] frame-local DOM perception source
 - [x] typed content/background DOM observation protocol
+- [x] Chrome document-targeted frame transport
+- [x] Chrome webNavigation frame discovery
 - [x] multi-frame DOM collector
 - [x] background canonical DOM observation coordinator
 - [x] observation → TabStateStore → delta pipeline
-- [ ] real Chrome frame transport binding
-- [ ] live frame/document lifecycle
+- [x] DOM lifecycle invalidation registry
+- [ ] MV3 manifest / production entry wiring
+- [ ] browser-level perception E2E
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
 - [ ] component adapter source
-- [ ] browser-level perception E2E
 
 ## Phase 2 — Persistent identity
 - [x] DOM stable-id contract
-- [ ] DOM stable-id real Chrome transport integration
+- [x] DOM stable-id Chrome transport contract
+- [ ] MV3 real-browser integration
 - [ ] AX backend-node live integration
-- [ ] frame/document epochs driven by Chrome lifecycle
+- [x] Chrome documentId lifecycle contract
+- [x] child/main navigation invalidation behavior
 - [x] linked identity alias contract
 - [x] identity conflict fails closed
 - [x] tombstone semantics and retention bound
@@ -45,12 +49,13 @@
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
-- [x] tab-scoped revision registry
+- [x] runtime-global monotonic revision ids
 - [x] normalized keyed delta
 - [x] unchanged response
 - [x] baseline-reset/full-fallback contract
 - [x] transport-neutral live observation coordinator
-- [ ] Chrome lifecycle invalidation integration
+- [x] main-navigation state invalidation
+- [ ] real-browser lifecycle validation
 
 ## Phase 4 — Strict executor
 - [x] pure strict preflight contract

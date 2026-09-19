@@ -9,6 +9,14 @@ function snapshot(
   return {
     source: "dom",
     frameEpoch,
+    viewport: {
+      width: 100,
+      height: 100,
+      scrollX: 0,
+      scrollY: 0,
+      scrollWidth: 100,
+      scrollHeight: 100,
+    },
     elements: [
       {
         stableId,
@@ -28,27 +36,31 @@ function snapshot(
 }
 
 describe("collectDomSource", () => {
-  it("aggregates disjoint frame results", async () => {
+  it("aggregates disjoint frame results and keeps frame epochs", async () => {
     const result = await collectDomSource({
       tabId: 7,
       requestId: "obs",
       frames: [
-        { frameId: "main", accessible: true },
-        { frameId: "child", accessible: true },
+        { frameId: "web:0", transportFrameId: 0, documentId: "doc-main", accessible: true },
+        { frameId: "web:7", transportFrameId: 7, documentId: "doc-child", accessible: true },
       ],
       transport: {
-        async send(_tabId, frameId, request) {
+        async send(_tabId, target, request) {
           return {
             type: "perception.observe-dom.result",
             requestId: request.requestId,
             ok: true,
-            snapshot: snapshot("epoch-" + frameId, "s-" + frameId),
+            snapshot: snapshot("epoch-" + target.frameId, "s-" + target.frameId),
           };
         },
       },
     });
 
     expect(result.elements).toHaveLength(2);
+    expect(result.frameEpochByFrame).toEqual({
+      "web:0": "epoch-web:0",
+      "web:7": "epoch-web:7",
+    });
     expect(result.coverage.actionable).toEqual({
       status: "complete",
       returned: 2,
@@ -61,11 +73,11 @@ describe("collectDomSource", () => {
       tabId: 7,
       requestId: "obs",
       frames: [
-        { frameId: "main", accessible: true },
-        { frameId: "child", accessible: false },
+        { frameId: "web:0", transportFrameId: 0, documentId: "doc-main", accessible: true },
+        { frameId: "web:7", transportFrameId: 7, accessible: false },
       ],
       transport: {
-        async send(_tabId, _frameId, request) {
+        async send(_tabId, _target, request) {
           return {
             type: "perception.observe-dom.result",
             requestId: request.requestId,
@@ -77,6 +89,6 @@ describe("collectDomSource", () => {
     });
 
     expect(result.coverage.actionable.status).toBe("partial");
-    expect(result.degradedFrames).toEqual(["child"]);
+    expect(result.degradedFrames).toEqual(["web:7"]);
   });
 });

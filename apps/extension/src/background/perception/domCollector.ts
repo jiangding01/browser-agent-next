@@ -1,5 +1,6 @@
 import type {
   CoverageState,
+  ViewportState,
 } from "@browser-agent-next/core";
 import type {
   PerceptionSourceResult,
@@ -12,15 +13,22 @@ import { adaptDomFrameSnapshot } from "./domSourceAdapter.js";
 
 export interface DomFrameTarget {
   frameId: string;
+  transportFrameId: number;
+  documentId?: string;
   accessible: boolean;
 }
 
 export interface DomFrameTransport {
   send(
     tabId: number,
-    frameId: string,
+    target: DomFrameTarget,
     request: ObserveDomFrameRequest,
   ): Promise<ObserveDomFrameResponse>;
+}
+
+export interface CollectedDomSource extends PerceptionSourceResult {
+  frameEpochByFrame: Record<string, string>;
+  viewportByFrame: Record<string, ViewportState>;
 }
 
 export interface CollectDomSourceInput {
@@ -53,9 +61,7 @@ function combineFrameCoverage(
   }
 
   if (states.some((state) => state.status === "truncated")) {
-    const allTotalsKnown = states.every(
-      (state) => state.totalKnown !== undefined,
-    );
+    const allTotalsKnown = states.every((state) => state.totalKnown !== undefined);
     const totalKnown = allTotalsKnown
       ? states.reduce((sum, state) => sum + (state.totalKnown ?? 0), 0)
       : undefined;
@@ -69,19 +75,11 @@ function combineFrameCoverage(
   }
 
   if (states.some((state) => state.status === "partial")) {
-    return {
-      status: "partial",
-      returned,
-      reason: "one-or-more-frames-partial",
-    };
+    return { status: "partial", returned, reason: "one-or-more-frames-partial" };
   }
 
   if (states.some((state) => state.status === "unknown")) {
-    return {
-      status: "unknown",
-      returned,
-      reason: "one-or-more-frames-unknown",
-    };
+    return { status: "unknown", returned, reason: "one-or-more-frames-unknown" };
   }
 
   return {
@@ -93,7 +91,7 @@ function combineFrameCoverage(
 
 export async function collectDomSource(
   input: CollectDomSourceInput,
-): Promise<PerceptionSourceResult> {
+): Promise<CollectedDomSource> {
   const accessibleTargets = input.frames.filter((frame) => frame.accessible);
   const inaccessible = input.frames.filter((frame) => !frame.accessible);
 
@@ -102,7 +100,7 @@ export async function collectDomSource(
       try {
         const response = await input.transport.send(
           input.tabId,
-          frame.frameId,
+          frame,
           {
             type: "perception.observe-dom",
             requestId: input.requestId + ":" + index,
@@ -120,6 +118,8 @@ export async function collectDomSource(
 
         return {
           frameId: frame.frameId,
+          frameEpoch: response.snapshot.frameEpoch,
+          viewport: response.snapshot.viewport,
           ok: true as const,
           result: adaptDomFrameSnapshot({
             tabId: input.tabId,
@@ -147,33 +147,29 @@ export async function collectDomSource(
   ];
 
   const elements = successful.flatMap((entry) => entry.result.elements);
-
   const actionableStates = successful.map((entry) => entry.result.coverage.actionable);
   const formStates = successful.map((entry) => entry.result.coverage.forms);
   const textStates = successful.map((entry) => entry.result.coverage.text);
-
   const frameFailureCount = degradedFrames.length;
 
   return {
     source: "dom",
     coverage: {
-      actionable: combineFrameCoverage(
-        actionableStates,
-        elements.length,
-        frameFailureCount,
-      ),
+      actionable: combineFrameCoverage(actionableStates, elements.length, frameFailureCount),
       forms: combineFrameCoverage(
         formStates,
         elements.filter((element) => element.kind === "field").length,
         frameFailureCount,
       ),
-      text: combineFrameCoverage(
-        textStates,
-        0,
-        frameFailureCount,
-      ),
+      text: combineFrameCoverage(textStates, 0, frameFailureCount),
     },
     elements,
+    frameEpochByFrame: Object.fromEntries(
+      successful.map((entry) => [entry.frameId, entry.frameEpoch]),
+    ),
+    viewportByFrame: Object.fromEntries(
+      successful.map((entry) => [entry.frameId, entry.viewport]),
+    ),
     ...(degradedFrames.length > 0 ? { degradedFrames } : {}),
     warnings: [
       ...failed.map((entry) => "DOM frame " + entry.frameId + " failed: " + entry.warning),

@@ -1,7 +1,14 @@
 import type { StateRevision } from "@browser-agent-next/core";
 
+/**
+ * Runtime-lifetime monotonic revision allocator.
+ *
+ * The id includes the tab for diagnostics but uses one global sequence so
+ * removing/reusing a Chrome tab id can never make an old opaque revision id
+ * alias a new observation within the same runtime state epoch.
+ */
 export class TabRevisionRegistry {
-  private readonly sequenceByTab = new Map<number, number>();
+  private sequence = 0;
 
   constructor(readonly stateEpoch: string) {
     if (!stateEpoch.trim()) {
@@ -17,18 +24,13 @@ export class TabRevisionRegistry {
       throw new Error("documentEpoch must be non-empty");
     }
 
-    const sequence = (this.sequenceByTab.get(tabId) ?? 0) + 1;
-    this.sequenceByTab.set(tabId, sequence);
+    this.sequence += 1;
 
     return {
-      id: this.stateEpoch + ":t" + tabId + ":" + sequence,
+      id: this.stateEpoch + ":g" + this.sequence + ":t" + tabId,
       stateEpoch: this.stateEpoch,
       documentEpoch,
-      sequence,
+      sequence: this.sequence,
     };
-  }
-
-  resetTab(tabId: number): void {
-    this.sequenceByTab.delete(tabId);
   }
 }

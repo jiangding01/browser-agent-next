@@ -1,69 +1,73 @@
-# Implementation progress
+# 实现进度
 
-Last updated: 2026-09-19
+最后更新：2026-09-19
 
-## Current branch
+## 当前分支
 
 ```text
 feat/bootstrap-runtime-foundation
 ```
 
-PR #1 remains Draft.
+PR #1 继续保持 Draft。
 
-## Current phase
-
-```text
-Phase 0 Foundation        substantially complete
-Phase 1 Perception IR     active
-```
-
-## Newly completed
-
-The DOM perception path is now connected end-to-end **without committing to a Chrome transport yet**:
+## 当前阶段
 
 ```text
-content scan
-→ typed response
-→ multi-frame collector
-→ canonical assembler
-→ persistent refs
-→ revision
-→ TabStateStore
-→ optional delta
+Phase 0 Foundation        基本完成
+Phase 1 Perception IR     进行中
 ```
 
-Specific additions:
+## 本轮完成
 
-- typed content/background request/response contract;
-- bounded content-side error response;
-- multi-frame collector with explicit degraded-frame coverage;
-- `TabRevisionRegistry` with tab-scoped opaque revision ids;
-- `DomObservationCoordinator`;
-- retained baseline lookup and keyed delta emission;
-- synthetic transport tests proving persistent refs survive repeated observations.
+Chrome-specific DOM perception transport 已经落地到代码层：
 
-## Safety properties retained
+```text
+webNavigation.getAllFrames
+        ↓
+frameId + documentId
+        ↓
+ChromeDomFrameTransport
+        ↓
+document-targeted tabs.sendMessage
+        ↓
+Content DOM scan
+        ↓
+Canonical BrowserObservation
+```
 
-- content script does not know tab id;
-- missing/inaccessible frames make coverage partial;
-- unavailable delta baseline never fabricates a delta;
-- delta is not treated as action freshness;
-- there is still no real browser actuation.
+新增能力：
 
-## Next
+- Chrome frame discovery；
+- 用 `documentId` 定向 content 消息，避免 frame navigation TOCTOU；
+- main documentId 缺失时 fail closed；
+- content listener 注册器；
+- frame snapshot 自带 main viewport；
+- DOM lifecycle registry；
+- child navigation 只 tombstone 对应 child frame epoch；
+- main navigation tombstone 全 tab refs 并清 observation history；
+- revision id 改为 runtime-global monotonic sequence，避免 tabId 被复用后 opaque revision 碰撞。
 
-1. Implement Chrome-specific frame messaging transport.
-2. Implement browser-driven frame/document epochs and invalidation.
-3. Add a real MV3 manifest/build entry and browser fixture.
-4. Add lifecycle E2E:
-   - same node → same ref;
-   - replacement node with same name → new ref;
-   - reload → new document epoch;
-   - inaccessible child frame → partial coverage.
-5. Add AX perception only after the DOM lifecycle is proven.
+## 当前安全边界
 
-## Merge status
+新仓库仍然没有真实浏览器 actuation。
 
-Do not merge PR #1 yet.
+当前真实 Chrome 相关代码只覆盖“观察/身份/生命周期”的 read path。
 
-The first merge request will come after the initial real-Chrome lifecycle E2E is green and the foundation/perception invariants receive one more adversarial review.
+## 下一步
+
+1. 增加 MV3 manifest 与 production content/background entry。
+2. 打出可加载的扩展 bundle。
+3. 增加 real Chrome lifecycle E2E：
+   - same node → same ref；
+   - same-looking replacement node → new ref；
+   - reload → old ref tombstone；
+   - child frame reload → 只失效 child refs；
+   - inaccessible child frame → partial coverage。
+4. E2E 通过后做一次 Invariants 对抗式 Review。
+5. 然后再决定 PR #1 是否可以转 Ready for review。
+
+## 合并状态
+
+**现在仍不要合并 PR #1。**
+
+满足 real Chrome lifecycle E2E + 最后一轮 invariants review 后，我会明确通知可以合并。

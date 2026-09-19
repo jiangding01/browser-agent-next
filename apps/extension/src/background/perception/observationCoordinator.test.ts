@@ -7,12 +7,18 @@ import {
 import { DomObservationCoordinator } from "./observationCoordinator.js";
 import type { DomFrameSnapshot } from "../../content/domFrameSource.js";
 
-function snapshot(
-  name: string,
-): DomFrameSnapshot {
+function snapshot(name: string): DomFrameSnapshot {
   return {
     source: "dom",
     frameEpoch: "frame-epoch-a",
+    viewport: {
+      width: 1280,
+      height: 720,
+      scrollX: 0,
+      scrollY: 0,
+      scrollWidth: 1280,
+      scrollHeight: 720,
+    },
     elements: [
       {
         stableId: "s1",
@@ -42,22 +48,23 @@ function input(name: string) {
     },
     frames: [
       {
-        frameId: "main",
-        documentEpoch: "doc-a",
+        frameId: "web:0",
+        documentEpoch: "chrome-document:doc-a",
         accessible: true,
       },
     ],
-    viewport: {
-      width: 1280,
-      height: 720,
-      scrollX: 0,
-      scrollY: 0,
-      scrollWidth: 1280,
-      scrollHeight: 720,
-    },
-    mainDocumentEpoch: "doc-a",
+    domFrames: [
+      {
+        frameId: "web:0",
+        transportFrameId: 0,
+        documentId: "doc-a",
+        accessible: true,
+      },
+    ],
+    mainFrameId: "web:0",
+    mainDocumentEpoch: "chrome-document:doc-a",
     transport: {
-      async send(_tabId: number, _frameId: string, request: { requestId: string }) {
+      async send(_tabId: number, _target: unknown, request: { requestId: string }) {
         return {
           type: "perception.observe-dom.result" as const,
           requestId: request.requestId,
@@ -81,7 +88,7 @@ describe("DomObservationCoordinator", () => {
 
     const observation = await coordinator.observe(input("Save"));
 
-    expect(observation.revision.id).toBe("runtime-a:t7:1");
+    expect(observation.revision.id).toBe("runtime-a:g1:t7");
     expect(observation.elements[0]).toMatchObject({
       ref: "@e_1",
       semantic: { role: "button", name: "Save" },

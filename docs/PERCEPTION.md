@@ -1,105 +1,102 @@
 # Perception IR
 
-## Status
+## 状态
 
-Phase 1 is in progress.
+Phase 1 正在推进。
 
-Implemented:
+已实现：
 
-- source-neutral perception candidate contract;
-- explicit expected-source contract;
-- conservative source coverage aggregation;
-- strong-evidence-only cross-source semantic merge;
-- linked persistent identities;
-- canonical BrowserObservation assembler;
-- frame-local DOM source;
-- typed content/background DOM observation protocol;
-- multi-frame DOM collector;
-- background canonical observation coordinator;
-- live-state-compatible revision and delta pipeline.
+- source-neutral perception candidate contract；
+- expected-source 完整性契约；
+- 保守 coverage 聚合；
+- 仅允许强证据的跨源语义合并；
+- 多 strong identity 绑定一个 canonical ref；
+- canonical BrowserObservation assembler；
+- frame-local DOM source；
+- typed Content ↔ Background 消息协议；
+- Chrome `documentId` 定向消息 transport；
+- `webNavigation.getAllFrames` frame discovery；
+- 多 frame DOM collector；
+- Background canonical observation coordinator；
+- BrowserObservation → StateStore → Delta 链路；
+- DOM frame 生命周期失效注册表。
 
-Not implemented yet:
+仍未完成：
 
-- actual `chrome.runtime` / frame messaging registration;
-- Chrome-driven frame lifecycle and document epochs;
-- live AX source;
-- DOM ↔ AX backend-node correspondence;
-- component adapters;
-- real-browser E2E.
+- MV3 manifest / bundle entry；
+- real Chrome E2E；
+- AX source；
+- DOM ↔ AX backend-node 强对应；
+- component adapters。
 
-## End-to-end DOM observation path
+## Chrome 文档身份
 
-The current code now has a complete transport-neutral path:
+DOM transport 不只按 frameId 发消息。
 
-```text
-Document
-  ↓
-DomFramePerceptionSource
-  ↓
-ObserveDomFrameResponse
-  ↓
-DomFrameTransport
-  ↓
-collectDomSource
-  ↓
-PerceptionSourceResult
-  ↓
-ObservationAssembler
-  ↓
-BrowserObservation
-  ↓
-TabStateStore
-  ↓
-optional keyed Delta
-```
-
-Only the Chrome-specific transport binding is still missing.
-
-## Process boundary
-
-The content script never receives a tab id.
-
-It returns:
+Chrome 106+ 提供 `documentId`，它在 frame 内发生真正文档导航时变化，而 frameId 可以跨导航保持不变。因此当前实现：
 
 ```text
-frameEpoch + stableId
+webNavigation.getAllFrames()
+        ↓
+frameId + documentId
+        ↓
+tabs.sendMessage(..., { documentId })
 ```
 
-Background adds:
+这样 discovery 与 content response 之间若发生导航，消息不会静默命中新文档。
+
+main frame 缺少 `documentId` 时直接 fail closed。
+
+## 两种身份各司其职
 
 ```text
-tabId + frameId
+Chrome documentId
+→ BrowserObservation / revision 的 document identity
+
+content frameEpoch
+→ DOM stableId 的实例作用域
+
+WeakMap<Element, stableId>
+→ 同一 content 实例内的 live DOM object identity
 ```
 
-before creating a canonical strong DOM identity.
+这三者不能互相替代。
 
-## Frame degradation
+## 生命周期
 
-Multi-frame collection is fail-visible.
-
-If a frame is inaccessible or its content observation fails:
+Background 记录：
 
 ```text
-coverage → partial
-degradedFrames → includes frame
-warning → recorded
+(tabId, canonical frameId) → last observed frameEpoch
 ```
 
-The collector never drops a failed child frame and then reports a complete action space.
+收到 child frame `onCommitted`：
 
-## Delta
+- tombstone 该 child frame 上一 content epoch 的 refs；
+- 不影响 main frame refs。
 
-The coordinator accepts `sinceRevision`.
+收到 main frame `onCommitted`：
 
-If the baseline is retained and document/state identity is compatible, the result may carry a keyed delta.
+- tombstone 整个 tab 的旧 refs；
+- 清空该 tab 的 observation history；
+- 等下一次 observation 建立新文档身份。
 
-If the baseline is missing or incompatible, the result remains a full observation with an explicit warning.
+## Coverage
 
-A delta remains an optimization only. It is not a freshness proof for actions.
+frame 失败不会消失：
 
-## Next
+```text
+frame message failed / inaccessible
+→ coverage.partial
+→ degradedFrames
+→ warning
+```
 
-1. Bind `DomFrameTransport` to real Chrome frame messaging.
-2. Drive frame/document epochs from Chrome lifecycle events.
-3. Add browser-level tests for same-node survival and replacement-node invalidation.
-4. Add AX source and exact DOM↔AX correspondence.
+因此 FastPath 后续不能把缺 frame 的页面误当作完整 action space。
+
+## 下一步
+
+1. 增加真实 MV3 manifest / content/background bundle。
+2. 用 Chrome 真实页面做 lifecycle E2E。
+3. 验证 same node / replacement node / reload / iframe 四类身份行为。
+4. 之后再接 AX source。

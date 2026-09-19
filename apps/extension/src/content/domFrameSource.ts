@@ -2,6 +2,7 @@ import type {
   ElementCapability,
   ElementState,
   Rect,
+  ViewportState,
 } from "@browser-agent-next/core";
 
 export interface DomFrameElement {
@@ -17,6 +18,7 @@ export interface DomFrameElement {
 export interface DomFrameSnapshot {
   source: "dom";
   frameEpoch: string;
+  viewport: ViewportState;
   elements: DomFrameElement[];
   coverage: {
     actionable: {
@@ -112,7 +114,6 @@ function nativeRole(element: Element): string | undefined {
   }
 
   const tag = element.tagName.toLowerCase();
-
   if (tag === "button") return "button";
   if (tag === "a" && element.hasAttribute("href")) return "link";
   if (tag === "textarea") return "textbox";
@@ -126,9 +127,7 @@ function nativeRole(element: Element): string | undefined {
     const input = element as HTMLInputElement;
     const type = input.type.toLowerCase();
 
-    if (type === "button" || type === "submit" || type === "reset" || type === "file") {
-      return "button";
-    }
+    if (type === "button" || type === "submit" || type === "reset" || type === "file") return "button";
     if (type === "checkbox") return "checkbox";
     if (type === "radio") return "radio";
     if (type === "range") return "slider";
@@ -138,7 +137,6 @@ function nativeRole(element: Element): string | undefined {
   }
 
   if (element.getAttribute("contenteditable") === "true") return "textbox";
-
   return undefined;
 }
 
@@ -152,11 +150,8 @@ function labelledByText(element: Element): string | undefined {
   for (const id of labelledBy.split(/\s+/)) {
     let node: Element | null = null;
 
-    if (root instanceof Document) {
-      node = root.getElementById(id);
-    } else if (root instanceof ShadowRoot) {
-      node = root.getElementById(id);
-    }
+    if (root instanceof Document) node = root.getElementById(id);
+    else if (root instanceof ShadowRoot) node = root.getElementById(id);
 
     const text = normalizeText(node?.textContent);
     if (text) parts.push(text);
@@ -208,8 +203,7 @@ function accessibleName(element: Element): string | undefined {
   const text = normalizeText(element.textContent);
   if (text) return text.slice(0, 240);
 
-  const title = normalizeText(element.getAttribute("title"));
-  return title?.slice(0, 240);
+  return normalizeText(element.getAttribute("title"))?.slice(0, 240);
 }
 
 function visible(element: Element, win: Window): boolean {
@@ -218,9 +212,7 @@ function visible(element: Element, win: Window): boolean {
   if (element.closest("[hidden],[inert]")) return false;
 
   const style = win.getComputedStyle(element);
-  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") {
-    return false;
-  }
+  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
 
   const rect = element.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
@@ -246,13 +238,10 @@ function stateFor(element: Element, win: Window): ElementState["state"] {
         : element.checked
       : undefined;
 
-  const selected =
-    element instanceof HTMLOptionElement ? element.selected : undefined;
-
+  const selected = element instanceof HTMLOptionElement ? element.selected : undefined;
   const expanded = element.hasAttribute("aria-expanded")
     ? element.getAttribute("aria-expanded") === "true"
     : undefined;
-
   const pressed = element.hasAttribute("aria-pressed")
     ? element.getAttribute("aria-pressed") === "true"
     : undefined;
@@ -301,10 +290,7 @@ function rectFor(element: Element, win: Window): ElementState["geometry"] {
     rect.top < win.innerHeight &&
     rect.left < win.innerWidth;
 
-  return {
-    rect: normalized,
-    inViewport,
-  };
+  return { rect: normalized, inViewport };
 }
 
 function capabilitiesFor(element: Element, role: string): ElementCapability[] {
@@ -327,11 +313,7 @@ function capabilitiesFor(element: Element, role: string): ElementCapability[] {
     capabilities.push({ kind: "click" }, { kind: "check" });
   }
 
-  if (
-    role === "textbox" ||
-    role === "searchbox" ||
-    role === "spinbutton"
-  ) {
+  if (role === "textbox" || role === "searchbox" || role === "spinbutton") {
     capabilities.push({ kind: "setValue", valueType: "text" }, { kind: "focus" });
   }
 
@@ -339,15 +321,10 @@ function capabilitiesFor(element: Element, role: string): ElementCapability[] {
     capabilities.push({ kind: "selectOption" }, { kind: "focus" });
   }
 
-  if (role === "slider") {
-    capabilities.push({ kind: "focus" });
-  }
+  if (role === "slider") capabilities.push({ kind: "focus" });
 
   if (element instanceof HTMLInputElement && element.type.toLowerCase() === "file") {
-    capabilities.push({
-      kind: "upload",
-      multiple: element.multiple,
-    });
+    capabilities.push({ kind: "upload", multiple: element.multiple });
   }
 
   return capabilities;
@@ -362,9 +339,7 @@ function valueFor(element: Element): ElementState["value"] | undefined {
     return { kind: "text", display: element.value };
   }
 
-  if (element instanceof HTMLTextAreaElement) {
-    return { kind: "text", display: element.value };
-  }
+  if (element instanceof HTMLTextAreaElement) return { kind: "text", display: element.value };
 
   if (element instanceof HTMLSelectElement) {
     return {
@@ -387,9 +362,7 @@ function scanRoots(document: Document, includeOpenShadowRoots: boolean): {
   openShadowRootCount: number;
 } {
   const roots: Array<Document | ShadowRoot> = [document];
-  if (!includeOpenShadowRoots) {
-    return { roots, openShadowRootCount: 0 };
-  }
+  if (!includeOpenShadowRoots) return { roots, openShadowRootCount: 0 };
 
   let cursor = 0;
   let count = 0;
@@ -407,6 +380,18 @@ function scanRoots(document: Document, includeOpenShadowRoots: boolean): {
   return { roots, openShadowRootCount: count };
 }
 
+function viewportFor(document: Document, win: Window): ViewportState {
+  const root = document.scrollingElement ?? document.documentElement;
+  return {
+    width: win.innerWidth,
+    height: win.innerHeight,
+    scrollX: win.scrollX,
+    scrollY: win.scrollY,
+    scrollWidth: root?.scrollWidth ?? win.innerWidth,
+    scrollHeight: root?.scrollHeight ?? win.innerHeight,
+  };
+}
+
 export class DomFramePerceptionSource {
   readonly frameEpoch: string;
   private readonly stableIds = new StableDomIdRegistry();
@@ -421,7 +406,6 @@ export class DomFramePerceptionSource {
     options: DomFrameScanOptions = {},
   ): DomFrameSnapshot {
     const maxElements = options.maxElements ?? 500;
-
     if (!Number.isInteger(maxElements) || maxElements < 1) {
       throw new Error("maxElements must be a positive integer");
     }
@@ -485,6 +469,7 @@ export class DomFramePerceptionSource {
     return {
       source: "dom",
       frameEpoch: this.frameEpoch,
+      viewport: viewportFor(document, win),
       elements,
       coverage: {
         actionable: {
@@ -497,9 +482,7 @@ export class DomFramePerceptionSource {
           status: truncated && returnedFields < allFields.length ? "truncated" : "complete",
           returned: returnedFields,
           totalKnown: allFields.length,
-          ...(truncated && returnedFields < allFields.length
-            ? { reason: "dom-output-cap" }
-            : {}),
+          ...(truncated && returnedFields < allFields.length ? { reason: "dom-output-cap" } : {}),
         },
         text: {
           status: "unknown",

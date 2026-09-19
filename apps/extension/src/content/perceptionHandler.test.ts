@@ -7,15 +7,19 @@ describe("handlePerceptionRequest", () => {
     const scan = vi.fn(() => ({
       source: "dom" as const,
       frameEpoch: "frame-a",
+      viewport: {
+        width: 100,
+        height: 100,
+        scrollX: 0,
+        scrollY: 0,
+        scrollWidth: 100,
+        scrollHeight: 100,
+      },
       elements: [],
       coverage: {
         actionable: { status: "complete" as const, returned: 0, totalKnown: 0 },
         forms: { status: "complete" as const, returned: 0, totalKnown: 0 },
-        text: {
-          status: "unknown" as const,
-          returned: 0 as const,
-          reason: "not-scanned",
-        },
+        text: { status: "unknown" as const, returned: 0 as const, reason: "not-scanned" },
       },
       openShadowRootCount: 0,
     }));

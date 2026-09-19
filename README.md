@@ -1,72 +1,39 @@
 # browser-agent-next
 
-Agent-native browser runtime for real Chrome.
+面向 Agent 的真实 Chrome 浏览器运行时。
 
-This project is a clean-slate evolution of `browser-agent`, centered on five stable abstractions:
+项目围绕五个长期稳定抽象构建：
 
-1. **State** — typed, scoped browser observations with explicit coverage.
-2. **Identity** — persistent refs backed by strong browser identities.
-3. **Action** — typed actions referencing observations, not ad-hoc selectors.
-4. **Effect** — side effects and authorization are modeled independently from model confidence.
-5. **Verification** — completion must be proven by evidence, not claimed by a model.
+1. **State** — typed、scoped、带明确 coverage 的浏览器观察；
+2. **Identity** — 基于强浏览器身份的 Persistent Ref；
+3. **Action** — 引用已观察状态的 typed action；
+4. **Effect** — 副作用与授权独立于模型 confidence；
+5. **Verification** — 完成状态必须有独立证据。
 
-## Status
+## 当前状态
 
-The repository is in **Phase 1 — Perception IR**.
+当前正在进行 **Phase 1 — Perception IR**。
 
-Foundation completed so far:
+已经完成：
 
-- canonical BrowserState contracts;
-- explicit observation coverage;
-- persistent ref store and tombstones;
-- bounded observation state store;
-- keyed state deltas;
-- strict target preflight;
-- effect policy;
-- evaluation fixtures and runtime trace schema.
+- BrowserState / Coverage / Revision；
+- PersistentRefStore；
+- TabStateStore / Delta；
+- Strict Preflight；
+- Effect Policy；
+- Evaluation fixtures / trace schema；
+- DOM frame-local perception；
+- Chrome `documentId` 定向 frame messaging；
+- webNavigation frame discovery；
+- main/child navigation identity invalidation。
 
-Perception work now implemented:
+下一步是把这些能力接成真正可加载的 MV3 Extension，并跑 real Chrome lifecycle E2E。
 
-- source-neutral DOM / AX / adapter candidate model;
-- strong-evidence-only cross-source merge;
-- linked persistent identities;
-- canonical BrowserObservation assembler;
-- conservative expected-source coverage.
+## 核心原则
 
-Live Chrome perception is the next step.
+> **AI 决策。代码授权。Executor 证明身份。Browser 执行。Verifier 证明结果。**
 
-## Architecture
-
-```mermaid
-flowchart TB
-    U[User / Agent] --> P[Task Planner]
-    P --> R[Decision Router]
-    R --> D0[Recipe / Rule]
-    R --> D1[WebMCP Capability]
-    R --> D2[Deterministic Resolver]
-    R --> D3[Jev Fast Policy]
-    R --> D4[Reasoning LLM]
-    R --> D5[Vision / CUA]
-    D0 --> POL[Policy Engine]
-    D1 --> POL
-    D2 --> POL
-    D3 --> POL
-    D4 --> POL
-    D5 --> POL
-    POL --> EX[Strict Executor]
-    EX --> BK[Browser Kernel]
-    BK --> B[Real Chrome]
-    BK --> ST[Browser State Store]
-    ST --> R
-    EX --> V[Verifier]
-    V --> P
-```
-
-> **AI decides. Code authorizes. Executor proves identity. Browser performs. Verifier proves outcome.**
-
-## Development
-
-Requirements:
+## 开发
 
 - Node.js 20.19+
 - pnpm 10.34.5
@@ -78,13 +45,12 @@ pnpm test
 pnpm build
 ```
 
-## Documentation
+## 文档
 
-- [Design](./docs/DESIGN.md)
-- [Architecture](./docs/ARCHITECTURE.md)
+- [设计](./docs/DESIGN.md)
+- [架构](./docs/ARCHITECTURE.md)
 - [Perception IR](./docs/PERCEPTION.md)
-- [Invariants](./docs/INVARIANTS.md)
-- [Evaluation](./docs/EVAL.md)
+- [不变量](./docs/INVARIANTS.md)
+- [评测](./docs/EVAL.md)
 - [Roadmap](./docs/ROADMAP.md)
-- [Progress](./docs/PROGRESS.md)
-- [ADR-0001](./docs/adr/0001-runtime-boundaries.md)
+- [当前进度](./docs/PROGRESS.md)
