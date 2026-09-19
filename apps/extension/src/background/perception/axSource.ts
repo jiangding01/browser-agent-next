@@ -68,6 +68,10 @@ const FIELD_ROLES = new Set([
   "switch",
 ]);
 
+export interface CollectedAxSource extends PerceptionSourceResult {
+  mainCdpFrameId: string;
+}
+
 export interface CollectMainAxSourceInput {
   tabId: number;
   mainDocumentEpoch: string;
@@ -209,7 +213,7 @@ function coverage(
 
 export async function collectMainAxSource(
   input: CollectMainAxSourceInput,
-): Promise<PerceptionSourceResult> {
+): Promise<CollectedAxSource> {
   const maxElements = input.maxElements ?? 500;
   if (!Number.isInteger(maxElements) || maxElements < 1) {
     throw new Error("maxElements must be a positive integer");
@@ -272,6 +276,7 @@ export async function collectMainAxSource(
 
   return {
     source: "ax",
+    mainCdpFrameId,
     coverage: {
       actionable: coverage(
         elements.length,

@@ -1,7 +1,7 @@
+import { DOM_IDENTITY_BRIDGE_KEY } from "../protocol/identityBridge.js";
 import type { DomFramePerceptionSource } from "./domFrameSource.js";
 
-export const DOM_IDENTITY_BRIDGE_KEY =
-  "__BROWSER_AGENT_NEXT_IDENTITY_BRIDGE_V1__";
+export { DOM_IDENTITY_BRIDGE_KEY };
 
 export interface DomIdentityBridge {
   readonly version: 1;
@@ -13,9 +13,8 @@ export interface DomIdentityBridge {
 /**
  * 安装在 Extension content-script isolated world 中的最小身份桥。
  *
- * 它不会向页面 DOM 写 attribute，也不会暴露到页面 main world。CDP 只能通过
- * 我们自己的 isolated-world execution context 调用固定 bridge method，从而把
- * content stableId 与 backendDOMNodeId 精确关联。
+ * 不向页面 DOM 写 attribute，也不暴露到页面 main world。Background 只能
+ * 通过 CDP 找到本扩展的 isolated-world execution context，再调用固定方法。
  */
 export function installDomIdentityBridge(
   target: typeof globalThis,
