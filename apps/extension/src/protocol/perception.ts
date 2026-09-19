@@ -81,3 +81,20 @@ export function isObserveDomFrameResponse(value: unknown): value is ObserveDomFr
     ? typeof candidate.snapshot === "object" && candidate.snapshot !== null
     : typeof candidate.error === "object" && candidate.error !== null;
 }
+
+export function isObserveTabRequest(value: unknown): value is ObserveTabRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+
+  return (
+    candidate.type === "perception.observe-tab" &&
+    typeof candidate.requestId === "string" &&
+    candidate.requestId.length > 0 &&
+    Number.isInteger(candidate.tabId) &&
+    typeof candidate.tabId === "number" &&
+    candidate.tabId >= 0 &&
+    typeof candidate.ownedBySession === "boolean" &&
+    (candidate.sinceRevision === undefined ||
+      typeof candidate.sinceRevision === "string")
+  );
+}

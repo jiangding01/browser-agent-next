@@ -29,7 +29,8 @@
 - [x] background canonical DOM observation coordinator
 - [x] observation → TabStateStore → delta pipeline
 - [x] DOM lifecycle invalidation registry
-- [ ] MV3 manifest / production entry wiring
+- [x] MV3 manifest / production entries
+- [x] extension bundle build
 - [ ] browser-level perception E2E
 - [ ] live AX source
 - [ ] DOM ↔ AX backend-node correspondence bridge
@@ -38,7 +39,7 @@
 ## Phase 2 — Persistent identity
 - [x] DOM stable-id contract
 - [x] DOM stable-id Chrome transport contract
-- [ ] MV3 real-browser integration
+- [x] MV3 production wiring
 - [ ] AX backend-node live integration
 - [x] Chrome documentId lifecycle contract
 - [x] child/main navigation invalidation behavior
@@ -53,7 +54,7 @@
 - [x] normalized keyed delta
 - [x] unchanged response
 - [x] baseline-reset/full-fallback contract
-- [x] transport-neutral live observation coordinator
+- [x] live DOM observation coordinator
 - [x] main-navigation state invalidation
 - [ ] real-browser lifecycle validation
 

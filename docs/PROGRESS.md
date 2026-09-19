@@ -14,60 +14,69 @@ PR #1 继续保持 Draft。
 
 ```text
 Phase 0 Foundation        基本完成
-Phase 1 Perception IR     进行中
+Phase 1 Perception IR     接近收口
 ```
 
 ## 本轮完成
 
-Chrome-specific DOM perception transport 已经落地到代码层：
+真实 MV3 Extension packaging 已落地：
+
+- `manifest.json`；
+- production content entry；
+- production background service-worker entry；
+- esbuild bundle；
+- Chrome 106 minimum version；
+- background `perception.observe-tab` typed internal endpoint；
+- Content listener；
+- Background listener；
+- Chrome `documentId` 定向 frame messaging；
+- webNavigation lifecycle binding。
+
+现在代码已经能打出可加载 Chrome 的扩展，而不只是 transport-neutral library。
+
+## 当前真实链路
 
 ```text
+runtime.sendMessage(perception.observe-tab)
+        ↓
+MV3 background
+        ↓
 webNavigation.getAllFrames
         ↓
-frameId + documentId
+documentId-targeted tabs.sendMessage
         ↓
-ChromeDomFrameTransport
+all-frame content script
         ↓
-document-targeted tabs.sendMessage
+DOM perception
         ↓
-Content DOM scan
+Persistent Ref
         ↓
-Canonical BrowserObservation
+BrowserObservation
+        ↓
+StateStore / Delta
 ```
 
-新增能力：
+## 安全边界
 
-- Chrome frame discovery；
-- 用 `documentId` 定向 content 消息，避免 frame navigation TOCTOU；
-- main documentId 缺失时 fail closed；
-- content listener 注册器；
-- frame snapshot 自带 main viewport；
-- DOM lifecycle registry；
-- child navigation 只 tombstone 对应 child frame epoch；
-- main navigation tombstone 全 tab refs 并清 observation history；
-- revision id 改为 runtime-global monotonic sequence，避免 tabId 被复用后 opaque revision 碰撞。
-
-## 当前安全边界
-
-新仓库仍然没有真实浏览器 actuation。
-
-当前真实 Chrome 相关代码只覆盖“观察/身份/生命周期”的 read path。
+- 页面本身没有 external messaging 入口；
+- background 只接收本扩展 sender；
+- read path 使用 Chrome documentId 避免 frame navigation race；
+- 密码 value 永不采集；
+- includeValues 默认关闭；
+- 仍然没有 actuation。
 
 ## 下一步
 
-1. 增加 MV3 manifest 与 production content/background entry。
-2. 打出可加载的扩展 bundle。
-3. 增加 real Chrome lifecycle E2E：
+1. 加 Playwright real Chromium extension E2E。
+2. 覆盖：
    - same node → same ref；
-   - same-looking replacement node → new ref；
-   - reload → old ref tombstone；
-   - child frame reload → 只失效 child refs；
-   - inaccessible child frame → partial coverage。
-4. E2E 通过后做一次 Invariants 对抗式 Review。
-5. 然后再决定 PR #1 是否可以转 Ready for review。
+   - same-looking replacement → new ref；
+   - main reload → old ref invalid；
+   - child reload → 只 invalid child；
+   - inaccessible frame → coverage.partial。
+3. E2E 全绿后做 Invariants 最后一轮对抗式 Review。
+4. 再决定 PR #1 是否可以合并。
 
 ## 合并状态
 
 **现在仍不要合并 PR #1。**
-
-满足 real Chrome lifecycle E2E + 最后一轮 invariants review 后，我会明确通知可以合并。

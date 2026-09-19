@@ -5,6 +5,7 @@ export * from "./content/perceptionListener.js";
 export * from "./background/perception/domSourceAdapter.js";
 export * from "./background/perception/domCollector.js";
 export * from "./background/perception/observationCoordinator.js";
+export * from "./background/perception/backgroundListener.js";
 export * from "./background/chrome/chromeFrameDiscovery.js";
 export * from "./background/chrome/chromeDomTransport.js";
 export * from "./background/chrome/chromeObservationService.js";
