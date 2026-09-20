@@ -200,7 +200,8 @@ function isBrowserActAction(value: unknown): boolean {
     nonEmptyString(action.actionId) &&
     nonEmptyString(action.observedRevision) &&
     nonEmptyString(action.ref) &&
-    nonEmptyString(action.authorizationId)
+    nonEmptyString(action.authorizationId) &&
+    action.assurance === undefined
   );
 }
 
@@ -218,7 +219,8 @@ export function isTrustedHostRequest(
         request.origins.every(nonEmptyString);
 
     case "authorization.issue-strict-click":
-      return nonEmptyString(request.authorizationId) &&
+      return request.assurance === undefined &&
+        nonEmptyString(request.authorizationId) &&
         tabId(request.tabId) &&
         nonEmptyString(request.observedRevision) &&
         nonEmptyString(request.ref) &&

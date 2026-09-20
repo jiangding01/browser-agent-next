@@ -50,6 +50,19 @@ describe("HighLevelBrowserApiService", () => {
     });
   });
 
+  it("browser.observe 在 service 层也拒绝无界 maxElements", async () => {
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      { async observe() { return observation(); } } as never,
+      {} as never,
+    );
+
+    await expect(service.observe({
+      tabId: 7,
+      options: { maxElements: 2001 },
+    })).rejects.toThrow(/maxElements/);
+  });
+
   it("browser.verify 只验证指定 retained revision", () => {
     const states = new TabStateStore();
     states.put(observation());

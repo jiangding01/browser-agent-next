@@ -31,11 +31,31 @@ describe("isTrustedHostRequest", () => {
     })).toBe(true);
   });
 
-  it("browser.act 不接受调用方伪造 assurance 或非 click action", () => {
+  it("browser.act 不接受调用方伪造 assurance", () => {
     const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
     expect(isTrustedHostRequest({
       type: "browser.act", requestId: "a", tabId: 7,
-      action: { actionId: "a1", kind: "submit", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth", assurance: "enterprise-policy" },
+      action: { actionId: "a1", kind: "click", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth", assurance: "enterprise-policy" },
+      verification,
+    })).toBe(false);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.issue-strict-click",
+      requestId: "auth",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1000,
+      assurance: "operator-approved",
+    })).toBe(false);
+  });
+
+  it("browser.act 当前拒绝非 click action", () => {
+    const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
+    expect(isTrustedHostRequest({
+      type: "browser.act", requestId: "a", tabId: 7,
+      action: { actionId: "a1", kind: "submit", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth" },
       verification,
     })).toBe(false);
   });

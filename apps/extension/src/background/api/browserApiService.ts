@@ -69,6 +69,65 @@ export interface BrowserApiServiceOptions {
   defaultPollIntervalMs?: number;
 }
 
+function boundedPositiveInteger(
+  value: number | undefined,
+  name: string,
+  max: number,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new BrowserRuntimeError(
+      "POLICY_BLOCKED",
+      name + " must be an integer between 1 and " + max,
+    );
+  }
+  return value;
+}
+
+function normalizedObserveOptions(
+  options: BrowserObserveOptions | undefined,
+): BrowserObserveOptions {
+  if (
+    options?.profile !== undefined &&
+    options.profile !== "dom" &&
+    options.profile !== "hybrid"
+  ) {
+    throw new BrowserRuntimeError(
+      "POLICY_BLOCKED",
+      "unsupported browser.observe profile",
+    );
+  }
+
+  return {
+    ...(options?.profile !== undefined
+      ? { profile: options.profile }
+      : {}),
+    ...(boundedPositiveInteger(
+      options?.maxElements,
+      "maxElements",
+      2_000,
+    ) !== undefined
+      ? { maxElements: options!.maxElements }
+      : {}),
+    ...(boundedPositiveInteger(
+      options?.maxAxElements,
+      "maxAxElements",
+      2_000,
+    ) !== undefined
+      ? { maxAxElements: options!.maxAxElements }
+      : {}),
+    ...(options?.includeValues !== undefined
+      ? { includeValues: options.includeValues }
+      : {}),
+    ...(options?.includeOpenShadowRoots !== undefined
+      ? {
+          includeOpenShadowRoots:
+            options.includeOpenShadowRoots,
+        }
+      : {}),
+  };
+}
+
 function boundedError(error: unknown): string {
   return (
     error instanceof Error ? error.message : "browser observation failed"
@@ -120,7 +179,8 @@ export class HighLevelBrowserApiService {
   }
 
   observe(input: BrowserObserveInput): Promise<BrowserObservation> {
-    const profile = input.options?.profile ?? "hybrid";
+    const options = normalizedObserveOptions(input.options);
+    const profile = options.profile ?? "hybrid";
 
     return this.observations.observe({
       tabId: input.tabId,
@@ -130,16 +190,16 @@ export class HighLevelBrowserApiService {
         : {}),
       options: {
         includeAx: profile === "hybrid",
-        ...(input.options?.maxElements !== undefined
+        ...(options.maxElements !== undefined
           ? { maxElements: input.options.maxElements }
           : {}),
-        ...(input.options?.maxAxElements !== undefined
+        ...(options.maxAxElements !== undefined
           ? { maxAxElements: input.options.maxAxElements }
           : {}),
-        ...(input.options?.includeValues !== undefined
+        ...(options.includeValues !== undefined
           ? { includeValues: input.options.includeValues }
           : {}),
-        ...(input.options?.includeOpenShadowRoots !== undefined
+        ...(options.includeOpenShadowRoots !== undefined
           ? {
               includeOpenShadowRoots:
                 input.options.includeOpenShadowRoots,
