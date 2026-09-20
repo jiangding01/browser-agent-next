@@ -125,12 +125,12 @@ describe("HighLevelBrowserApiService", () => {
       {
         now: () => now,
         sleep: async (ms) => { now += ms; },
-        defaultPollIntervalMs: 10,
+        defaultPollIntervalMs: 50,
       },
     );
 
     const result = await service.wait({
-      tabId: 7, timeoutMs: 100, pollIntervalMs: 10,
+      tabId: 7, timeoutMs: 100, pollIntervalMs: 50,
       verification: {
         mode: "all",
         conditions: [{ type: "url_matches", pattern: "https://fixture.test/done" }],
