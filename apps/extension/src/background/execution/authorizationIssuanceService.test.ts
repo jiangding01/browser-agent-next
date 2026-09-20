@@ -191,7 +191,10 @@ describe("AuthorizationIssuanceService", () => {
     ).toThrow(/ttl is outside/);
 
     expect(() =>
-      service.issueControlPlaneStrictClick(input),
+      service.issueControlPlaneStrictClick({
+        ...input,
+        ttlMs: 500,
+      }),
     ).toThrow(/outside the auto-act allowlist/);
   });
 });
