@@ -16,7 +16,7 @@ PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
 PR #5 Model-facing Adapter Boundary      ✅ 已合并
-PR #6 Assurance Issuance Ingress         🚧 进行中
+PR #6 Assurance Issuance Ingress         ✅ 实现完成，等待合并
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -143,14 +143,28 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - assertion signature 验证通过后仍重新匹配 retained observation origin，并通过统一 issuer 再校验 ref / auto-act origin / minimum assurance；
 - replay ledger 持久化到 `chrome.storage.local`，并限制为 `TRUSTED_CONTEXTS`，因此 MV3 service-worker 重启不会恢复 assertion 可重放性；
 - replay consume 在当前 worker 内串行，持久化失败时 fail closed；
+- replay ledger 只回收已过期 assertion；如果未过期记录已达到容量上限，则拒绝新的 enterprise issuance，绝不驱逐有效 replay 记录；
 - 当前支持单个 managed P-256 key；key rotation / multi-key overlap 后续可按需要扩展。
+
+## PR #6 最终门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests（243）✅
+- Workspace build ✅
+- Operator approval protocol/store/UI ingress tests ✅
+- Enterprise P-256 sign/verify tests ✅
+- Managed policy / persistent replay tests ✅
+- Extension packaging / managed schema via build ✅
+- Real Chromium E2E ✅
+- Final Adversarial Review ✅
 
 ## 下一步
 
-1. 对 operator / enterprise provenance、replay、navigation / restart 语义做最终对抗式 Review；
-2. 增加必要的 Real Chromium / extension packaging gate；
-3. 完成 PR #6 文档收口；
-4. `browser.act` 继续保持 model-facing 不可见，直到后续 scoped authorization broker 完成。
+1. 合并 PR #6；
+2. 下一阶段优先处理 OOPIF / child-frame coordinate projection / actuation；
+3. model-facing `browser.act` 仍保持不可见，Phase 6.6 scoped authorization broker 独立推进；
+4. 之后再进入 Intelligence Layer（deterministic router / Jev / shadow / fast path）。
 
 ## 文档
 
@@ -171,3 +185,4 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Model-facing / trusted control-plane 边界最终对抗式 Review ✅
 
 详见 `docs/PR5-FINAL-REVIEW.md`。
+- `docs/PR6-FINAL-REVIEW.md`：PR #6 最终对抗式审查与 merge gate。

@@ -206,3 +206,18 @@ managed storage 与 replay 使用的 local storage 都会限制到 `TRUSTED_CONT
 签名验证成功后仍不会直接 mint grant：当前 retained observation 的 origin 必须与 signed origin 精确一致，之后统一 issuer 还会再次验证 retained ref、auto-act origin、TTL 与 minimum assurance。
 
 当前是单 P-256 key baseline；后续 key rotation 可以扩展为受管 key set，但不能把 key material 改为由 model/control-plane 请求动态提供。
+
+
+### Replay ledger 满载行为
+
+Enterprise assertion replay ledger 只允许清理已经过期的记录。
+
+如果所有记录仍在有效期内且达到容量上限：
+
+```text
+new enterprise assertion
+→ POLICY_BLOCKED
+→ no grant
+```
+
+实现不得为了腾出空间驱逐尚未过期的 consumed assertion，否则被驱逐 assertion 会重新获得 replay 机会。这里优先选择可用性下降，而不是降低 replay 安全性。

@@ -107,5 +107,5 @@
 97. Enterprise-policy grant 不能由第二个普通 control-plane token 或 caller-supplied assurance 产生；必须验证独立 enterprise proof。
 98. Enterprise authorization assertion 必须签名绑定 authorizationId、tab、revision、ref、origin、action/effect、validity window 与 grant TTL；任一字段修改都必须使签名失效。
 99. Enterprise verification public key 只能来自管理员受管配置；control-plane/model/page 不能在 issuance request 中提供或替换 verification key。
-100. Enterprise assertion 必须 consume-once，且 replay state 必须跨 MV3 service-worker restart 持久化；replay persistence 不可用时必须 fail closed。
+100. Enterprise assertion 必须 consume-once，且 replay state 必须跨 MV3 service-worker restart 持久化；replay persistence 不可用时必须 fail closed。未过期 replay marker 不得因容量限制被驱逐，ledger 满时必须拒绝新的 enterprise issuance。
 101. Enterprise grant TTL 不得超出 signed assertion 的剩余有效期；signature 验证通过后仍必须重新执行 retained observation / ref / origin / minimum assurance 校验。

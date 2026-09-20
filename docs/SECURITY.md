@@ -117,3 +117,15 @@ control-plane/native-host 只是 relay，不能：
 assertion replay ledger 存在 `storage.local` 并同样限制到 trusted contexts，因此 MV3 service-worker restart 不会清掉 replay 记录。持久化失败时 enterprise issuance fail closed。
 
 这条边界的安全性依赖企业私钥在扩展之外安全保存。扩展只持有公开验证 key，不具备企业 assertion 的签名能力。
+
+
+### Replay ledger capacity
+
+Persistent enterprise replay state 采用 fail-closed capacity policy：
+
+- 先清理已过期 assertion id；
+- 未过期记录绝不因容量压力被淘汰；
+- ledger 满时拒绝新的 enterprise issuance；
+- storage 读取、结构校验或持久化失败时同样拒绝 issuance。
+
+这样避免通过大量合法签名 assertion 挤出旧 replay marker 后重新使用旧 assertion。

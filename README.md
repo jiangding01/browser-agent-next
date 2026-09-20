@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1、#2、#3、#4 已合并；PR #5 **Model-facing Adapter Boundary** 已完成实现与最终审查，等待合并。
+PR #1～#5 已合并；PR #6 **Assurance Issuance Ingress** 已完成实现与最终审查，等待合并。
 
 已经完成：
 
@@ -33,7 +33,10 @@ PR #1、#2、#3、#4 已合并；PR #5 **Model-facing Adapter Boundary** 已完�
 - Authorization Assurance、Tab Ownership Registry 与 `browser.*` 高层运行时 API；
 - `browser.wait` 的 event-assisted 唤醒与有界 timeout fallback；
 - model-facing tool allowlist 与独立 read/navigation origin policy baseline；
-- model-visible revision store 与 projected extract/verify/wait baseline。
+- model-visible revision store 与 projected extract/verify/wait baseline；
+- operator-approved 专用人工审批 ingress；
+- enterprise-policy managed-key + signed assertion ingress；
+- enterprise assertion 持久化 consume-once replay ledger。
 
 真实 Chromium 已验证：
 
@@ -58,7 +61,8 @@ DOM Perception
 → main/child Hybrid
 → Authorization Assurance
 → High-level browser.* Runtime
-→ Model-facing Adapter Boundary (PR #5, in progress)
+→ Model-facing Adapter Boundary
+→ Source-bound Authorization Issuance (PR #6)
 ```
 
 child-frame 目前只开放 Perception/Identity；真实点击仍保持 fail closed，等待 top-level coordinate projection 与 projected hit-test。
@@ -100,3 +104,4 @@ pnpm e2e
 - [Model-facing Adapter Boundary](./docs/MODEL-FACING-ADAPTER.md)
 
 - [PR #5 最终审查](./docs/PR5-FINAL-REVIEW.md)
+- [PR #6 最终审查](./docs/PR6-FINAL-REVIEW.md)
