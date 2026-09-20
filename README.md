@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1、PR #2 已合并；PR #3 正在完成 **Child-frame Exact Mapping + Hybrid Perception**。
+PR #1、#2、#3 已合并；PR #4 正在推进 **Authorization Assurance + High-level Browser API**。
 
 已经完成：
 
@@ -90,3 +90,5 @@ pnpm e2e
 - [PR #2 最终审查](./docs/PR2-FINAL-REVIEW.md)
 - [Child-frame Exact Mapping](./docs/CHILD-FRAME.md)
 - [PR #3 最终审查](./docs/PR3-FINAL-REVIEW.md)
+- [Authorization Assurance](./docs/AUTHORIZATION-ASSURANCE.md)
+- [High-level Browser API](./docs/HIGH-LEVEL-API.md)

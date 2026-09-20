@@ -52,4 +52,10 @@
 48. 任一 declared accessible frame 无法建立 exact CDP mapping 时，AX coverage 必须降级为 partial；不能因为其它 frame 成功而报告 complete。
 49. child-frame Hybrid identity 的建立不自动授予 child-frame actuation 能力；在 top-level coordinate projection 与最终 hit-test 完成前，child-frame Strict Click 必须继续 fail closed。
 50. cross-process/OOPIF 若当前 chrome.debugger root session 无法取得对应 execution context/session，则视为 unmapped/degraded frame，而不是通过 URL 或拓扑猜测补齐。
-
+51. Authorization Assurance 必须来自受信 grant 签发边界；模型、页面或调用方 JSON 不能自行声明或提升 assurance。
+52. 现有 Trusted Native Host 只能签发 control-plane assurance；在独立 operator/enterprise ingress 完成前不得伪装成更高等级。
+53. Agent-facing browser.observe 在 Tab Ownership Registry 完成前不得接受调用方 supplied ownedBySession；默认按 user-existing tab 处理。
+54. browser.verify 只能验证指定 retained observation；它不是 fresh live-state proof。
+55. browser.wait 可以重试 observation/verification，但不得执行或重放任何 browser action；当前 polling baseline 不得宣称 event-driven。
+56. browser.act 遇到未支持 action kind 必须 fail closed，不得自动降级 compatible/raw-CDP execution。
+57. Agent-facing Browser API 的集合大小、timeout 和 polling interval 必须有显式上限，避免 untrusted caller 造成无界资源消耗。

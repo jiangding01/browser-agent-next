@@ -5,7 +5,7 @@
 ## 当前分支
 
 ```text
-feat/child-frame-exact-mapping
+feat/high-level-browser-api-assurance
 ```
 
 ## 当前阶段
@@ -13,50 +13,39 @@ feat/child-frame-exact-mapping
 ```text
 PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
-Child-frame Exact Mapping                ✅
-Child-frame Hybrid Perception            ✅
-Child-frame Hybrid Real E2E              ✅
-PR #3 Final Invariants Review            ✅
-Child-frame Strict Execution             🚫 本 PR 明确不开放
-High-level Browser API                   ⏭
+PR #3 Child-frame Hybrid                 ✅ 已合并
+Authorization Assurance                  ✅
+browser.observe                          ✅
+browser.verify                           ✅
+browser.wait baseline                    ✅
+browser.act / Strict Click               ✅
+Real Chromium High-level API E2E         🚧 CI 验证中
+browser.extract                          ⏭
+event-driven wait                        ⏭
 ```
 
-## PR #3 完成内容
+## PR #4 当前完成内容
 
-- frameEpoch-based webNavigation ↔ CDP exact mapping；
-- main + child AX collection；
-- 多 frame DOM↔AX exact linking；
-- Chrome Observation Service integration；
-- exact mapping 缺失时 AX coverage=partial；
-- frameEpoch collision fail closed；
-- child reload linked identity lifecycle；
-- 同一 main document 下 child reload 不旋转 main ref；
-- child linked target 的 Strict Prepare 继续 fail closed；
-- OOPIF/root-session 不可见场景显式降级，不做 URL 猜测。
-
-详细设计见：
-
-- `docs/CHILD-FRAME.md`
-- `docs/PR3-FINAL-REVIEW.md`
+- AuthorizationAssurance：control-plane / operator-approved / enterprise-policy；
+- grant consume 按 minimum assurance 校验；
+- trusted-host 只能签发 control-plane，不能由请求自报升级；
+- 高层 browser.observe 默认 Hybrid；
+- 高层 API 不接受 ownedBySession，当前安全默认按 user-existing tab；
+- browser.verify 只验证指定 retained revision；
+- browser.wait 只重复 fresh observation + verification，不执行动作；
+- browser.act 第一版只接 Strict Click；
+- trusted protocol 对 API 输入做数量、timeout、poll interval 等边界校验；
+- 真实 Chromium trusted E2E 已改为通过 browser.observe / verify / wait / act 驱动主闭环。
 
 ## 当前边界
 
-PR #3 解决的是：
+`browser.wait` 当前是 bounded polling baseline，不宣称 event-driven。
 
-```text
-Child-frame Perception + Identity + Lifecycle
-```
+`browser.act` 只支持 main-frame Strict Click；child-frame actuation 继续 fail closed。
 
-没有解决：
+## 下一步
 
-```text
-Child-frame top-level coordinate projection + Actuation
-```
-
-这是为了避免把 frame-local point 错当成 top-level CDP Input point。
-
-## 合并状态
-
-PR #3 最终 Review 已完成；最新实现 CI #57 已全绿。
-
-本次文档/对抗测试收口提交的 CI 再次全绿后，即可合并 PR #3。
+1. 等待并处理最新 CI / Real Chromium E2E；
+2. 对 High-level API 做最终对抗式 Review；
+3. 决定 PR #4 是否同时加入 browser.extract，或拆到下一 PR；
+4. 收口后再通知合并。
