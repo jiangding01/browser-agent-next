@@ -112,7 +112,12 @@ export class ChromeDebuggerReadTransport {
   constructor(private readonly debuggerApi: ChromeDebuggerApi) {
     this.debuggerApi.onEvent?.addListener((source, method, params) => {
       const tabId = source.tabId;
-      if (tabId === undefined) return;
+      if (
+        tabId === undefined ||
+        !this.attached.has(tabId)
+      ) {
+        return;
+      }
 
       if (method === "Target.attachedToTarget") {
         this.recordAttachedChildSession(tabId, source.sessionId, params);
@@ -121,6 +126,15 @@ export class ChromeDebuggerReadTransport {
 
       if (method === "Target.detachedFromTarget") {
         this.recordDetachedChildSession(tabId, params);
+        return;
+      }
+
+      if (
+        source.sessionId !== undefined &&
+        !this.childSessionsByTab
+          .get(tabId)
+          ?.has(source.sessionId)
+      ) {
         return;
       }
 
@@ -265,8 +279,17 @@ export class ChromeDebuggerReadTransport {
     if (!sessions) return [];
 
     const bindings: RuntimeExecutionContextBinding[] = [];
+    const childSessions =
+      this.childSessionsByTab.get(tabId);
 
     for (const [key, contexts] of sessions) {
+      if (
+        key !== ROOT_SESSION_KEY &&
+        !childSessions?.has(key)
+      ) {
+        continue;
+      }
+
       for (const context of contexts.values()) {
         if (context.auxData?.frameId !== cdpFrameId) continue;
 
@@ -359,7 +382,16 @@ export class ChromeDebuggerReadTransport {
       return;
     }
 
-    let sessions = this.childSessionsByTab.get(tabId);
+    let sessions =
+      this.childSessionsByTab.get(tabId);
+
+    if (
+      parentSessionId !== undefined &&
+      !sessions?.has(parentSessionId)
+    ) {
+      return;
+    }
+
     if (!sessions) {
       sessions = new Map();
       this.childSessionsByTab.set(tabId, sessions);

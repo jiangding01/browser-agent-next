@@ -90,6 +90,40 @@ describe("ChromeDebuggerReadTransport", () => {
     expect(transport.isAttached(7)).toBe(false);
     expect(transport.contextsForFrame(7, "cdp-main")).toEqual([]);
     expect(transport.childSessions(7)).toEqual([]);
+
+    // debugger 已 detach 后的迟到事件不能重新污染 root/child registry。
+    eventListener?.(
+      { tabId: 7 },
+      "Runtime.executionContextCreated",
+      {
+        context: {
+          id: 99,
+          auxData: {
+            frameId: "cdp-late-root",
+            isDefault: false,
+          },
+        },
+      },
+    );
+    eventListener?.(
+      { tabId: 7 },
+      "Target.attachedToTarget",
+      {
+        sessionId: "late-session",
+        targetInfo: {
+          targetId: "late-target",
+          type: "iframe",
+        },
+      },
+    );
+
+    expect(
+      transport.contextBindingsForFrame(
+        7,
+        "cdp-late-root",
+      ),
+    ).toEqual([]);
+    expect(transport.childSessions(7)).toEqual([]);
   });
 
   it("记录 OOPIF flat child session，并递归初始化 nested iframe auto-attach", async () => {
@@ -327,6 +361,40 @@ describe("ChromeDebuggerReadTransport", () => {
     expect(
       transport.contextBindingsForFrame(7, "cdp-nested"),
     ).toEqual([]);
+
+    // 已 detach 的 child/parent session 的迟到事件不能复活 context/session。
+    eventListener?.(
+      { tabId: 7, sessionId: "child" },
+      "Runtime.executionContextCreated",
+      {
+        context: {
+          id: 62,
+          auxData: {
+            frameId: "cdp-late-nested",
+            isDefault: false,
+          },
+        },
+      },
+    );
+    eventListener?.(
+      { tabId: 7, sessionId: "parent" },
+      "Target.attachedToTarget",
+      {
+        sessionId: "late-child",
+        targetInfo: {
+          targetId: "target-late-child",
+          type: "iframe",
+        },
+      },
+    );
+
+    expect(
+      transport.contextBindingsForFrame(
+        7,
+        "cdp-late-nested",
+      ),
+    ).toEqual([]);
+    expect(transport.childSessions(7)).toEqual([]);
   });
 
   it("flat auto-attach 不可用时保留 root 功能并让 OOPIF 能力 fail closed", async () => {

@@ -31,7 +31,8 @@
   - [x] Real Chromium child Strict Click dispatch E2E
   - [x] navigation/detach/projection fail-closed E2E
   - [x] scroll + affine transform actuation / perspective fail-closed E2E
-  - [ ] nested parent-owner occlusion fail-closed — implemented, CI pending
+  - [x] nested parent-owner occlusion fail-closed
+  - [ ] detached child-session late-event hardening — implemented, CI pending
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

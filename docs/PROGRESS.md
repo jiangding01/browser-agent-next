@@ -174,7 +174,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ child-frame Strict Click dispatch 已完成真实 Chromium 闭环；
 - ✅ 第七小步：child reload / iframe detach stale target fail-closed E2E；
 - ✅ 第八小步：scroll + affine transform OOPIF 实际点击 / perspective fail-closed Real Chromium E2E；
-- 🚧 第九小步：nested projection 每一层 parent iframe owner hit-test fail-closed 已实现，等待 CI；
+- ✅ 第九小步：nested projection 每一层 parent iframe owner hit-test fail-closed；
+- 🚧 第十小步：detached child session late-event resurrection 防护已实现，等待 CI；
 - 🚧 Real Chromium OOPIF / child-frame actuation 最终对抗式 Review 收口中。
 
 ### PR #7 第一小步：flat child-session transport
