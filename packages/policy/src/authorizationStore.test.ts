@@ -14,6 +14,36 @@ describe("authorizationAssuranceSatisfies", () => {
 });
 
 describe("InMemoryAuthorizationStore", () => {
+  it("trusted-host 不能在 store 层伪造更高 assurance", () => {
+    const store = new InMemoryAuthorizationStore({
+      now: () => 1000,
+    });
+
+    expect(() => store.issue({
+      id: "forged",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: "click",
+      effectClass: "unknown",
+      assurance: "operator-approved",
+      ttlMs: 5000,
+      source: "trusted-host",
+    })).toThrow(/cannot issue assurance/);
+
+    expect(() => store.issue({
+      id: "enterprise-forged",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: "click",
+      effectClass: "unknown",
+      assurance: "enterprise-policy",
+      ttlMs: 5000,
+      source: "trusted-ui",
+    })).toThrow(/cannot issue assurance/);
+  });
+
   it("授权精确绑定且默认单次消费", () => {
     const store = new InMemoryAuthorizationStore({ now: () => 1000 });
     store.issue({

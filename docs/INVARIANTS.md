@@ -61,3 +61,4 @@
 57. Agent-facing Browser API 的集合大小、timeout 和 polling interval 必须有显式上限，避免 untrusted caller 造成无界资源消耗。
 58. unknown effect 在用户已有 Tab 上至少要求 operator-approved；control-plane 只能覆盖可信证明为 Agent-owned 的 unknown action。
 59. 高层 observation 单次 candidate 上限必须与传输预算匹配；当前 DOM/AX 各最多 500，超大 action space 应通过 truncation/scoping/paging 处理，而不是无界扩大 Native Messaging payload。
+60. authorization source 必须具有自己的 assurance ceiling；trusted-host 最高只能 control-plane，不能只依赖 ingress 层硬编码来阻止权限升级。

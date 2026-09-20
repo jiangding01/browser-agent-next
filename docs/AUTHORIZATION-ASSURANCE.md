@@ -59,3 +59,18 @@ generic click 当前仍保守分类为 `unknown`。在可信 Tab Ownership 能�
 - Jev/LLM 输出。
 
 Assurance 只能由受信签发边界产生。
+
+
+## Source ceiling
+
+签发源本身也有 assurance ceiling，AuthorizationStore 会再次校验：
+
+| Source | Maximum assurance |
+|---|---|
+| trusted-host | control-plane |
+| trusted-ui | operator-approved |
+| enterprise-policy | enterprise-policy |
+
+因此即使上层服务存在 bug，`trusted-host + operator-approved` 这类组合也会在 store 层 fail closed。
+
+签发源本身也有 assurance ceiling，不能仅依赖某一个 ingress 正确地硬编码 assurance。

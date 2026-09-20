@@ -16,7 +16,10 @@ export interface AuthorizationGrant {
   issuedAt: number;
   expiresAt: number;
   singleUse: boolean;
-  source: "trusted-ui" | "trusted-host";
+  source:
+    | "trusted-host"
+    | "trusted-ui"
+    | "enterprise-policy";
 }
 
 export interface IssueAuthorizationInput {
@@ -67,6 +70,15 @@ const ASSURANCE_RANK: Record<AuthorizationAssurance, number> = {
   "enterprise-policy": 3,
 };
 
+const SOURCE_MAX_ASSURANCE: Record<
+  AuthorizationGrant["source"],
+  AuthorizationAssurance
+> = {
+  "trusted-host": "control-plane",
+  "trusted-ui": "operator-approved",
+  "enterprise-policy": "enterprise-policy",
+};
+
 export function authorizationAssuranceSatisfies(
   actual: AuthorizationAssurance,
   minimum: AuthorizationAssurance,
@@ -100,6 +112,23 @@ export class InMemoryAuthorizationStore {
     }
     if (!Number.isFinite(input.ttlMs) || input.ttlMs <= 0) {
       throw new Error("authorization ttlMs must be > 0");
+    }
+
+    const maximumAssurance =
+      SOURCE_MAX_ASSURANCE[input.source];
+
+    if (
+      !authorizationAssuranceSatisfies(
+        maximumAssurance,
+        input.assurance,
+      )
+    ) {
+      throw new Error(
+        "authorization source " +
+          input.source +
+          " cannot issue assurance " +
+          input.assurance,
+      );
     }
 
     const issuedAt = this.now();
