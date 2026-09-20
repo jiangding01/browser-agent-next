@@ -29,5 +29,9 @@
       "all_frames": true,
       "match_origin_as_fallback": true
     }
-  ]
+  ],
+  "action": {
+    "default_title": "Browser Agent 审批",
+    "default_popup": "operator-approval.html"
+  }
 }

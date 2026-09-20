@@ -67,6 +67,46 @@ describe("isTrustedHostRequest", () => {
     })).toBe(true);
   });
 
+  it("operator approval request 不能自报 assurance/source", () => {
+    expect(isTrustedHostRequest({
+      type: "authorization.request-operator-approval",
+      requestId: "op",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1000,
+    })).toBe(true);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.operator-approval-status",
+      requestId: "status",
+      approvalRequestId: "operator-1",
+    })).toBe(true);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.request-operator-approval",
+      requestId: "op",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1000,
+      assurance: "operator-approved",
+    })).toBe(false);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.request-operator-approval",
+      requestId: "op",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1000,
+      source: "trusted-ui",
+    })).toBe(false);
+  });
+
   it("browser.act 不接受调用方伪造 assurance", () => {
     const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
     expect(isTrustedHostRequest({

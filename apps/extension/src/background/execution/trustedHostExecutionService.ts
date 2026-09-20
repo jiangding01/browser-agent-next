@@ -21,6 +21,9 @@ import type {
   StrictClickAuthorizationInput,
   StrictClickAuthorizationIssuanceService,
 } from "./authorizationIssuanceService.js";
+import type {
+  OperatorApprovalStore,
+} from "./operatorApprovalStore.js";
 
 export type TrustedAuthorizationInput =
   StrictClickAuthorizationInput;
@@ -48,6 +51,7 @@ export interface TrustedHostExecutionServiceOptions {
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   maxVerifyTimeoutMs?: number;
+  operatorApprovals?: OperatorApprovalStore;
 }
 
 function boundedError(error: unknown): string {
@@ -84,6 +88,8 @@ export class TrustedHostExecutionService {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pollIntervalMs: number;
   private readonly maxVerifyTimeoutMs: number;
+  private readonly operatorApprovals:
+    OperatorApprovalStore | undefined;
 
   constructor(
     private readonly states: TabStateStore,
@@ -108,6 +114,8 @@ export class TrustedHostExecutionService {
       options.pollIntervalMs ?? 100;
     this.maxVerifyTimeoutMs =
       options.maxVerifyTimeoutMs ?? 5_000;
+    this.operatorApprovals =
+      options.operatorApprovals;
   }
 
   replaceAutoActOrigins(
@@ -121,6 +129,34 @@ export class TrustedHostExecutionService {
   ) {
     return this.authorizationIssuance
       .issueControlPlane(input);
+  }
+
+  requestOperatorApproval(
+    input: TrustedAuthorizationInput,
+  ) {
+    if (!this.operatorApprovals) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "operator approval ingress is unavailable",
+      );
+    }
+
+    return this.operatorApprovals
+      .request(input);
+  }
+
+  operatorApprovalStatus(
+    approvalRequestId: string,
+  ) {
+    if (!this.operatorApprovals) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "operator approval ingress is unavailable",
+      );
+    }
+
+    return this.operatorApprovals
+      .status(approvalRequestId);
   }
 
   async executeStrictClickAndVerify(

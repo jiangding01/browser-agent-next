@@ -24,6 +24,20 @@ export type TrustedHostRequest =
       ttlMs: number;
     }
   | {
+      type: "authorization.request-operator-approval";
+      requestId: string;
+      authorizationId: string;
+      tabId: number;
+      observedRevision: string;
+      ref: string;
+      ttlMs: number;
+    }
+  | {
+      type: "authorization.operator-approval-status";
+      requestId: string;
+      approvalRequestId: string;
+    }
+  | {
       type: "execution.execute-strict-click";
       requestId: string;
       actionId: string;
@@ -228,6 +242,23 @@ export function isTrustedHostRequest(
         nonEmptyString(request.ref) &&
         optionalFiniteNumber(request.ttlMs, 1, 60_000) &&
         request.ttlMs !== undefined;
+
+    case "authorization.request-operator-approval":
+      return request.assurance === undefined &&
+        request.source === undefined &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256 &&
+        tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        request.observedRevision.length <= 256 &&
+        nonEmptyString(request.ref) &&
+        request.ref.length <= 256 &&
+        optionalFiniteNumber(request.ttlMs, 1, 60_000) &&
+        request.ttlMs !== undefined;
+
+    case "authorization.operator-approval-status":
+      return nonEmptyString(request.approvalRequestId) &&
+        request.approvalRequestId.length <= 256;
 
     case "execution.execute-strict-click":
       return nonEmptyString(request.actionId) &&

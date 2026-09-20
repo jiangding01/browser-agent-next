@@ -31,7 +31,7 @@
 - [x] minimum assurance by Effect Class
 - [x] trusted-host cannot self-upgrade assurance
 - [x] shared strict-click issuance core with source-bound provenance
-- [ ] operator-approved issuance ingress
+- [x] operator-approved issuance ingress
 - [ ] enterprise-policy issuance ingress
 
 ## Phase 6 — High-level API

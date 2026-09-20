@@ -118,3 +118,37 @@ issueEnterprisePolicy()   → enterprise-policy → enterprise-policy
 - grant 继续精确绑定 tab/revision/ref/action/effect，默认 single-use。
 
 这个统一 core **不等于 operator/enterprise ingress 已完成**。下一步仍需要分别建立能证明“人工批准”和“企业策略证明”的独立入口。
+
+
+## Operator-approved ingress
+
+operator-approved 不通过现有 trusted-host token 直接签发。
+
+当前流程：
+
+```text
+control-plane
+  ↓ request pending approval
+OperatorApprovalStore
+  ↓ visible pending item
+chrome-extension://<id>/operator-approval.html
+  ↓ explicit approve click
+trusted UI ingress
+  ↓
+issueOperatorApproved()
+  ↓
+AuthorizationGrant(source=trusted-ui, assurance=operator-approved)
+```
+
+control-plane 只拥有两种能力：
+
+- 创建 pending approval；
+- 查询 pending / approved / rejected / expired / invalidated 状态。
+
+协议中不存在 control-plane 的 `approve` 操作。
+
+真正批准消息只接受来自精确扩展审批页 URL 的 sender，并且 UI 协议采用 exact-key schema；调用方无法在消息中声明 `source` 或 `assurance`。
+
+pending approval 本身不会创建 grant。批准时会重新执行统一 issuer 的 retained observation / ref / origin / TTL / minimum assurance 校验，因此请求产生后如果发生 navigation、ref 失效或 policy 变化，批准会 fail closed。
+
+任意 committed navigation 或 tab removal 都会同时清理 active grant 和 pending approval。批准、拒绝、过期、失效后的 request id 都不能再次批准。

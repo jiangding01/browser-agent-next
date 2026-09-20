@@ -42,6 +42,13 @@ import {
   type TrustedNativeRuntimeApi,
 } from "./execution/trustedNativeIngress.js";
 import {
+  OperatorApprovalStore,
+} from "./execution/operatorApprovalStore.js";
+import {
+  registerOperatorApprovalUiIngress,
+  type OperatorApprovalRuntimeApi,
+} from "./execution/operatorApprovalIngress.js";
+import {
   type ChromeLifecycleApi,
   bindChromeDomLifecycle,
 } from "./chrome/chromeLifecycleBinding.js";
@@ -169,6 +176,13 @@ const authorizationIssuance =
     autoActOrigins,
   );
 
+const operatorApprovals =
+  new OperatorApprovalStore(
+    states,
+    autoActOrigins,
+    authorizationIssuance,
+  );
+
 const clickDispatcher =
   new ChromeStrictClickDispatcher(
     debuggerTransport,
@@ -189,6 +203,9 @@ const trustedHostService =
     authorizationIssuance,
     policyGatedClick,
     perceptionService,
+    {
+      operatorApprovals,
+    },
   );
 
 const browserApiService =
@@ -216,12 +233,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 bindAuthorizationLifecycle(
   chrome,
   authorizations,
+  operatorApprovals,
 );
 
 registerObserveTabBackgroundListener(
   chrome.runtime,
   perceptionService,
   tabOwnership,
+);
+
+registerOperatorApprovalUiIngress(
+  chrome.runtime as unknown as
+    OperatorApprovalRuntimeApi,
+  operatorApprovals,
 );
 
 // 普通 Extension runtime message 只暴露 prepare，不暴露真实 input dispatch。

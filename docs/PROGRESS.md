@@ -116,13 +116,27 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 调用方不能通过 input 自报 source/assurance；
 - 三条路径共享 retained observation / ref / origin / TTL / minimum assurance 校验；
 - 现有 trusted-host 只委托 control-plane issuance，外部协议行为保持不变；
-- operator-approved 与 enterprise-policy 的真实独立 ingress 尚未开放。
+- operator-approved 独立人工审批 ingress 已完成 baseline；
+- enterprise-policy 独立证明 ingress 尚未开放。
+
+## Operator-approved ingress baseline
+
+- control-plane 只能创建 pending approval / 查询 status，不能直接 approve；
+- pending request 精确绑定 authorizationId / tab / revision / ref / TTL；
+- pending request 有独立过期时间、容量上限与重复 authorizationId 防护；
+- 专用 Extension action popup 展示 origin、页面标题、role/name/ref，并提供“批准一次 / 拒绝”；
+- 真正 approve 只接受精确 `chrome-extension://<id>/operator-approval.html` sender；
+- popup message 使用 exact-key schema，不能夹带 source / assurance；
+- approve 单次消费 pending，并在签发前重新调用统一 issuer；
+- navigation / tab removal 同时撤销 active grant 与 pending approval；
+- reject / expire / lifecycle invalidation 都不会产生 grant；
+- trusted-host 协议不存在 operator approve 消息类型。
 
 ## 下一步
 
-1. 实现 operator-approved 独立人工审批 ingress；
-2. 实现 enterprise-policy 独立证明 ingress；
-3. 对 provenance、replay、navigation invalidation 做对抗式测试；
+1. 实现 enterprise-policy 独立证明 ingress；
+2. 对 operator provenance / replay / navigation invalidation 增加最终对抗式复核；
+3. 完成 PR #6 文档与 E2E 收口；
 4. `browser.act` 继续保持 model-facing 不可见，直到后续 scoped authorization broker 完成。
 
 ## 文档

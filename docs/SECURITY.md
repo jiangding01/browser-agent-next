@@ -82,3 +82,19 @@ trusted browser.open
 普通 `runtime.onMessage` 的 perception 请求不能携带 `ownedBySession`。即使请求来自 Extension 自己的页面/上下文，也不能通过该字段把用户已有 Tab 提升成 Agent-owned。
 
 MV3 service worker restart 后 registry 丢失，旧 Tab 会安全降级为 user-existing，而不是猜测恢复 ownership。
+
+
+## Operator approval UI boundary
+
+`operator-approved` 的 baseline 由专用 Extension action popup 提供人工审批路径。
+
+background 只接受 sender 同时满足：
+
+```text
+sender.id  == current extension id
+sender.url == chrome-extension://<id>/operator-approval.html
+```
+
+control-plane/native-host 只能创建 pending request 和读取状态，不能调用 approve。批准按钮触发后，pending request 会被单次消费，并在真正签发前重新验证 retained observation、ref、origin 与 assurance requirement。
+
+这个边界表示“来自受信扩展审批 UI 的明确批准路径”，仍不应被描述成对拥有同 UID 任意桌面自动化、调试器或扩展代码修改能力的攻击者提供 OS 级硬隔离。更强部署仍应使用独立 OS 用户、宿主审批进程或企业策略服务。

@@ -93,6 +93,93 @@ describe("connectTrustedNativeIngress", () => {
       },
     });
   });
+  it("control-plane 只能 request/status operator approval，不能直接 approve", async () => {
+    let listener:
+      | ((message: unknown) => void)
+      | undefined;
+    const responses: any[] = [];
+    const calls: string[] = [];
+
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage(message: unknown) {
+              responses.push(message);
+            },
+            disconnect() {},
+            onMessage: {
+              addListener(
+                next: (message: unknown) => void,
+              ) {
+                listener = next;
+              },
+              removeListener() {},
+            },
+            onDisconnect: {
+              addListener() {},
+              removeListener() {},
+            },
+          };
+        },
+      },
+      {
+        requestOperatorApproval() {
+          calls.push("request");
+          return {
+            approvalRequestId: "operator-1",
+            state: "pending",
+          };
+        },
+        operatorApprovalStatus() {
+          calls.push("status");
+          return {
+            approvalRequestId: "operator-1",
+            state: "pending",
+          };
+        },
+      } as never,
+    );
+
+    listener?.({
+      type: "authorization.request-operator-approval",
+      requestId: "request",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1_000,
+    });
+
+    listener?.({
+      type: "authorization.operator-approval-status",
+      requestId: "status",
+      approvalRequestId: "operator-1",
+    });
+
+    // 不存在 trusted-host approve 消息类型。
+    listener?.({
+      type: "authorization.approve-operator",
+      requestId: "forged",
+      approvalRequestId: "operator-1",
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual([
+      "request",
+      "status",
+    ]);
+    expect(
+      responses.some(
+        (response) =>
+          response.requestId === "forged" &&
+          response.ok === false,
+      ),
+    ).toBe(true);
+  });
+
   it("高层 browser.observe/verify/wait/act 通过同一 trusted ingress 路由", async () => {
     let listener: ((message: unknown) => void) | undefined;
     const responses: any[] = [];
