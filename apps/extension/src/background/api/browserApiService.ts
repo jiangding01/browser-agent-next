@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  type BrowserActionKind,
   type BrowserObservation,
   type VerificationResult,
   type VerificationSpec,
@@ -51,10 +52,10 @@ export interface BrowserActInput {
   tabId: number;
   action: {
     actionId: string;
-    kind: "click";
+    kind: BrowserActionKind;
     observedRevision: string;
-    ref: string;
-    authorizationId: string;
+    ref?: string;
+    authorizationId?: string;
   };
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
@@ -250,6 +251,13 @@ export class HighLevelBrowserApiService {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",
         "browser.act currently supports strict click only",
+      );
+    }
+
+    if (!input.action.ref || !input.action.authorizationId) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "browser.act strict click requires ref and authorizationId",
       );
     }
 
