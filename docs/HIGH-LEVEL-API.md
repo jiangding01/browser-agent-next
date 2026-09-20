@@ -9,11 +9,31 @@
 当前 trusted RPC 已暴露：
 
 ```text
+browser.open
 browser.observe
+browser.extract
 browser.verify
 browser.wait
 browser.act
 ```
+
+## browser.open
+
+`browser.open` 是当前唯一可以 mint Agent-owned Tab 的高层入口。
+
+它只接受：
+
+- absolute http/https URL；
+- 无 URL credentials；
+- 有界 URL 长度。
+
+调用成功后，Runtime 仅根据真实 `chrome.tabs.create` 返回的 tabId 写入 Tab Ownership Registry。
+
+返回的 `requestedUrl` 只表示创建请求的目标 URL，不表示页面已经完成导航，也不表示最终 committed URL。实际 URL 必须通过后续 `browser.observe` 获取。
+
+调用方不能通过 `ownedBySession=true`、`claim(tabId)` 等方式提升已有 Tab 的 ownership。
+
+MV3 service worker 重启后 ownership registry 丢失时，已有 Tab 自动安全降级为 user-existing。
 
 ## browser.observe
 
@@ -30,15 +50,35 @@ browser.act
 
 高层 API **不接受 `ownedBySession`**。
 
-在独立 Tab Ownership Registry 完成之前，高层 API 统一把目标视为 user-existing tab：
+ownership 来自 Tab Ownership Registry，而不是请求字段：
 
-```text
-ownedBySession = false
-```
+- `browser.open` 创建的 Tab：`ownedBySession=true`；
+- 未记录的 Tab：`ownedBySession=false`；
+- MV3 restart 后无法证明 ownership 的 Tab：`ownedBySession=false`。
 
-这是安全默认，避免 Agent 自己声称“这个 Tab 是我创建的”从而降低 Policy 门槛。因此当前由高层 browser.observe 得到的 user-existing observation，generic unknown click 不能只靠 control-plane grant 执行；需要后续 operator-approved issuance 或可信 Tab Ownership Registry。
+因此用户已有 Tab 的 generic unknown click 不能只靠 control-plane grant 执行；而 Runtime 自己通过 `browser.open` 创建的 Tab，可以沿用 control-plane baseline。
 
 单次高层 observation 当前最多请求 500 个 DOM/AX candidate。更大的页面通过 coverage=truncated 明确暴露不完整性，而不是冒险让 Native Messaging 返回超大状态。后续如需更大 action space，应优先增加 scoped/paged observation。
+
+## browser.extract
+
+`browser.extract` 只读取指定 retained BrowserObservation。
+
+它不会：
+
+- 接收 CSS/XPath selector；
+- 执行 caller supplied JavaScript；
+- 绕过 observation profile 去重新扫描 live DOM。
+
+可选 `refs` 与 `maxItems` 都有严格上限，并返回：
+
+- items；
+- missingRefs；
+- truncated；
+- totalMatched；
+- actionableCoverage。
+
+因此 missing ref 本身不是“页面中确定不存在”的证明；是否可证明 absence 仍取决于原 observation coverage。
 
 ## browser.verify
 
@@ -113,9 +153,7 @@ Stored Observation
 
 ## 当前未完成
 
-- browser.extract；
 - event-driven wait；
-- Tab Ownership Registry；
 - operator-approved / enterprise-policy issuance ingress；
 - child-frame Strict Click；
 - OOPIF exact session mapping。

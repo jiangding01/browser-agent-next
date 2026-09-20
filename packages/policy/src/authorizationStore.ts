@@ -70,13 +70,13 @@ const ASSURANCE_RANK: Record<AuthorizationAssurance, number> = {
   "enterprise-policy": 3,
 };
 
-const SOURCE_MAX_ASSURANCE: Record<
+const SOURCE_ALLOWED_ASSURANCE: Record<
   AuthorizationGrant["source"],
-  AuthorizationAssurance
+  ReadonlySet<AuthorizationAssurance>
 > = {
-  "trusted-host": "control-plane",
-  "trusted-ui": "operator-approved",
-  "enterprise-policy": "enterprise-policy",
+  "trusted-host": new Set(["control-plane"]),
+  "trusted-ui": new Set(["operator-approved"]),
+  "enterprise-policy": new Set(["enterprise-policy"]),
 };
 
 export function authorizationAssuranceSatisfies(
@@ -114,19 +114,14 @@ export class InMemoryAuthorizationStore {
       throw new Error("authorization ttlMs must be > 0");
     }
 
-    const maximumAssurance =
-      SOURCE_MAX_ASSURANCE[input.source];
+    const allowedAssurance =
+      SOURCE_ALLOWED_ASSURANCE[input.source];
 
-    if (
-      !authorizationAssuranceSatisfies(
-        maximumAssurance,
-        input.assurance,
-      )
-    ) {
+    if (!allowedAssurance.has(input.assurance)) {
       throw new Error(
         "authorization source " +
           input.source +
-          " cannot issue assurance " +
+          " cannot issue assurance label " +
           input.assurance,
       );
     }

@@ -42,6 +42,19 @@ describe("InMemoryAuthorizationStore", () => {
       ttlMs: 5000,
       source: "trusted-ui",
     })).toThrow(/cannot issue assurance/);
+
+    // assurance label 表示来源/证明类型，不是可以随意向下重标的“等级数字”。
+    expect(() => store.issue({
+      id: "enterprise-mislabeled",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: "click",
+      effectClass: "unknown",
+      assurance: "operator-approved",
+      ttlMs: 5000,
+      source: "enterprise-policy",
+    })).toThrow(/cannot issue assurance label/);
   });
 
   it("授权精确绑定且默认单次消费", () => {

@@ -67,3 +67,6 @@
 \n
 53. browser.extract 只能读取 retained BrowserObservation；不得绕过 observation profile 直接执行 caller supplied selector/JS。missing ref 不能脱离原 observation coverage 被解释为页面真实不存在。
 \n
+54. authorization assurance label 不得因为“强度更高”而被重标成另一种证明类型；签发源与 assurance label 必须按受信入口精确绑定，Policy 的满足关系与 grant provenance 是两个独立概念。
+55. browser.open 返回的 requestedUrl 只证明请求目标，不证明导航完成或最终 URL；committed/final URL 必须来自后续 BrowserObservation。
+\n

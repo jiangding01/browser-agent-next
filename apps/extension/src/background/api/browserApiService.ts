@@ -253,7 +253,7 @@ export class HighLevelBrowserApiService {
 
     return {
       tabId: created.id,
-      url: created.url ?? parsed.href,
+      requestedUrl: parsed.href,
       ownedBySession: true,
     };
   }

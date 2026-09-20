@@ -6,15 +6,21 @@
 
 把“是否存在 authorization”升级为“authorization 具有什么保证等级”。
 
-当前等级按最低保证强度排序：
+当前定义三个 assurance label：
 
 ```text
 control-plane
-      <
 operator-approved
-      <
 enterprise-policy
 ```
+
+Policy 在判断“某个授权是否满足最低要求”时使用强度顺序：
+
+```text
+control-plane < operator-approved < enterprise-policy
+```
+
+但 **grant label 本身仍表示真实签发来源/证明类型，不能因为强度更高就随意向下重标**。
 
 - `control-plane`：请求来自可信控制面；不等价于人工确认。
 - `operator-approved`：明确由操作者批准。
@@ -61,16 +67,28 @@ generic click 当前仍保守分类为 `unknown`。在可信 Tab Ownership 能�
 Assurance 只能由受信签发边界产生。
 
 
-## Source ceiling
+## Source ↔ assurance exact binding
 
-签发源本身也有 assurance ceiling，AuthorizationStore 会再次校验：
+签发源与 assurance label 当前是精确绑定关系：
 
-| Source | Maximum assurance |
+| Source | Allowed assurance label |
 |---|---|
 | trusted-host | control-plane |
 | trusted-ui | operator-approved |
 | enterprise-policy | enterprise-policy |
 
-因此即使上层服务存在 bug，`trusted-host + operator-approved` 这类组合也会在 store 层 fail closed。
+因此以下组合都会在 AuthorizationStore 层 fail closed：
 
-签发源本身也有 assurance ceiling，不能仅依赖某一个 ingress 正确地硬编码 assurance。
+- trusted-host + operator-approved；
+- trusted-ui + enterprise-policy；
+- enterprise-policy + operator-approved。
+
+最后一种尤其重要：enterprise-policy 可以在 Policy 判断中满足 operator-approved 的最低门槛，但 grant 仍必须保持 `enterprise-policy` 标签，不能伪装成“发生过人工批准”。
+
+这把两个概念分开：
+
+```text
+谁签发了 grant / 证明类型
+        ≠
+该 assurance 是否满足某个最低策略门槛
+```

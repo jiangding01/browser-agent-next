@@ -95,7 +95,7 @@ describe("HighLevelBrowserApiService", () => {
 
     expect(opened).toEqual({
       tabId: 88,
-      url: "https://fixture.test/start?q=1",
+      requestedUrl: "https://fixture.test/start?q=1",
       ownedBySession: true,
     });
     expect(createdInput).toEqual({

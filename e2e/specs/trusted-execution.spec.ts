@@ -485,7 +485,7 @@ test(
       expect(openResponse).toMatchObject({
         ok: true,
         result: {
-          url: mainUrl,
+          requestedUrl: mainUrl,
           ownedBySession: true,
         },
       });

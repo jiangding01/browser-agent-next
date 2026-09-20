@@ -28,7 +28,13 @@ export interface BrowserOpenInput {
 
 export interface BrowserOpenResult {
   tabId: number;
-  url: string;
+
+  /**
+   * tabs.create 接受的规范化目标 URL。
+   *
+   * 这不是 committed/final URL 的证明；实际页面 URL 必须通过 browser.observe 获取。
+   */
+  requestedUrl: string;
   ownedBySession: true;
 }
 
