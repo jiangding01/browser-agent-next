@@ -58,6 +58,7 @@ import {
   IsolatedWorldDomStableIdInspector,
 } from "./perception/domStableIdInspector.js";
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
+import { HighLevelBrowserApiService } from "./api/browserApiService.js";
 
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
   runtime:
@@ -162,6 +163,13 @@ const trustedHostService =
     perceptionService,
   );
 
+const browserApiService =
+  new HighLevelBrowserApiService(
+    states,
+    perceptionService,
+    trustedHostService,
+  );
+
 bindChromeDomLifecycle(chrome, lifecycle);
 bindAuthorizationLifecycle(
   chrome,
@@ -184,4 +192,5 @@ registerStrictExecutionBackgroundListener(
 connectTrustedNativeIngress(
   chrome.runtime,
   trustedHostService,
+  browserApiService,
 );
