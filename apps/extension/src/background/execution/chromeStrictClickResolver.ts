@@ -202,9 +202,7 @@ export class ChromeStrictMainFrameClickResolver
 
     if (
       domIdentity.tabId !== input.tabId ||
-      axIdentity.tabId !== input.tabId ||
-      axIdentity.documentEpoch !==
-        input.observation.revision.documentEpoch
+      axIdentity.tabId !== input.tabId
     ) {
       return {
         documentCompatible: true,
