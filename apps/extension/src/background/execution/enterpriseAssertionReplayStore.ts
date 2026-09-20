@@ -202,42 +202,19 @@ implements EnterpriseAssertionReplayStore {
         return false;
       }
 
+      if (
+        entries.size >=
+        this.maxEntries
+      ) {
+        throw policyError(
+          "enterprise replay ledger is full of unexpired assertions",
+        );
+      }
+
       entries.set(
         assertionId,
         expiresAt,
       );
-
-      while (
-        entries.size >
-        this.maxEntries
-      ) {
-        let oldest:
-          string | undefined;
-        let oldestExpiry =
-          Number.POSITIVE_INFINITY;
-
-        for (
-          const [id, expiry]
-          of entries
-        ) {
-          if (
-            expiry <
-            oldestExpiry
-          ) {
-            oldest = id;
-            oldestExpiry =
-              expiry;
-          }
-        }
-
-        if (
-          oldest === undefined
-        ) {
-          break;
-        }
-
-        entries.delete(oldest);
-      }
 
       try {
         await this.storage.set({
