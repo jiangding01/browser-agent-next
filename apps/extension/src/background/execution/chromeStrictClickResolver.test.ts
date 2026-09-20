@@ -289,7 +289,7 @@ describe("ChromeStrictMainFrameClickResolver", () => {
     });
   });
 
-  it("OOPIF child live revalidation 精确绑定同一 CDP session，但投影前继续 fail closed", async () => {
+  it("OOPIF child live revalidation + projection 成功后生成顶层 prepared target", async () => {
     const refs = new InMemoryPersistentRefStore();
     const revision = "runtime:g1:t7-child";
     const ref = refs.getOrCreateLinked(
@@ -441,6 +441,20 @@ describe("ChromeStrictMainFrameClickResolver", () => {
             : undefined;
         },
       },
+      {
+        async project(input) {
+          expect(input).toMatchObject({
+            tabId: 7,
+            targetFrameId: "web:2",
+            point: { x: 60, y: 35 },
+          });
+          return {
+            ok: true as const,
+            point: { x: 260, y: 135 },
+            rootFrameOwnerBackendNodeId: 500,
+          };
+        },
+      },
     );
 
     const result = await resolver.resolve({
@@ -457,15 +471,203 @@ describe("ChromeStrictMainFrameClickResolver", () => {
 
     expect(result).toMatchObject({
       documentCompatible: true,
-      identityMatches: false,
-      reason:
-        "child-frame live identity is exact, but top-level coordinate projection is not available yet",
+      identityMatches: true,
+      live: {
+        semantic: {
+          role: "button",
+          name: "Child Save",
+        },
+      },
+      prepared: {
+        tabId: 7,
+        ref,
+        cdpFrameId: "cdp-child",
+        cdpSessionId: "session-child",
+        frameEpoch: "frame-child",
+        coordinateSpace:
+          "top-level-viewport",
+        point: { x: 260, y: 135 },
+      },
     });
     expect(seen).toEqual([
       "identity:session-child",
       "dom:session-child",
       "ax:session-child:Accessibility.getPartialAXTree",
     ]);
+  });
+
+  it("child projection fail closed 时不生成 prepared target", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const revision = "runtime:g1:t7-projection-fail";
+    const ref = refs.getOrCreateLinked(
+      [
+        {
+          source: "dom",
+          tabId: 7,
+          frameEpoch: "frame-child",
+          stableId: "child-stable",
+        },
+        {
+          source: "ax",
+          tabId: 7,
+          cdpFrameId: "cdp-child",
+          documentEpoch: "chrome-document:doc-child",
+          backendNodeId: 99,
+        },
+      ],
+      "element",
+      revision,
+    );
+
+    const observation: BrowserObservation = {
+      schemaVersion: 1,
+      tab: {
+        tabId: 7,
+        title: "Fixture",
+        url: "https://fixture.test/",
+        origin: "https://fixture.test",
+        ownedBySession: true,
+      },
+      revision: {
+        id: revision,
+        stateEpoch: "runtime",
+        documentEpoch: "chrome-document:doc-main",
+        sequence: 1,
+      },
+      scope: { kind: "page" },
+      coverage: {
+        actionable: { status: "complete", returned: 1, totalKnown: 1 },
+        forms: { status: "complete", returned: 0, totalKnown: 0 },
+        text: { status: "unknown", returned: 0 },
+        frames: { discovered: 2, accessible: 2, degraded: [] },
+        shadowDom: { openRootsCovered: true, closedRootsUnknown: true },
+        canvas: { present: false, semanticallyCovered: false },
+      },
+      viewport: {
+        width: 1280,
+        height: 720,
+        scrollX: 0,
+        scrollY: 0,
+        scrollWidth: 1280,
+        scrollHeight: 720,
+      },
+      frames: [
+        {
+          frameId: "web:0",
+          documentEpoch: "chrome-document:doc-main",
+          accessible: true,
+        },
+        {
+          frameId: "web:2",
+          parentFrameId: "web:0",
+          documentEpoch: "chrome-document:doc-child",
+          accessible: true,
+        },
+      ],
+      elements: [{
+        ref,
+        kind: "element",
+        semantic: { role: "button", name: "Child Save" },
+        state: { visible: true, enabled: true, focused: false },
+        frameId: "web:2",
+        capabilities: [{ kind: "click" }],
+        provenance: { dom: true, ax: true },
+      }],
+    };
+
+    const resolver = new ChromeStrictMainFrameClickResolver(
+      refs,
+      {
+        async getAllFrames() {
+          return [
+            {
+              frameId: 0,
+              parentFrameId: -1,
+              url: "https://fixture.test/",
+              documentId: "doc-main",
+            },
+            {
+              frameId: 2,
+              parentFrameId: 0,
+              url: "https://child.test/",
+              documentId: "doc-child",
+            },
+          ];
+        },
+      },
+      {
+        async send() {
+          throw new Error("child AX 不应发送到 root session");
+        },
+        async sendInSession() {
+          return {
+            nodes: [{
+              role: { value: "button" },
+              name: { value: "Child Save" },
+              backendDOMNodeId: 99,
+              properties: [{
+                name: "disabled",
+                value: { value: false },
+              }],
+            }],
+          } as never;
+        },
+      },
+      {
+        async stableIdsForBackendNodes() {
+          return new Map([[99, "child-stable"]]);
+        },
+      },
+      {
+        async inspect() {
+          return {
+            visible: true,
+            enabled: true,
+            inViewport: true,
+            hitTestable: true,
+            rect: { x: 10, y: 20, width: 100, height: 30 },
+            point: { x: 60, y: 35 },
+          };
+        },
+      },
+      {
+        bindingForFrame() {
+          return {
+            frameEpoch: "frame-child",
+            cdpFrameId: "cdp-child",
+            cdpSessionId: "session-child",
+            documentEpoch: "chrome-document:doc-child",
+          };
+        },
+      },
+      {
+        async project() {
+          return {
+            ok: false as const,
+            reason: "root hit-test no longer reaches the projected frame owner",
+          };
+        },
+      },
+    );
+
+    const result = await resolver.resolve({
+      tabId: 7,
+      action: {
+        actionId: "click-child",
+        kind: "click",
+        observedRevision: revision,
+        target: { ref },
+      },
+      observation,
+      expected: observation.elements[0]!,
+    });
+
+    expect(result).toEqual({
+      documentCompatible: true,
+      identityMatches: false,
+      reason:
+        "child-frame coordinate projection failed: root hit-test no longer reaches the projected frame owner",
+    });
   });
 
   it("child exact binding 与 retained identity 不一致时不进入 live CDP resolve", async () => {

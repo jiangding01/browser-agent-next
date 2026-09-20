@@ -300,3 +300,32 @@ repeat until web:0
 该 guard 用于阻止 overlay、布局漂移或 stale geometry 让投影点实际落到别的顶层元素。
 
 这一阶段只建立 projection core；在它接入 Strict prepare 并通过第二次 preflight / Real Chromium actuation E2E 之前，child click 仍保持不可 dispatch。
+
+
+## PR #7：projection 接入 Strict prepare
+
+child target 的 Strict prepare 现在形成完整的 read-only pre-dispatch 链：
+
+```text
+retained child ref
+→ exact frame/session binding
+→ same-session DOM + AX live identity
+→ local actionability / hit-test
+→ child→root coordinate projection
+→ root frame-owner hit-test
+→ PreparedStrictClickTarget(
+     coordinateSpace = top-level-viewport
+   )
+```
+
+如果 projection 任一步失败，resolver 返回 identity mismatch，coordinator 不会产生 prepared target。
+
+为了避免未来误把 child-local coordinate 直接交给 root `Input.dispatchMouseEvent`，prepared target 明确携带：
+
+```text
+coordinateSpace: "top-level-viewport"
+```
+
+dispatcher 在发出任何输入事件前再次检查该字段。这个字段属于 trusted internal prepared state，不进入 model-facing surface。
+
+真实执行路径仍会在 effect/authorization policy 通过后执行第二次 Strict prepare，所以 dispatch 前的 projection 是重新计算的，而不是复用第一次 prepare 的几何。

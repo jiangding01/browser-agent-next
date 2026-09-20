@@ -122,3 +122,7 @@
 106. 每一层投影必须先在 exact CDP session 的 isolated-world context 中重新证明 frameEpoch，并使用实时 child viewport 与父 session 的 frame-owner content quad。
 107. 只有可证明的 2D affine frame-owner content quad 可以参与自动投影；perspective、退化或不可解释 quad 必须 fail closed。
 108. 投影到 root 后必须重新验证 root viewport bounds，并通过 top-level hit-test 证明 projected point 仍命中最外层 frame owner；否则不得生成可执行 target。
+
+109. Prepared Strict Click 的 dispatch 坐标必须显式标记为 `top-level-viewport`；child-local 或未声明 coordinate space 的 target 不得进入 `Input.dispatchMouseEvent`。
+110. Child-frame resolver 只有在 same-session live identity 与 child→root projection 都成功后才能返回 `identityMatches=true`；projection 失败必须等价于 target 不可安全执行。
+111. Effect/authorization policy 通过后仍必须执行第二次 Strict prepare，因此 child-frame identity 与 top-level projection 必须在真正 dispatch 前重新计算，不能复用第一次 prepare 的几何结果。

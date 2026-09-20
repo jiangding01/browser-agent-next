@@ -168,8 +168,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
 - ✅ 第三小步：Strict resolver session-aware child live revalidation baseline；
 - ✅ 第四小步：child-frame → top-level coordinate projection core；
-- 🚧 第五小步：将 projection 接入 Strict prepare / child dispatch；
-- ⏳ Real Chromium OOPIF actuation E2E；
+- ✅ 第五小步：projection 接入 Strict prepare；
+- ✅ prepared target 显式约束为 top-level viewport coordinate space；
+- 🚧 第六小步：Real Chromium OOPIF child Strict Click actuation E2E；
 - ⏳ child-frame Strict Click dispatch；
 - ⏳ navigation / detach / stale projection fail-closed；
 - ⏳ Real Chromium OOPIF / child-frame actuation E2E。
@@ -281,3 +282,15 @@ E2E 要求：
 - 任一 document binding stale、session/isolated-world identity 缺失、owner/geometry/hit-test 失败都不返回 projected target。
 
 当前仍未将 projector 接入 Strict resolver 的成功分支，所以 child-frame actuation 尚未开放。
+
+
+### PR #7 第五小步：projection → Strict prepare
+
+- `ChromeStrictMainFrameClickResolver` 在 child DOM+AX live identity 复核通过后调用 `ChildFrameCoordinateProjector`；
+- projection 失败继续返回 identity mismatch，Strict coordinator 不会产出 prepared target；
+- projection 成功后 child target 首次可以产出 `identityMatches=true`；
+- child prepared point 使用投影后的 top-level viewport 坐标，不再携带 child-local point；
+- `PreparedStrictClickTarget` 新增固定 `coordinateSpace: "top-level-viewport"`；
+- main-frame prepared target 同样显式标记为 top-level viewport；
+- `ChromeStrictClickDispatcher` 在任何 `Input.dispatchMouseEvent` 前再次检查 coordinate space，非顶层坐标直接 fail closed；
+- trusted execution 原有“双 prepare”机制保持不变，因此真正 dispatch 前会重新完成 child identity + projection。

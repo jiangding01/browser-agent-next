@@ -34,6 +34,12 @@ export interface ProjectChildFramePointInput {
   frames: readonly FrameState[];
 }
 
+export interface ChildFrameClickPointProjector {
+  project(
+    input: ProjectChildFramePointInput,
+  ): Promise<ChildFrameCoordinateProjection>;
+}
+
 interface RuntimeValueResult {
   result: {
     objectId?: string;
@@ -214,7 +220,9 @@ function pointFromQuad(
  *
  * URL、frame 顺序、名称、几何相似度都不参与 identity mapping。
  */
-export class ChildFrameCoordinateProjector {
+export class ChildFrameCoordinateProjector
+  implements ChildFrameClickPointProjector
+{
   constructor(
     private readonly transport:
       ChromeDebuggerReadTransport,

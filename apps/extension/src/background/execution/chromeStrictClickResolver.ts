@@ -23,6 +23,9 @@ import type {
 import type {
   ObservedFrameBindingLookup,
 } from "../chrome/domLifecycleRegistry.js";
+import type {
+  ChildFrameClickPointProjector,
+} from "./childFrameCoordinateProjector.js";
 
 interface AxValue {
   value?: unknown;
@@ -63,6 +66,7 @@ export interface PreparedStrictClickTarget {
   cdpFrameId: string;
   cdpSessionId?: string;
   frameEpoch: string;
+  coordinateSpace: "top-level-viewport";
   point: {
     x: number;
     y: number;
@@ -139,6 +143,7 @@ export class ChromeStrictMainFrameClickResolver
     private readonly identityResolver: DomAxIdentityResolver,
     private readonly domInspector: DomStableIdInspector,
     private readonly frameBindings: ObservedFrameBindingLookup,
+    private readonly childProjector?: ChildFrameClickPointProjector,
   ) {}
 
   async resolve(input: {
@@ -352,19 +357,73 @@ export class ChromeStrictMainFrameClickResolver
       };
     }
 
+    const live = liveInspection(
+      axNode,
+      domInspection,
+    );
+
     if (input.expected.frameId !== "web:0") {
+      if (!this.childProjector) {
+        return {
+          documentCompatible: true,
+          identityMatches: false,
+          reason:
+            "child-frame coordinate projector is unavailable",
+        };
+      }
+
+      const projected =
+        await this.childProjector.project({
+          tabId: input.tabId,
+          targetFrameId:
+            input.expected.frameId,
+          point: domInspection.point,
+          frames:
+            input.observation.frames,
+        });
+
+      if (!projected.ok) {
+        return {
+          documentCompatible: true,
+          identityMatches: false,
+          reason:
+            "child-frame coordinate projection failed: " +
+            projected.reason,
+        };
+      }
+
       return {
         documentCompatible: true,
-        identityMatches: false,
-        reason:
-          "child-frame live identity is exact, but top-level coordinate projection is not available yet",
+        identityMatches: true,
+        live,
+        prepared: {
+          tabId: input.tabId,
+          ref: input.expected.ref,
+          stableId:
+            domIdentity.stableId,
+          backendNodeId:
+            axIdentity.backendNodeId,
+          cdpFrameId:
+            currentCdpFrameId,
+          ...(currentCdpSessionId !== undefined
+            ? {
+                cdpSessionId:
+                  currentCdpSessionId,
+              }
+            : {}),
+          frameEpoch:
+            domIdentity.frameEpoch,
+          coordinateSpace:
+            "top-level-viewport",
+          point: projected.point,
+        },
       };
     }
 
     return {
       documentCompatible: true,
       identityMatches: true,
-      live: liveInspection(axNode, domInspection),
+      live,
       prepared: {
         tabId: input.tabId,
         ref: input.expected.ref,
@@ -375,6 +434,8 @@ export class ChromeStrictMainFrameClickResolver
           ? { cdpSessionId: currentCdpSessionId }
           : {}),
         frameEpoch: domIdentity.frameEpoch,
+        coordinateSpace:
+          "top-level-viewport",
         point: domInspection.point,
       },
     };

@@ -26,8 +26,9 @@
 - [ ] child-frame coordinate projection / actuation — PR #7 in progress
   - [x] session-aware child live identity revalidation
   - [x] top-level coordinate projection core
-  - [ ] projection → Strict prepare integration
-  - [ ] child Strict Click dispatch
+  - [x] projection → Strict prepare integration
+  - [x] dispatcher top-level coordinate-space guard
+  - [ ] Real Chromium child Strict Click dispatch E2E
   - [ ] navigation/detach/projection fail-closed E2E
 
 ## Phase 5 — Effects and authorization
