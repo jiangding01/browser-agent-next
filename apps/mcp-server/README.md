@@ -1,6 +1,6 @@
 # MCP Server
 
-PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary**。
+PR #5 已将这里从空壳收敛成真正的 **Model-facing Adapter Boundary**。
 
 当前第一阶段先实现 transport-independent adapter core，而不是直接把 trusted native-host RPC 注册成 MCP tools：
 
@@ -16,7 +16,7 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 
 第二阶段已增加显式 MCP tool catalog 与 JSON Schema。Schema 的核心 bounds 直接来自 runtime validator 使用的 `MODEL_INPUT_LIMITS`，catalog 仍需经过 `ModelToolExposurePolicy` 过滤。
 
-下一步增加真实 MCP stdio transport；transport 只能消费既有 catalog/adapter，不得重新定义安全边界。
+真实 MCP stdio transport 已接入；transport 只能消费既有 catalog/adapter，不得重新定义安全边界。
 
 第三阶段已接入官方 MCP v2 stdio server seam：
 
@@ -26,7 +26,7 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 - 每连接独立 adapter state；
 - bounded tool result 与错误脱敏。
 
-当前还没有最终可执行 CLI，因为下一步需要实现只映射 `browser.open / browser.observe` 的 trusted Runtime client。
+当前已提供可执行 CLI：它通过 `TrustedRuntimeHttpClient` 只映射 `browser.open / browser.observe`，并由 stdio server 暴露 model-facing tools。CLI 仍保持 fail closed 的 origin、token 和 tool allowlist 配置。
 
 第四阶段已增加最小 `TrustedRuntimeHttpClient`：
 
@@ -37,21 +37,34 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 - bounded response body + observation 结构校验；
 - `browser.open` 的传输歧义按 `ACTION_OUTCOME_UNKNOWN` 处理。
 
-下一步是把这一 client 与 stdio server 通过受信配置入口组装成真正可执行的 MCP 进程，并增加子进程级集成测试。
+后续工作包括补充子进程级 CLI 集成测试；现有 CLI 已通过 stdio server 与该 client 组装为可执行 MCP 进程。
 
 ## 运行 CLI
+
+在新检出或清理过 workspace `dist` 的环境中，先构建根 workspace，或构建 MCP Server 及其 workspace 依赖：
+
+```bash
+pnpm build
+# 或：pnpm --filter '@browser-agent-next/mcp-server...' build
+```
+
+workspace 依赖已经构建后，也可以只构建 MCP Server：
+
+```bash
+pnpm --filter @browser-agent-next/mcp-server build
+```
 
 构建后可执行：
 
 ```bash
-pnpm --filter @browser-agent-next/mcp-server build
-
 BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS=https://example.com \
 BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS=https://example.com \
 node apps/mcp-server/dist/cli.js
 ```
 
 也可以使用 package bin：`browser-agent-next-mcp`。
+
+当前工作线已包含 PR #7 的 OOPIF / child-frame Strict Click 完整闭环；MCP CLI、stdio wire integration 和对应安全边界已交付，Strict Click 时序修复已通过全量验收。后续进入 scoped authorization broker；`browser.act` 在 broker 完成前继续不进入 model-facing tool catalog。
 
 默认 read/navigation origins 都为空，因此不配置 origin 时会 fail closed。values 默认不出境。
 

@@ -10,7 +10,6 @@ export interface StrictClickCdpTransport {
 
 export type StrictClickDispatchPhase =
   | "before-input"
-  | "mouse-moved"
   | "mouse-pressed"
   | "mouse-released";
 
@@ -38,8 +37,8 @@ export class StrictClickDispatchError extends Error {
 /**
  * 最小化真实 mouse dispatch primitive。
  *
- * 一旦 mousePressed 成功，就不能再把后续失败当成“安全重试”：
- * 页面可能已经收到 pointer/mouse down handler，甚至在 release 丢失前发生副作用。
+ * mousePressed request 发出后，transport failure 不能当成“安全重试”：
+ * 浏览器可能已收到 pointer/mouse down handler，甚至在 response 丢失前发生副作用。
  */
 export class ChromeStrictClickDispatcher {
   constructor(
@@ -69,23 +68,6 @@ export class ChromeStrictClickDispatcher {
 
     try {
       await this.cdp.send(prepared.tabId, "Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x,
-        y,
-      });
-    } catch (cause) {
-      throw new StrictClickDispatchError(
-        "strict click failed before mouse press",
-        {
-          phase: "before-input",
-          outcomeMayHaveChanged: false,
-          cause,
-        },
-      );
-    }
-
-    try {
-      await this.cdp.send(prepared.tabId, "Input.dispatchMouseEvent", {
         type: "mousePressed",
         x,
         y,
@@ -96,8 +78,8 @@ export class ChromeStrictClickDispatcher {
       throw new StrictClickDispatchError(
         "strict click mouse press failed",
         {
-          phase: "mouse-moved",
-          outcomeMayHaveChanged: false,
+          phase: "mouse-pressed",
+          outcomeMayHaveChanged: true,
           cause,
         },
       );

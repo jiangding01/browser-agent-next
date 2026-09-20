@@ -95,7 +95,7 @@ verification
 
 ## Ambiguous Outcome
 
-如果 mousePressed 已成功而后续 release 失败，Runtime 返回：
+如果 mousePressed 请求发出后发生 transport failure（包括 press response 或后续 release 丢失），Runtime 返回：
 
 ```text
 ACTION_OUTCOME_UNKNOWN

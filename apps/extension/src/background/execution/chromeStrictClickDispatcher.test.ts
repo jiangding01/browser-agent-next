@@ -18,7 +18,7 @@ function prepared() {
 }
 
 describe("ChromeStrictClickDispatcher", () => {
-  it("对已经授权和 prepare 的点执行标准 left click 序列", async () => {
+  it("对已经授权和 prepare 的点只执行 press/release，不触发 hover", async () => {
     const calls: Array<{
       tabId: number;
       method: string;
@@ -46,7 +46,6 @@ describe("ChromeStrictClickDispatcher", () => {
       call.method,
       call.params?.type,
     ])).toEqual([
-      ["Input.dispatchMouseEvent", "mouseMoved"],
       ["Input.dispatchMouseEvent", "mousePressed"],
       ["Input.dispatchMouseEvent", "mouseReleased"],
     ]);
@@ -75,15 +74,17 @@ describe("ChromeStrictClickDispatcher", () => {
     expect(sends).toBe(0);
   });
 
-  it("mousePressed 之前失败可以确认没有 click outcome", async () => {
+  it("mousePressed transport failure 后结果必须视为 unknown，且不发送 release", async () => {
+    const calls: string[] = [];
     const dispatcher = new ChromeStrictClickDispatcher({
       async send<T>(
         _tabId: number,
         _method: string,
         params?: Record<string, unknown>,
       ): Promise<T> {
+        calls.push(String(params?.type));
         if (params?.type === "mousePressed") {
-          throw new Error("press failed");
+          throw new Error("debugger response lost");
         }
         return undefined as T;
       },
@@ -93,9 +94,11 @@ describe("ChromeStrictClickDispatcher", () => {
       dispatcher.dispatch(prepared()),
     ).rejects.toMatchObject({
       name: "StrictClickDispatchError",
-      outcomeMayHaveChanged: false,
-      phase: "mouse-moved",
+      outcomeMayHaveChanged: true,
+      phase: "mouse-pressed",
     } satisfies Partial<StrictClickDispatchError>);
+
+    expect(calls).toEqual(["mousePressed"]);
   });
 
   it("mousePressed 已成功但 release 失败时标记为 outcome unknown", async () => {
