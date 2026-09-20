@@ -221,3 +221,40 @@ Runtime.evaluate / callFunctionOn
 不能因为已知 `cdpFrameId` 就把 child-session command 退回 root session。
 
 如果同一 `frameEpoch` 在多个 CDP session/frame 中都能被证明，映射视为歧义并 fail closed。
+
+
+## PR #7：Strict live revalidation 进入 child session
+
+在开放坐标投影前，Strict resolver 先补齐 child target 的 exact live identity 复核：
+
+```text
+retained ref
+  ↓
+web frame + documentEpoch
+  ↓
+observed exact binding
+(frameEpoch + cdpFrameId + cdpSessionId + documentEpoch)
+  ↓
+same-session backendDOMNodeId → stableId
+  ↓
+same-session live DOM inspection
+  ↓
+same-session partial AX tree
+  ↓
+identity exact
+  ↓
+coordinate projection unavailable
+  → fail closed
+```
+
+这一步的目的不是提前开放 child click，而是确保后续 projection 只建立在“已经证明找对了 OOPIF 文档和节点”的 target 上。
+
+任何以下情况都会在 projection 之前拒绝：
+
+- child documentEpoch 已变化；
+- lifecycle exact binding 缺失；
+- frameEpoch 与 retained DOM identity 不一致；
+- cdpFrameId 与 retained AX identity 不一致；
+- child session provenance 不可用；
+- backendDOMNodeId 不再解析为原 stableId；
+- live DOM/AX target 不再存在。

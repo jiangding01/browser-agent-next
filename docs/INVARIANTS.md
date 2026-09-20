@@ -113,3 +113,7 @@
 102. OOPIF child session 必须由 debugger flat-session 的 opaque sessionId/targetId 证明，禁止使用 URL、frame 顺序或名称推断 child target。
 103. Root-session execution context 与 child-session execution context 必须保持 session provenance；任何 child context 的 CDP command 不得退回 root session 发送。
 104. OOPIF auto-attach 不可用、child session 未登记或 session 已 detach 时必须保持 mapping/actuation fail closed，不能退化为 main-frame dispatch。
+
+102. Child-frame Strict live resolution 必须使用 observation 已证明的 exact frame binding；不得仅凭 web frameId、URL、frame 顺序或 cdpFrameId 猜测 child session。
+103. OOPIF child 的 backend-node linking、DOM inspection 与 AX revalidation 必须全部发送到同一个 exact cdpSessionId；任一步 session provenance 缺失或不一致都必须 fail closed。
+104. 在 top-level coordinate projection 与 root-level pre-dispatch validation 完成前，即使 child live identity 已全部匹配，也不得生成可 dispatch 的 Strict Click prepared target。

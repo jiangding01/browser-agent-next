@@ -167,6 +167,7 @@ const strictResolver =
     debuggerTransport,
     identityResolver,
     domInspector,
+    lifecycle,
   );
 
 const strictCoordinator =

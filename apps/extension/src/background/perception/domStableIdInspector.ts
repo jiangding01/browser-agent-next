@@ -31,6 +31,7 @@ export interface DomStableIdInspection {
 export interface InspectDomStableIdInput {
   tabId: number;
   cdpFrameId: string;
+  cdpSessionId?: string;
   frameEpoch: string;
   stableId: string;
 }
@@ -69,18 +70,46 @@ export class IsolatedWorldDomStableIdInspector
   ): Promise<DomStableIdInspection | undefined> {
     await this.transport.attach(input.tabId);
 
-    const contexts = this.transport
-      .contextsForFrame(input.tabId, input.cdpFrameId)
-      .filter((context) => context.auxData?.isDefault !== true);
+    const bindings =
+      input.cdpSessionId === undefined
+        ? this.transport
+            .contextsForFrame(
+              input.tabId,
+              input.cdpFrameId,
+            )
+            .filter(
+              (context) =>
+                context.auxData?.isDefault !== true,
+            )
+            .map((context) => ({
+              context,
+              sessionId: undefined,
+            }))
+        : this.transport
+            .contextBindingsForFrame(
+              input.tabId,
+              input.cdpFrameId,
+            )
+            .filter(
+              (binding) =>
+                binding.sessionId ===
+                  input.cdpSessionId &&
+                binding.context.auxData?.isDefault !==
+                  true,
+            );
+
+    if (bindings.length === 0) return undefined;
 
     if (contexts.length === 0) return undefined;
 
     const objectGroup = nextObjectGroup(input.tabId);
 
     try {
-      for (const context of contexts) {
-        const bridge = await this.transport.send<RuntimeCallResult>(
+      for (const binding of bindings) {
+        const context = binding.context;
+        const bridge = await this.sendForSession<RuntimeCallResult>(
           input.tabId,
+          binding.sessionId,
           "Runtime.evaluate",
           {
             expression:
@@ -97,8 +126,9 @@ export class IsolatedWorldDomStableIdInspector
         const bridgeObjectId = bridge.result.objectId;
         if (!bridgeObjectId || bridge.exceptionDetails) continue;
 
-        const meta = await this.transport.send<RuntimeCallResult>(
+        const meta = await this.sendForSession<RuntimeCallResult>(
           input.tabId,
+          binding.sessionId,
           "Runtime.callFunctionOn",
           {
             objectId: bridgeObjectId,
@@ -121,8 +151,9 @@ export class IsolatedWorldDomStableIdInspector
           continue;
         }
 
-        const inspected = await this.transport.send<RuntimeCallResult>(
+        const inspected = await this.sendForSession<RuntimeCallResult>(
           input.tabId,
+          binding.sessionId,
           "Runtime.callFunctionOn",
           {
             objectId: bridgeObjectId,
@@ -220,15 +251,42 @@ export class IsolatedWorldDomStableIdInspector
 
       return undefined;
     } finally {
-      try {
-        await this.transport.send(
-          input.tabId,
-          "Runtime.releaseObjectGroup",
-          { objectGroup },
-        );
-      } catch {
-        // 仅影响临时 remote object 回收。
+      const sessions = new Set(
+        bindings.map((binding) => binding.sessionId),
+      );
+
+      for (const sessionId of sessions) {
+        try {
+          await this.sendForSession(
+            input.tabId,
+            sessionId,
+            "Runtime.releaseObjectGroup",
+            { objectGroup },
+          );
+        } catch {
+          // 仅影响临时 remote object 回收。
+        }
       }
     }
+  }
+
+  private sendForSession<T>(
+    tabId: number,
+    sessionId: string | undefined,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<T> {
+    return sessionId === undefined
+      ? this.transport.send<T>(
+          tabId,
+          method,
+          params,
+        )
+      : this.transport.sendInSession<T>(
+          tabId,
+          sessionId,
+          method,
+          params,
+        );
   }
 }

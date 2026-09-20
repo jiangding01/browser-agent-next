@@ -12,19 +12,46 @@ export interface TabScopedAuthorizationRevoker {
   clearTab(tabId: number): void;
 }
 
-export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
-  private readonly frameEpochsByTab = new Map<number, Map<string, {
-    frameEpoch: string;
-    cdpFrameId?: string;
-    cdpSessionId?: string;
-    documentEpoch?: string;
-  }>>();
+export interface ObservedFrameBinding {
+  frameEpoch: string;
+  cdpFrameId?: string;
+  cdpSessionId?: string;
+  documentEpoch?: string;
+}
+
+export interface ObservedFrameBindingLookup {
+  bindingForFrame(
+    tabId: number,
+    frameId: string,
+  ): ObservedFrameBinding | undefined;
+}
+
+export class DomLifecycleRegistry
+  implements DomFrameLifecycleRecorder, ObservedFrameBindingLookup
+{
+  private readonly frameEpochsByTab = new Map<
+    number,
+    Map<string, ObservedFrameBinding>
+  >();
 
   constructor(
     private readonly refs: InMemoryPersistentRefStore,
     private readonly states: TabStateStore,
     private readonly authorizations?: TabScopedAuthorizationRevoker,
   ) {}
+
+  bindingForFrame(
+    tabId: number,
+    frameId: string,
+  ): ObservedFrameBinding | undefined {
+    const binding = this.frameEpochsByTab
+      .get(tabId)
+      ?.get(frameId);
+
+    return binding
+      ? { ...binding }
+      : undefined;
+  }
 
   recordObserved(
     tabId: number,

@@ -23,7 +23,11 @@
 ## Phase 4 — Strict executor
 - [x] main-frame Strict Click closed loop
 - [x] child-frame target fail closed
-- [ ] child-frame coordinate projection / actuation — PR #7 planned
+- [ ] child-frame coordinate projection / actuation — PR #7 in progress
+  - [x] session-aware child live identity revalidation
+  - [ ] top-level coordinate projection
+  - [ ] child Strict Click dispatch
+  - [ ] navigation/detach/projection fail-closed E2E
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

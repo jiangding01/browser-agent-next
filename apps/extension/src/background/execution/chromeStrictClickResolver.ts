@@ -20,6 +20,9 @@ import type {
   DomStableIdInspection,
   DomStableIdInspector,
 } from "../perception/domStableIdInspector.js";
+import type {
+  ObservedFrameBindingLookup,
+} from "../chrome/domLifecycleRegistry.js";
 
 interface AxValue {
   value?: unknown;
@@ -38,17 +41,15 @@ interface AxNode {
   backendDOMNodeId?: number;
 }
 
-interface PageFrameTreeResult {
-  frameTree: {
-    frame: {
-      id: string;
-    };
-  };
-}
-
 export interface StrictCdpReadTransport {
   send<T>(
     tabId: number,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<T>;
+  sendInSession<T>(
+    tabId: number,
+    sessionId: string,
     method: string,
     params?: Record<string, unknown>,
   ): Promise<T>;
@@ -60,6 +61,7 @@ export interface PreparedStrictClickTarget {
   stableId: string;
   backendNodeId: number;
   cdpFrameId: string;
+  cdpSessionId?: string;
   frameEpoch: string;
   point: {
     x: number;
@@ -121,8 +123,11 @@ function liveInspection(
 }
 
 /**
- * PR #2 的第一版 live resolver 只支持 main-frame、DOM+AX linked identity 的
- * strict click。AX-only、DOM-only、child-frame target 均 fail closed。
+ * Strict Click live resolver。
+ *
+ * Main frame 继续可生成 prepared target；child frame 当前先完成 exact
+ * frame/session + DOM/AX live identity revalidation，但在 top-level coordinate
+ * projection 完成前仍 fail closed，不会生成可 dispatch 的 prepared target。
  */
 export class ChromeStrictMainFrameClickResolver
   implements StrictLiveResolver<PreparedStrictClickTarget>
@@ -133,6 +138,7 @@ export class ChromeStrictMainFrameClickResolver
     private readonly cdp: StrictCdpReadTransport,
     private readonly identityResolver: DomAxIdentityResolver,
     private readonly domInspector: DomStableIdInspector,
+    private readonly frameBindings: ObservedFrameBindingLookup,
   ) {}
 
   async resolve(input: {
@@ -146,14 +152,6 @@ export class ChromeStrictMainFrameClickResolver
         documentCompatible: true,
         identityMatches: false,
         reason: "current Chrome strict resolver only supports click",
-      };
-    }
-
-    if (input.expected.frameId !== "web:0") {
-      return {
-        documentCompatible: true,
-        identityMatches: false,
-        reason: "current Chrome strict resolver only supports main-frame targets",
       };
     }
 
@@ -215,26 +213,77 @@ export class ChromeStrictMainFrameClickResolver
       };
     }
 
-    const frameTree = await this.cdp.send<PageFrameTreeResult>(
-      input.tabId,
-      "Page.getFrameTree",
+    const observedFrame = input.observation.frames.find(
+      (frame) => frame.frameId === input.expected.frameId,
     );
 
-    const currentCdpFrameId = frameTree.frameTree.frame.id;
-
-    if (currentCdpFrameId !== axIdentity.cdpFrameId) {
+    if (!observedFrame || !observedFrame.accessible) {
       return {
         documentCompatible: true,
         identityMatches: false,
         reason:
-          "CDP main-frame identity changed after observation",
+          "target frame is absent or inaccessible in the retained observation",
       };
     }
+
+    const currentFrame = catalog.frames.find(
+      (frame) => frame.frameId === input.expected.frameId,
+    );
+
+    if (
+      !currentFrame ||
+      !currentFrame.accessible ||
+      currentFrame.documentEpoch !== observedFrame.documentEpoch
+    ) {
+      return {
+        documentCompatible: false,
+        reason:
+          "target frame document changed after observation",
+      };
+    }
+
+    const binding = this.frameBindings.bindingForFrame(
+      input.tabId,
+      input.expected.frameId,
+    );
+
+    if (
+      !binding ||
+      !binding.cdpFrameId ||
+      !binding.documentEpoch
+    ) {
+      return {
+        documentCompatible: true,
+        identityMatches: false,
+        reason:
+          "exact CDP frame/session binding is unavailable for target frame",
+      };
+    }
+
+    if (
+      binding.frameEpoch !== domIdentity.frameEpoch ||
+      binding.cdpFrameId !== axIdentity.cdpFrameId ||
+      binding.documentEpoch !== axIdentity.documentEpoch ||
+      binding.documentEpoch !== observedFrame.documentEpoch
+    ) {
+      return {
+        documentCompatible: true,
+        identityMatches: false,
+        reason:
+          "stored exact frame binding does not match retained strong identity",
+      };
+    }
+
+    const currentCdpFrameId = binding.cdpFrameId;
+    const currentCdpSessionId = binding.cdpSessionId;
 
     const stableIds =
       await this.identityResolver.stableIdsForBackendNodes({
         tabId: input.tabId,
         cdpFrameId: currentCdpFrameId,
+        ...(currentCdpSessionId !== undefined
+          ? { cdpSessionId: currentCdpSessionId }
+          : {}),
         frameEpoch: domIdentity.frameEpoch,
         backendNodeIds: [axIdentity.backendNodeId],
       });
@@ -254,6 +303,9 @@ export class ChromeStrictMainFrameClickResolver
     const domInspection = await this.domInspector.inspect({
       tabId: input.tabId,
       cdpFrameId: currentCdpFrameId,
+      ...(currentCdpSessionId !== undefined
+        ? { cdpSessionId: currentCdpSessionId }
+        : {}),
       frameEpoch: domIdentity.frameEpoch,
       stableId: domIdentity.stableId,
     });
@@ -267,14 +319,25 @@ export class ChromeStrictMainFrameClickResolver
       };
     }
 
-    const axTree = await this.cdp.send<{ nodes: AxNode[] }>(
-      input.tabId,
-      "Accessibility.getPartialAXTree",
-      {
-        backendNodeId: axIdentity.backendNodeId,
-        fetchRelatives: false,
-      },
-    );
+    const axTree =
+      currentCdpSessionId === undefined
+        ? await this.cdp.send<{ nodes: AxNode[] }>(
+            input.tabId,
+            "Accessibility.getPartialAXTree",
+            {
+              backendNodeId: axIdentity.backendNodeId,
+              fetchRelatives: false,
+            },
+          )
+        : await this.cdp.sendInSession<{ nodes: AxNode[] }>(
+            input.tabId,
+            currentCdpSessionId,
+            "Accessibility.getPartialAXTree",
+            {
+              backendNodeId: axIdentity.backendNodeId,
+              fetchRelatives: false,
+            },
+          );
 
     const axNode = axTree.nodes.find(
       (node) =>
@@ -291,6 +354,15 @@ export class ChromeStrictMainFrameClickResolver
       };
     }
 
+    if (input.expected.frameId !== "web:0") {
+      return {
+        documentCompatible: true,
+        identityMatches: false,
+        reason:
+          "child-frame live identity is exact, but top-level coordinate projection is not available yet",
+      };
+    }
+
     return {
       documentCompatible: true,
       identityMatches: true,
@@ -301,6 +373,9 @@ export class ChromeStrictMainFrameClickResolver
         stableId: domIdentity.stableId,
         backendNodeId: axIdentity.backendNodeId,
         cdpFrameId: currentCdpFrameId,
+        ...(currentCdpSessionId !== undefined
+          ? { cdpSessionId: currentCdpSessionId }
+          : {}),
         frameEpoch: domIdentity.frameEpoch,
         point: domInspection.point,
       },

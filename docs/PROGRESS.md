@@ -166,8 +166,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
 - ✅ 第一小步：Chrome debugger flat child-session transport；
 - ✅ 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
-- 🚧 第三小步：Real Chromium OOPIF exact-mapping E2E；
-- ⏳ child-frame coordinate projection；
+- ✅ 第三小步：Strict resolver session-aware child live revalidation baseline；
+- 🚧 第四小步：child-frame coordinate projection；
+- ⏳ Real Chromium OOPIF exact-mapping / actuation E2E；
 - ⏳ child-frame Strict Click dispatch；
 - ⏳ navigation / detach / stale projection fail-closed；
 - ⏳ Real Chromium OOPIF / child-frame actuation E2E。
@@ -245,3 +246,18 @@ E2E 要求：
 - OOPIF reload 后 child Persistent Ref 必须变化；
 - main frame Persistent Ref 必须保持；
 - 测试允许首次 attach/auto-attach 的短暂 partial observation，通过 bounded retry 等待 exact child session 建立。
+
+
+### PR #7 第三小步：Strict resolver session-aware child revalidation
+
+- `DomLifecycleRegistry` 新增只读 `bindingForFrame(tabId, frameId)`，返回 observation 已证明的 exact frame/session binding 副本；
+- `IsolatedWorldDomStableIdInspector` 支持显式 `cdpSessionId`，child DOM inspection 的 Runtime 命令只发送到对应 flat session；
+- Strict resolver 不再仅按 `web:0` 入口判断 child target；
+- resolver 会同时校验：
+  - retained observation 中的 target frame/documentEpoch；
+  - 当前 webNavigation catalog 的同 frame documentEpoch；
+  - lifecycle 记录的 frameEpoch / cdpFrameId / cdpSessionId / documentEpoch；
+  - retained DOM + AX strong identity；
+- backendDOMNodeId → stableId、DOM inspection、partial AX tree 都使用同一个 exact child session；
+- child live identity 即使全部通过，在 top-level coordinate projection 完成前仍返回 fail-closed，不生成 prepared dispatch target；
+- main-frame Strict Click 行为保持不变。
