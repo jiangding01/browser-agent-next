@@ -92,3 +92,29 @@ Assurance 只能由受信签发边界产生。
         ≠
 该 assurance 是否满足某个最低策略门槛
 ```
+
+
+## PR #6 issuance core
+
+Strict Click 的签发校验已经统一收口到 `StrictClickAuthorizationIssuanceService`。
+
+它提供三条代码级固定 provenance 的入口：
+
+```text
+issueControlPlane()       → trusted-host       → control-plane
+issueOperatorApproved()   → trusted-ui         → operator-approved
+issueEnterprisePolicy()   → enterprise-policy → enterprise-policy
+```
+
+调用参数中不存在 `source` 或 `assurance` 字段，因此调用方不能通过 JSON 把 control-plane 请求升级成更高 assurance。
+
+三条路径共享以下 fail-closed 校验：
+
+- observation 必须仍在 retained state 中；
+- ref 必须属于该 observation；
+- origin 必须通过现有 auto-act exact-origin policy；
+- TTL 必须有界；
+- source 固定的 assurance 必须满足该 tab/effect 的最低门槛；
+- grant 继续精确绑定 tab/revision/ref/action/effect，默认 single-use。
+
+这个统一 core **不等于 operator/enterprise ingress 已完成**。下一步仍需要分别建立能证明“人工批准”和“企业策略证明”的独立入口。

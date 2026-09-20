@@ -5,7 +5,7 @@
 ## 当前分支
 
 ```text
-feat/model-facing-mcp-adapter
+feat/assurance-issuance-ingress
 ```
 
 ## 当前阶段
@@ -15,7 +15,8 @@ PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
-PR #5 Model-facing Adapter Boundary      ✅ 实现完成，等待合并
+PR #5 Model-facing Adapter Boundary      ✅ 已合并
+PR #6 Assurance Issuance Ingress         🚧 进行中
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -108,12 +109,21 @@ Runtime `browser.act` 仍可在 trusted control plane 内使用；model-facing a
 
 child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立推进，不在 PR #5 第一阶段隐式放宽。
 
+## PR #6 当前进度
+
+- Strict Click 授权签发逻辑已抽为统一 `StrictClickAuthorizationIssuanceService`；
+- control-plane / operator-approved / enterprise-policy 三条 public issuance path 在代码层固定 source ↔ assurance；
+- 调用方不能通过 input 自报 source/assurance；
+- 三条路径共享 retained observation / ref / origin / TTL / minimum assurance 校验；
+- 现有 trusted-host 只委托 control-plane issuance，外部协议行为保持不变；
+- operator-approved 与 enterprise-policy 的真实独立 ingress 尚未开放。
+
 ## 下一步
 
-1. PR #5 已完成实现与最终对抗式 Review，等待合并；
-2. 下一阶段优先进入 operator-approved / enterprise-policy 独立签发 ingress；
-3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 作为后续独立安全阶段处理；
-4. OOPIF / child-frame actuation 与 Intelligence Layer 继续按 Roadmap 独立推进。
+1. 实现 operator-approved 独立人工审批 ingress；
+2. 实现 enterprise-policy 独立证明 ingress；
+3. 对 provenance、replay、navigation invalidation 做对抗式测试；
+4. `browser.act` 继续保持 model-facing 不可见，直到后续 scoped authorization broker 完成。
 
 ## 文档
 

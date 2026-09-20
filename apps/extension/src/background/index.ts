@@ -35,6 +35,9 @@ import {
   TrustedHostExecutionService,
 } from "./execution/trustedHostExecutionService.js";
 import {
+  StrictClickAuthorizationIssuanceService,
+} from "./execution/authorizationIssuanceService.js";
+import {
   connectTrustedNativeIngress,
   type TrustedNativeRuntimeApi,
 } from "./execution/trustedNativeIngress.js";
@@ -159,6 +162,13 @@ const authorizations =
 const autoActOrigins =
   new MutableExactOriginAllowlist();
 
+const authorizationIssuance =
+  new StrictClickAuthorizationIssuanceService(
+    states,
+    authorizations,
+    autoActOrigins,
+  );
+
 const clickDispatcher =
   new ChromeStrictClickDispatcher(
     debuggerTransport,
@@ -175,8 +185,8 @@ const policyGatedClick =
 const trustedHostService =
   new TrustedHostExecutionService(
     states,
-    authorizations,
     autoActOrigins,
+    authorizationIssuance,
     policyGatedClick,
     perceptionService,
   );
