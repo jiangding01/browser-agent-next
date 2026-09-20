@@ -191,18 +191,18 @@ export class HighLevelBrowserApiService {
       options: {
         includeAx: profile === "hybrid",
         ...(options.maxElements !== undefined
-          ? { maxElements: input.options.maxElements }
+          ? { maxElements: options.maxElements }
           : {}),
         ...(options.maxAxElements !== undefined
-          ? { maxAxElements: input.options.maxAxElements }
+          ? { maxAxElements: options.maxAxElements }
           : {}),
         ...(options.includeValues !== undefined
-          ? { includeValues: input.options.includeValues }
+          ? { includeValues: options.includeValues }
           : {}),
         ...(options.includeOpenShadowRoots !== undefined
           ? {
               includeOpenShadowRoots:
-                input.options.includeOpenShadowRoots,
+                options.includeOpenShadowRoots,
             }
           : {}),
       },
