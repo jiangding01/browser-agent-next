@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import { TabStateStore } from "@browser-agent-next/runtime";
+import type { BrowserObservation } from "@browser-agent-next/core";
+import { HighLevelBrowserApiService } from "./browserApiService.js";
+
+function observation(id = "rev-1", url = "https://fixture.test/"): BrowserObservation {
+  return {
+    schemaVersion: 1,
+    tab: {
+      tabId: 7, title: "Fixture", url, origin: "https://fixture.test",
+      ownedBySession: false,
+    },
+    revision: { id, stateEpoch: "runtime", documentEpoch: "doc", sequence: 1 },
+    scope: { kind: "page" },
+    coverage: {
+      actionable: { status: "complete", returned: 1, totalKnown: 1 },
+      forms: { status: "complete", returned: 0, totalKnown: 0 },
+      text: { status: "unknown", returned: 0 },
+      frames: { discovered: 1, accessible: 1, degraded: [] },
+      shadowDom: { openRootsCovered: true, closedRootsUnknown: true },
+      canvas: { present: false, semanticallyCovered: false },
+    },
+    viewport: { width: 1000, height: 800, scrollX: 0, scrollY: 0, scrollWidth: 1000, scrollHeight: 800 },
+    frames: [{ frameId: "web:0", documentEpoch: "doc", accessible: true }],
+    elements: [{
+      ref: "@e_1", kind: "element", semantic: { role: "button", name: "Save" },
+      state: { visible: true, enabled: true, focused: false },
+      frameId: "web:0", capabilities: [{ kind: "click" }], provenance: { dom: true, ax: true },
+    }],
+  };
+}
+
+describe("HighLevelBrowserApiService", () => {
+  it("browser.observe 默认使用 hybrid，并且不允许调用方自报 ownedBySession", async () => {
+    let received: any;
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {
+        async observe(input: unknown) {
+          received = input;
+          return observation();
+        },
+      } as never,
+      {} as never,
+    );
+
+    await service.observe({ tabId: 7 });
+    expect(received).toMatchObject({
+      tabId: 7, ownedBySession: false, options: { includeAx: true },
+    });
+  });
+
+  it("browser.verify 只验证指定 retained revision", () => {
+    const states = new TabStateStore();
+    states.put(observation());
+    const service = new HighLevelBrowserApiService(states, {} as never, {} as never);
+    expect(service.verify({
+      tabId: 7, observedRevision: "rev-1",
+      verification: { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] },
+    })).toMatchObject({ verified: true, conclusive: true, revision: "rev-1" });
+    expect(() => service.verify({
+      tabId: 7, observedRevision: "missing",
+      verification: { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] },
+    })).toThrow(/retained observation/);
+  });
+
+  it("browser.wait 只重试 observation/verification，不执行动作", async () => {
+    let now = 0;
+    let attempts = 0;
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {
+        async observe() {
+          attempts += 1;
+          return observation(
+            "rev-" + attempts,
+            attempts >= 2 ? "https://fixture.test/done" : "https://fixture.test/",
+          );
+        },
+      } as never,
+      {
+        async executeStrictClickAndVerify() {
+          throw new Error("must not execute");
+        },
+      } as never,
+      {
+        now: () => now,
+        sleep: async (ms) => { now += ms; },
+        defaultPollIntervalMs: 10,
+      },
+    );
+
+    const result = await service.wait({
+      tabId: 7, timeoutMs: 100, pollIntervalMs: 10,
+      verification: {
+        mode: "all",
+        conditions: [{ type: "url_matches", pattern: "https://fixture.test/done" }],
+      },
+    });
+    expect(attempts).toBe(2);
+    expect(result).toMatchObject({ timedOut: false, attempts: 2, verification: { verified: true } });
+  });
+
+  it("browser.act 第一版只映射现有 strict click execute+verify", async () => {
+    let forwarded: any;
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {} as never,
+      {
+        async executeStrictClickAndVerify(input: unknown) {
+          forwarded = input;
+          return { ok: true };
+        },
+      } as never,
+    );
+    await service.act({
+      tabId: 7,
+      action: {
+        actionId: "a1", kind: "click", observedRevision: "rev-1",
+        ref: "@e_1", authorizationId: "auth-1",
+      },
+      verification: { mode: "all", conditions: [{ type: "ref_absent", ref: "@e_1" }] },
+    });
+    expect(forwarded).toMatchObject({
+      actionId: "a1", authorizationId: "auth-1", tabId: 7, observedRevision: "rev-1", ref: "@e_1",
+    });
+  });
+});
