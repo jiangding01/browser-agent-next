@@ -32,7 +32,6 @@ export interface ObserveTabRequest {
   type: "perception.observe-tab";
   requestId: string;
   tabId: number;
-  ownedBySession: boolean;
   sinceRevision?: string;
   options?: ObserveDomFrameRequest["options"] & {
     /**
@@ -101,7 +100,7 @@ export function isObserveTabRequest(value: unknown): value is ObserveTabRequest 
     !Number.isInteger(candidate.tabId) ||
     typeof candidate.tabId !== "number" ||
     candidate.tabId < 0 ||
-    typeof candidate.ownedBySession !== "boolean" ||
+    candidate.ownedBySession !== undefined ||
     (candidate.sinceRevision !== undefined &&
       typeof candidate.sinceRevision !== "string")
   ) {

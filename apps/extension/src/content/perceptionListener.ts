@@ -24,6 +24,7 @@ export interface RuntimeMessageEvent {
 
 export interface ContentRuntimeApi {
   onMessage: RuntimeMessageEvent;
+  sendMessage?(message: unknown): Promise<unknown>;
 }
 
 export function registerDomPerceptionContentListener(

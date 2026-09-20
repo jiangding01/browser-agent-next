@@ -5,34 +5,14 @@
 - [x] real Chromium MV3 E2E gate
 
 ## Phase 1 — Perception IR
-
-### DOM baseline — PR #1
-- [x] DOM source / persistent identity / lifecycle baseline
-- [x] real Chromium MV3 E2E
-
-### Main-frame Hybrid perception — PR #2
-- [x] main-frame live AX source
-- [x] DOM ↔ AX exact linked identity
-- [x] Strict Click execution baseline
-
-### Child-frame Hybrid perception — PR #3
-- [x] frameEpoch-based webNavigation ↔ CDP exact mapping
-- [x] multi-frame AX collector
-- [x] multi-frame DOM ↔ AX exact linker
-- [x] Chrome observation service integration
-- [x] child-frame Hybrid pipeline
-- [x] child reload linked-identity lifecycle E2E
-- [x] frameEpoch collision fail-closed test
-- [x] real Chromium E2E green
-- [x] coverage / invariants final review
+- [x] DOM baseline — PR #1
+- [x] Main-frame Hybrid — PR #2
+- [x] Child-frame Hybrid — PR #3
+- [ ] OOPIF/session exact mapping
 
 ## Phase 2 — Persistent identity
 - [x] DOM lifecycle identity
-- [x] AX main-frame backend-node identity
-- [x] main-frame DOM ↔ AX exact linked identity
-- [x] child-frame DOM ↔ AX live linked identity
-- [x] child reload invalidates linked child identity without rotating main ref
-- [ ] OOPIF/session exact mapping
+- [x] main/child DOM ↔ AX exact linked identity
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
@@ -42,22 +22,28 @@
 
 ## Phase 4 — Strict executor
 - [x] main-frame Strict Click closed loop
-- [x] child-frame target continues to fail closed
-- [ ] child-frame viewport coordinate projection
-- [ ] top-level projected hit-test
-- [ ] child-frame strict dispatch
-- [ ] child-frame adversarial execution E2E
+- [x] child-frame target fail closed
+- [ ] child-frame coordinate projection / actuation
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline
-- [ ] Authorization Assurance levels
+- [x] Authorization Assurance type/ranking
+- [x] minimum assurance by Effect Class
+- [x] trusted-host cannot self-upgrade assurance
+- [ ] operator-approved issuance ingress
+- [ ] enterprise-policy issuance ingress
 
 ## Phase 6 — High-level API
-- [ ] browser.observe
-- [ ] browser.act
-- [ ] browser.extract
-- [ ] browser.verify
-- [ ] event-driven wait
+- [x] browser.open + Tab Ownership Registry
+- [x] browser.observe
+- [x] browser.verify
+- [x] browser.wait bounded polling baseline
+- [x] browser.act → Strict Click
+- [x] event-driven wait wake-up + bounded fallback
+- [x] browser.extract retained-observation projection
+- [x] Tab Ownership Registry
+- [x] event-assisted wait + bounded fallback
+- [x] PR #4 final adversarial review
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router
@@ -71,3 +57,10 @@
 - [ ] WebMCP discovery
 - [ ] capability normalization
 - [ ] policy-controlled invocation
+
+
+## Phase 6.5 — Model-facing adapter boundary
+- [ ] MCP server implementation
+- [ ] dedicated model-egress / navigation policy
+- [ ] explicit tool exposure allowlist
+- [ ] prohibit model access to policy mutation / authorization issuance

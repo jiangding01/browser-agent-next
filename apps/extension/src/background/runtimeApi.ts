@@ -1,5 +1,10 @@
 export interface BackgroundMessageSender {
   id?: string;
+  tab?: {
+    id?: number;
+  };
+  frameId?: number;
+  documentId?: string;
 }
 
 export interface BackgroundRuntimeMessageEvent {

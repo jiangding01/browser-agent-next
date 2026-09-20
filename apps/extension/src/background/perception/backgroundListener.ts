@@ -7,6 +7,7 @@ import type {
   ExtensionBackgroundRuntimeApi,
 } from "../runtimeApi.js";
 import type { ChromeDomObservationService } from "../chrome/chromeObservationService.js";
+import type { TabOwnershipRegistry } from "@browser-agent-next/runtime";
 
 export type BackgroundRuntimeApi = ExtensionBackgroundRuntimeApi;
 
@@ -18,6 +19,7 @@ function boundedError(error: unknown): string {
 export function registerObserveTabBackgroundListener(
   runtime: BackgroundRuntimeApi,
   service: ChromeDomObservationService,
+  ownership?: TabOwnershipRegistry,
 ): () => void {
   const listener = (
     message: unknown,
@@ -29,7 +31,10 @@ export function registerObserveTabBackgroundListener(
 
     void service.observe({
       tabId: message.tabId,
-      ownedBySession: message.ownedBySession,
+      // 普通 runtime message 无权声明 ownership。只有 Runtime 自己通过
+      // browser.open 记录在 registry 中的 Tab 才能获得 Agent-owned 语义。
+      ownedBySession:
+        ownership?.isOwned(message.tabId) ?? false,
       ...(message.sinceRevision !== undefined
         ? { sinceRevision: message.sinceRevision }
         : {}),

@@ -1,9 +1,12 @@
 import {
   BrowserRuntimeError,
+  type AuthorizationAssurance,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
 import {
+  authorizationAssuranceSatisfies,
+  minimumAuthorizationAssurance,
   type InMemoryAuthorizationStore,
   type MutableExactOriginAllowlist,
 } from "@browser-agent-next/policy";
@@ -36,6 +39,9 @@ export interface TrustedExecuteAndVerifyInput {
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
 }
+
+const TRUSTED_HOST_ASSURANCE: AuthorizationAssurance =
+  "control-plane";
 
 export interface TrustedExecuteAndVerifyResult {
   execution: ExecuteStrictClickResult;
@@ -117,6 +123,7 @@ export class TrustedHostExecutionService {
     id: string;
     expiresAt: number;
     origin: string;
+    assurance: AuthorizationAssurance;
   } {
     if (
       !Number.isFinite(input.ttlMs) ||
@@ -155,6 +162,30 @@ export class TrustedHostExecutionService {
       );
     }
 
+    const requiredAssurance =
+      minimumAuthorizationAssurance(
+        "unknown",
+        stored.observation.tab.ownedBySession,
+      );
+
+    if (
+      requiredAssurance !== undefined &&
+      !authorizationAssuranceSatisfies(
+        TRUSTED_HOST_ASSURANCE,
+        requiredAssurance,
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "trusted control-plane grant is insufficient for this tab; required assurance: " +
+          requiredAssurance,
+        {
+          requiredAssurance,
+          availableAssurance: TRUSTED_HOST_ASSURANCE,
+        },
+      );
+    }
+
     const grant = this.authorizations.issue({
       id: input.authorizationId,
       tabId: input.tabId,
@@ -162,6 +193,7 @@ export class TrustedHostExecutionService {
       ref: input.ref,
       actionKind: "click",
       effectClass: "unknown",
+      assurance: TRUSTED_HOST_ASSURANCE,
       ttlMs: input.ttlMs,
       singleUse: true,
       source: "trusted-host",
@@ -171,6 +203,7 @@ export class TrustedHostExecutionService {
       id: grant.id,
       expiresAt: grant.expiresAt,
       origin: stored.observation.tab.origin,
+      assurance: grant.assurance,
     };
   }
 

@@ -4,6 +4,9 @@ import {
   registerDomPerceptionContentListener,
   type ContentRuntimeApi,
 } from "./perceptionListener.js";
+import {
+  installDomChangeNotifier,
+} from "./domChangeNotifier.js";
 
 declare const chrome: {
   runtime: ContentRuntimeApi;
@@ -16,5 +19,11 @@ registerDomPerceptionContentListener(
   chrome.runtime,
   document,
   window,
+  source,
+);
+
+installDomChangeNotifier(
+  chrome.runtime,
+  document,
   source,
 );

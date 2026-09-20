@@ -52,4 +52,29 @@
 48. 任一 declared accessible frame 无法建立 exact CDP mapping 时，AX coverage 必须降级为 partial；不能因为其它 frame 成功而报告 complete。
 49. child-frame Hybrid identity 的建立不自动授予 child-frame actuation 能力；在 top-level coordinate projection 与最终 hit-test 完成前，child-frame Strict Click 必须继续 fail closed。
 50. cross-process/OOPIF 若当前 chrome.debugger root session 无法取得对应 execution context/session，则视为 unmapped/degraded frame，而不是通过 URL 或拓扑猜测补齐。
-
+51. Authorization Assurance 必须来自受信 grant 签发边界；模型、页面或调用方 JSON 不能自行声明或提升 assurance。
+52. 现有 Trusted Native Host 只能签发 control-plane assurance；在独立 operator/enterprise ingress 完成前不得伪装成更高等级。
+53. Agent-facing browser.observe 在 Tab Ownership Registry 完成前不得接受调用方 supplied ownedBySession；默认按 user-existing tab 处理。
+54. browser.verify 只能验证指定 retained observation；它不是 fresh live-state proof。
+55. browser.wait 可以重试 observation/verification，但不得执行或重放任何 browser action；当前 polling baseline 不得宣称 event-driven。
+56. browser.act 遇到未支持 action kind 必须 fail closed，不得自动降级 compatible/raw-CDP execution。
+57. Agent-facing Browser API 的集合大小、timeout 和 polling interval 必须有显式上限，避免 untrusted caller 造成无界资源消耗。
+58. unknown effect 在用户已有 Tab 上至少要求 operator-approved；control-plane 只能覆盖可信证明为 Agent-owned 的 unknown action。
+59. 高层 observation 单次 candidate 上限必须与传输预算匹配；当前 DOM/AX 各最多 500，超大 action space 应通过 truncation/scoping/paging 处理，而不是无界扩大 Native Messaging payload。
+60. authorization source 必须具有自己的 assurance ceiling；trusted-host 最高只能 control-plane，不能只依赖 ingress 层硬编码来阻止权限升级。
+51. Agent-owned Tab 只能由 Runtime 真实创建动作 mint ownership；高层 API 不接受 caller supplied ownedBySession/claim，未知 Tab 与 MV3 restart 后均按 user-existing 处理。
+52. browser.open 只允许无 credentials 的绝对 http/https URL；javascript:/data:/file:/chrome: 等 scheme 必须 fail closed。
+\n
+53. browser.extract 只能读取 retained BrowserObservation；不得绕过 observation profile 直接执行 caller supplied selector/JS。missing ref 不能脱离原 observation coverage 被解释为页面真实不存在。
+\n
+54. authorization assurance label 不得因为“强度更高”而被重标成另一种证明类型；签发源与 assurance label 必须按受信入口精确绑定，Policy 的满足关系与 grant provenance 是两个独立概念。
+55. browser.open 返回的 requestedUrl 只证明请求目标，不证明导航完成或最终 URL；committed/final URL 必须来自后续 BrowserObservation。
+\n
+56. 普通 runtime perception ingress 不得接受 caller supplied ownedBySession；即使 sender.id 是当前 Extension，自身 extension context 也不能通过 observe request mint Agent-owned 语义。
+\n
+51. browser.open 是当前唯一可以 mint Agent-owned Tab 的高层 Runtime 入口；调用方不能通过 ownedBySession/claim(tabId) 把用户已有 Tab 升级为 Agent-owned。
+52. Authorization assurance 必须由受信签发入口决定；请求 JSON、模型输出、页面内容与 confidence 均不能自报或升级 assurance。
+53. trusted-host 只能签发 control-plane assurance；control-plane 不得被当作 operator-approved 的同义词。
+54. browser.wait 的 DOM/navigation signal 仅用于提前唤醒；每次 signal 后仍必须 fresh Observe + Verify，signal 本身永远不是完成证明。
+55. High-level browser.* runtime facade 不是最终 model-egress boundary；未来 MCP/LLM adapter 必须单独执行 model-egress/navigation policy，并且不得向模型暴露 policy mutation 或 authorization issuance 能力。
+56. model-egress policy 与 auto-act origin policy 必须保持独立；可读取/可出境不等价于可自动产生副作用。

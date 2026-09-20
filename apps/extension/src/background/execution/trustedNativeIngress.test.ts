@@ -28,6 +28,7 @@ describe("connectTrustedNativeIngress", () => {
           id: "auth",
           expiresAt: 1_000,
           origin: "https://fixture.test",
+          assurance: "control-plane",
         };
       },
       async executeStrictClickAndVerify() {
@@ -88,7 +89,42 @@ describe("connectTrustedNativeIngress", () => {
         id: "auth",
         expiresAt: 1_000,
         origin: "https://fixture.test",
+        assurance: "control-plane",
       },
     });
+  });
+  it("高层 browser.observe/verify/wait/act 通过同一 trusted ingress 路由", async () => {
+    let listener: ((message: unknown) => void) | undefined;
+    const responses: any[] = [];
+    const calls: string[] = [];
+    const port = {
+      postMessage(message: unknown) { responses.push(message); },
+      disconnect() {},
+      onMessage: { addListener(next: (message: unknown) => void) { listener = next; }, removeListener() {} },
+      onDisconnect: { addListener() {}, removeListener() {} },
+    };
+    const browserApi = {
+      async observe() { calls.push("observe"); return { revision: { id: "rev-1" } }; },
+      verify() { calls.push("verify"); return { verified: true, conclusive: true, evidence: [] }; },
+      async wait() { calls.push("wait"); return { timedOut: false, attempts: 1, verification: { verified: true } }; },
+      async act() { calls.push("act"); return { execution: { status: "executed" } }; },
+    };
+    connectTrustedNativeIngress(
+      { connectNative() { return port; } },
+      { replaceAutoActOrigins() { return []; } } as never,
+      browserApi as never,
+    );
+    const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
+    listener?.({ type: "browser.observe", requestId: "o", tabId: 7 });
+    listener?.({ type: "browser.verify", requestId: "v", tabId: 7, observedRevision: "rev-1", verification });
+    listener?.({ type: "browser.wait", requestId: "w", tabId: 7, verification });
+    listener?.({
+      type: "browser.act", requestId: "a", tabId: 7,
+      action: { actionId: "a1", kind: "click", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth" },
+      verification,
+    });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(calls.sort()).toEqual(["act", "observe", "verify", "wait"]);
+    expect(responses.filter((response) => response.ok === true)).toHaveLength(4);
   });
 });

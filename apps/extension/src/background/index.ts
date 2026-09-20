@@ -5,6 +5,7 @@ import {
 import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
 import {
   StoredObservationStrictCoordinator,
+  TabOwnershipRegistry,
   TabRevisionRegistry,
   TabStateStore,
 } from "@browser-agent-next/runtime";
@@ -58,13 +59,29 @@ import {
   IsolatedWorldDomStableIdInspector,
 } from "./perception/domStableIdInspector.js";
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
+import { HighLevelBrowserApiService } from "./api/browserApiService.js";
+import {
+  BrowserChangeSignalHub,
+  registerBrowserChangeSignals,
+} from "./api/browserChangeSignalHub.js";
 
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
   runtime:
     & BackgroundRuntimeApi
     & TrustedNativeRuntimeApi;
   debugger: ChromeDebuggerApi;
-  tabs: ChromeLifecycleApi["tabs"] & ChromeTabsApi;
+  tabs:
+    & ChromeLifecycleApi["tabs"]
+    & ChromeTabsApi
+    & {
+      create(input: {
+        url: string;
+        active?: boolean;
+      }): Promise<{
+        id?: number;
+        url?: string;
+      }>;
+    };
   webNavigation:
     & ChromeLifecycleApi["webNavigation"]
     & ChromeWebNavigationApi;
@@ -92,6 +109,8 @@ const refs = new InMemoryPersistentRefStore();
 const states = new TabStateStore();
 const revisions = new TabRevisionRegistry(runtimeEpoch());
 const lifecycle = new DomLifecycleRegistry(refs, states);
+const tabOwnership = new TabOwnershipRegistry();
+const browserChangeSignals = new BrowserChangeSignalHub();
 
 const coordinator = new DomObservationCoordinator(
   refs,
@@ -162,7 +181,28 @@ const trustedHostService =
     perceptionService,
   );
 
+const browserApiService =
+  new HighLevelBrowserApiService(
+    states,
+    perceptionService,
+    trustedHostService,
+    tabOwnership,
+    chrome.tabs,
+    {
+      changeSignals: browserChangeSignals,
+    },
+  );
+
 bindChromeDomLifecycle(chrome, lifecycle);
+registerBrowserChangeSignals(
+  chrome.runtime,
+  chrome,
+  browserChangeSignals,
+);
+chrome.tabs.onRemoved.addListener((tabId) => {
+  browserChangeSignals.clearTab(tabId);
+  tabOwnership.tabRemoved(tabId);
+});
 bindAuthorizationLifecycle(
   chrome,
   authorizations,
@@ -171,6 +211,7 @@ bindAuthorizationLifecycle(
 registerObserveTabBackgroundListener(
   chrome.runtime,
   perceptionService,
+  tabOwnership,
 );
 
 // 普通 Extension runtime message 只暴露 prepare，不暴露真实 input dispatch。
@@ -184,4 +225,5 @@ registerStrictExecutionBackgroundListener(
 connectTrustedNativeIngress(
   chrome.runtime,
   trustedHostService,
+  browserApiService,
 );

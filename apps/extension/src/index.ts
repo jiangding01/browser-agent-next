@@ -15,3 +15,4 @@ export * from "./protocol/trustedHost.js";
 export * from "./background/execution/trustedHostExecutionService.js";
 export * from "./background/execution/trustedNativeIngress.js";
 export * from "./background/execution/authorizationLifecycle.js";
+export * from "./background/api/browserApiService.js";
