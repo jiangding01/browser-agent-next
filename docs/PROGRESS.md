@@ -5,7 +5,7 @@
 ## 当前分支
 
 ```text
-feat/model-facing-mcp-adapter
+feat/assurance-issuance-ingress
 ```
 
 ## 当前阶段
@@ -15,7 +15,8 @@ PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
-PR #5 Model-facing Adapter Boundary      ✅ 实现完成，等待合并
+PR #5 Model-facing Adapter Boundary      ✅ 已合并
+PR #6 Assurance Issuance Ingress         ✅ 实现完成，等待合并
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -108,12 +109,62 @@ Runtime `browser.act` 仍可在 trusted control plane 内使用；model-facing a
 
 child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立推进，不在 PR #5 第一阶段隐式放宽。
 
+## PR #6 当前进度
+
+- Strict Click 授权签发逻辑已抽为统一 `StrictClickAuthorizationIssuanceService`；
+- control-plane / operator-approved / enterprise-policy 三条 public issuance path 在代码层固定 source ↔ assurance；
+- 调用方不能通过 input 自报 source/assurance；
+- 三条路径共享 retained observation / ref / origin / TTL / minimum assurance 校验；
+- 现有 trusted-host 只委托 control-plane issuance，外部协议行为保持不变；
+- operator-approved 独立人工审批 ingress 已完成 baseline；
+- enterprise-policy 独立签名证明 ingress 已完成 baseline。
+
+## Operator-approved ingress baseline
+
+- control-plane 只能创建 pending approval / 查询 status，不能直接 approve；
+- pending request 精确绑定 authorizationId / tab / revision / ref / TTL；
+- pending request 有独立过期时间、容量上限与重复 authorizationId 防护；
+- 专用 Extension action popup 展示 origin、页面标题、role/name/ref，并提供“批准一次 / 拒绝”；
+- 真正 approve 只接受精确 `chrome-extension://<id>/operator-approval.html` sender；
+- popup message 使用 exact-key schema，不能夹带 source / assurance；
+- approve 单次消费 pending，并在签发前重新调用统一 issuer；
+- navigation / tab removal 同时撤销 active grant 与 pending approval；
+- reject / expire / lifecycle invalidation 都不会产生 grant；
+- trusted-host 协议不存在 operator approve 消息类型。
+
+## Enterprise-policy ingress baseline
+
+- 企业验证公钥只从 `chrome.storage.managed` 读取，属于管理员受管只读策略；
+- managed storage 首次读取前限制为 `TRUSTED_CONTEXTS`；
+- 当前 baseline 使用 ECDSA P-256 + SHA-256；
+- signed assertion 精确绑定 assertionId / keyId / authorizationId / tab / revision / ref / origin / click / unknown effect / issuedAt / expiresAt / grant TTL；
+- assertion validity window 有界，grant 不允许活得比 assertion 更久；
+- control-plane 只能转发 assertion + signature，不能提供 source / assurance；
+- assertion signature 验证通过后仍重新匹配 retained observation origin，并通过统一 issuer 再校验 ref / auto-act origin / minimum assurance；
+- replay ledger 持久化到 `chrome.storage.local`，并限制为 `TRUSTED_CONTEXTS`，因此 MV3 service-worker 重启不会恢复 assertion 可重放性；
+- replay consume 在当前 worker 内串行，持久化失败时 fail closed；
+- replay ledger 只回收已过期 assertion；如果未过期记录已达到容量上限，则拒绝新的 enterprise issuance，绝不驱逐有效 replay 记录；
+- 当前支持单个 managed P-256 key；key rotation / multi-key overlap 后续可按需要扩展。
+
+## PR #6 最终门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests（243）✅
+- Workspace build ✅
+- Operator approval protocol/store/UI ingress tests ✅
+- Enterprise P-256 sign/verify tests ✅
+- Managed policy / persistent replay tests ✅
+- Extension packaging / managed schema via build ✅
+- Real Chromium E2E ✅
+- Final Adversarial Review ✅
+
 ## 下一步
 
-1. PR #5 已完成实现与最终对抗式 Review，等待合并；
-2. 下一阶段优先进入 operator-approved / enterprise-policy 独立签发 ingress；
-3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 作为后续独立安全阶段处理；
-4. OOPIF / child-frame actuation 与 Intelligence Layer 继续按 Roadmap 独立推进。
+1. 合并 PR #6；
+2. 下一阶段优先处理 OOPIF / child-frame coordinate projection / actuation；
+3. model-facing `browser.act` 仍保持不可见，Phase 6.6 scoped authorization broker 独立推进；
+4. 之后再进入 Intelligence Layer（deterministic router / Jev / shadow / fast path）。
 
 ## 文档
 
@@ -134,3 +185,4 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Model-facing / trusted control-plane 边界最终对抗式 Review ✅
 
 详见 `docs/PR5-FINAL-REVIEW.md`。
+- `docs/PR6-FINAL-REVIEW.md`：PR #6 最终对抗式审查与 merge gate。

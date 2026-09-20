@@ -31,6 +31,21 @@ await Promise.all([
     sourcemap: true,
     tsconfig,
   }),
+  build({
+    entryPoints: [
+      path.join(root, "src/operator-approval/index.ts"),
+    ],
+    outfile: path.join(
+      dist,
+      "operator-approval/index.js",
+    ),
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: ["chrome106"],
+    sourcemap: true,
+    tsconfig,
+  }),
 ]);
 
 await Promise.all([
@@ -41,5 +56,17 @@ await Promise.all([
   cp(
     path.join(root, "e2e-harness.html"),
     path.join(dist, "e2e-harness.html"),
+  ),
+  cp(
+    path.join(root, "operator-approval.html"),
+    path.join(dist, "operator-approval.html"),
+  ),
+  cp(
+    path.join(root, "operator-approval.css"),
+    path.join(dist, "operator-approval.css"),
+  ),
+  cp(
+    path.join(root, "enterprise-policy-schema.json"),
+    path.join(dist, "enterprise-policy-schema.json"),
   ),
 ]);

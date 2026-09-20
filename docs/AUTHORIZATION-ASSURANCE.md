@@ -92,3 +92,132 @@ Assurance 只能由受信签发边界产生。
         ≠
 该 assurance 是否满足某个最低策略门槛
 ```
+
+
+## PR #6 issuance core
+
+Strict Click 的签发校验已经统一收口到 `StrictClickAuthorizationIssuanceService`。
+
+它提供三条代码级固定 provenance 的入口：
+
+```text
+issueControlPlane()       → trusted-host       → control-plane
+issueOperatorApproved()   → trusted-ui         → operator-approved
+issueEnterprisePolicy()   → enterprise-policy → enterprise-policy
+```
+
+调用参数中不存在 `source` 或 `assurance` 字段，因此调用方不能通过 JSON 把 control-plane 请求升级成更高 assurance。
+
+三条路径共享以下 fail-closed 校验：
+
+- observation 必须仍在 retained state 中；
+- ref 必须属于该 observation；
+- origin 必须通过现有 auto-act exact-origin policy；
+- TTL 必须有界；
+- source 固定的 assurance 必须满足该 tab/effect 的最低门槛；
+- grant 继续精确绑定 tab/revision/ref/action/effect，默认 single-use。
+
+这个统一 core **不等于 operator/enterprise ingress 已完成**。下一步仍需要分别建立能证明“人工批准”和“企业策略证明”的独立入口。
+
+
+## Operator-approved ingress
+
+operator-approved 不通过现有 trusted-host token 直接签发。
+
+当前流程：
+
+```text
+control-plane
+  ↓ request pending approval
+OperatorApprovalStore
+  ↓ visible pending item
+chrome-extension://<id>/operator-approval.html
+  ↓ explicit approve click
+trusted UI ingress
+  ↓
+issueOperatorApproved()
+  ↓
+AuthorizationGrant(source=trusted-ui, assurance=operator-approved)
+```
+
+control-plane 只拥有两种能力：
+
+- 创建 pending approval；
+- 查询 pending / approved / rejected / expired / invalidated 状态。
+
+协议中不存在 control-plane 的 `approve` 操作。
+
+真正批准消息只接受来自精确扩展审批页 URL 的 sender，并且 UI 协议采用 exact-key schema；调用方无法在消息中声明 `source` 或 `assurance`。
+
+pending approval 本身不会创建 grant。批准时会重新执行统一 issuer 的 retained observation / ref / origin / TTL / minimum assurance 校验，因此请求产生后如果发生 navigation、ref 失效或 policy 变化，批准会 fail closed。
+
+任意 committed navigation 或 tab removal 都会同时清理 active grant 和 pending approval。批准、拒绝、过期、失效后的 request id 都不能再次批准。
+
+
+## Enterprise-policy ingress
+
+enterprise-policy 不依赖第二个普通 Bearer token，也不允许 control-plane 自报高 assurance。
+
+当前采用管理员受管公钥 + 签名 assertion：
+
+```text
+Enterprise policy service / signer
+  ↓ ECDSA P-256 signed assertion
+control-plane relay
+  ↓
+trusted-host request
+  ↓
+chrome.storage.managed public key
+  ↓ signature + time + binding + replay verification
+persistent replay ledger
+  ↓
+issueEnterprisePolicy()
+  ↓
+AuthorizationGrant(
+  source=enterprise-policy,
+  assurance=enterprise-policy
+)
+```
+
+签名 payload 固定包含：
+
+- assertionId；
+- keyId；
+- authorizationId；
+- tabId；
+- observedRevision；
+- ref；
+- exact origin；
+- actionKind=click；
+- effectClass=unknown；
+- issuedAt / expiresAt；
+- grantTtlMs。
+
+因此 relay 不能修改目标、revision、origin、TTL 或 effect/action 语义而继续通过签名。
+
+管理员配置通过 Extension managed storage schema 下发：
+
+- `EnterpriseAuthorizationKeyId`；
+- `EnterpriseAuthorizationPublicKeySpkiBase64`；
+- `EnterpriseAuthorizationMaxAssertionLifetimeMs`。
+
+managed storage 与 replay 使用的 local storage 都会限制到 `TRUSTED_CONTEXTS`。replay ledger 持久化 assertionId + expiresAt，并在 worker 内串行执行 consume-once，避免并发请求和 MV3 service-worker 重启恢复 assertion 可重放性。
+
+签名验证成功后仍不会直接 mint grant：当前 retained observation 的 origin 必须与 signed origin 精确一致，之后统一 issuer 还会再次验证 retained ref、auto-act origin、TTL 与 minimum assurance。
+
+当前是单 P-256 key baseline；后续 key rotation 可以扩展为受管 key set，但不能把 key material 改为由 model/control-plane 请求动态提供。
+
+
+### Replay ledger 满载行为
+
+Enterprise assertion replay ledger 只允许清理已经过期的记录。
+
+如果所有记录仍在有效期内且达到容量上限：
+
+```text
+new enterprise assertion
+→ POLICY_BLOCKED
+→ no grant
+```
+
+实现不得为了腾出空间驱逐尚未过期的 consumed assertion，否则被驱逐 assertion 会重新获得 replay 机会。这里优先选择可用性下降，而不是降低 replay 安全性。

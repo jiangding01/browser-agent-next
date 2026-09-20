@@ -35,9 +35,30 @@ import {
   TrustedHostExecutionService,
 } from "./execution/trustedHostExecutionService.js";
 import {
+  StrictClickAuthorizationIssuanceService,
+} from "./execution/authorizationIssuanceService.js";
+import {
   connectTrustedNativeIngress,
   type TrustedNativeRuntimeApi,
 } from "./execution/trustedNativeIngress.js";
+import {
+  OperatorApprovalStore,
+} from "./execution/operatorApprovalStore.js";
+import {
+  registerOperatorApprovalUiIngress,
+  type OperatorApprovalRuntimeApi,
+} from "./execution/operatorApprovalIngress.js";
+import {
+  ChromeManagedEnterpriseAuthorizationPolicyProvider,
+  type ManagedStorageArea,
+} from "./execution/enterpriseManagedPolicy.js";
+import {
+  ChromeStorageEnterpriseAssertionReplayStore,
+  type WritableStorageArea,
+} from "./execution/enterpriseAssertionReplayStore.js";
+import {
+  EnterprisePolicyAuthorizationService,
+} from "./execution/enterprisePolicyAuthorizationService.js";
 import {
   type ChromeLifecycleApi,
   bindChromeDomLifecycle,
@@ -85,6 +106,10 @@ interface ChromeBackgroundApi extends ChromeLifecycleApi {
   webNavigation:
     & ChromeLifecycleApi["webNavigation"]
     & ChromeWebNavigationApi;
+  storage: {
+    managed: ManagedStorageArea;
+    local: WritableStorageArea;
+  };
 }
 
 declare const chrome: ChromeBackgroundApi;
@@ -159,6 +184,38 @@ const authorizations =
 const autoActOrigins =
   new MutableExactOriginAllowlist();
 
+const authorizationIssuance =
+  new StrictClickAuthorizationIssuanceService(
+    states,
+    authorizations,
+    autoActOrigins,
+  );
+
+const operatorApprovals =
+  new OperatorApprovalStore(
+    states,
+    autoActOrigins,
+    authorizationIssuance,
+  );
+
+const enterprisePolicies =
+  new ChromeManagedEnterpriseAuthorizationPolicyProvider(
+    chrome.storage.managed,
+  );
+
+const enterpriseReplay =
+  new ChromeStorageEnterpriseAssertionReplayStore(
+    chrome.storage.local,
+  );
+
+const enterprisePolicyAuthorization =
+  new EnterprisePolicyAuthorizationService(
+    states,
+    enterprisePolicies,
+    enterpriseReplay,
+    authorizationIssuance,
+  );
+
 const clickDispatcher =
   new ChromeStrictClickDispatcher(
     debuggerTransport,
@@ -175,10 +232,14 @@ const policyGatedClick =
 const trustedHostService =
   new TrustedHostExecutionService(
     states,
-    authorizations,
     autoActOrigins,
+    authorizationIssuance,
     policyGatedClick,
     perceptionService,
+    {
+      operatorApprovals,
+      enterprisePolicyAuthorization,
+    },
   );
 
 const browserApiService =
@@ -206,12 +267,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 bindAuthorizationLifecycle(
   chrome,
   authorizations,
+  operatorApprovals,
 );
 
 registerObserveTabBackgroundListener(
   chrome.runtime,
   perceptionService,
   tabOwnership,
+);
+
+registerOperatorApprovalUiIngress(
+  chrome.runtime as unknown as
+    OperatorApprovalRuntimeApi,
+  operatorApprovals,
 );
 
 // 普通 Extension runtime message 只暴露 prepare，不暴露真实 input dispatch。

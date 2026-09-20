@@ -30,8 +30,11 @@
 - [x] Authorization Assurance type/ranking
 - [x] minimum assurance by Effect Class
 - [x] trusted-host cannot self-upgrade assurance
-- [ ] operator-approved issuance ingress
-- [ ] enterprise-policy issuance ingress
+- [x] shared strict-click issuance core with source-bound provenance
+- [x] operator-approved issuance ingress
+- [x] enterprise-policy issuance ingress
+- [x] persistent enterprise assertion replay protection
+- [x] PR #6 final adversarial review
 
 ## Phase 6 — High-level API
 - [x] browser.open + Tab Ownership Registry

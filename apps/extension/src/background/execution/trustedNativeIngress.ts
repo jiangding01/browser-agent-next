@@ -57,6 +57,23 @@ async function handleRequest(
         ref: request.ref,
         ttlMs: request.ttlMs,
       });
+    case "authorization.request-operator-approval":
+      return service.requestOperatorApproval({
+        authorizationId: request.authorizationId,
+        tabId: request.tabId,
+        observedRevision: request.observedRevision,
+        ref: request.ref,
+        ttlMs: request.ttlMs,
+      });
+    case "authorization.operator-approval-status":
+      return service.operatorApprovalStatus(
+        request.approvalRequestId,
+      );
+    case "authorization.issue-enterprise-policy":
+      return service.issueEnterprisePolicyAuthorization({
+        assertion: request.assertion,
+        signature: request.signature,
+      });
     case "execution.execute-strict-click":
       return service.executeStrictClickAndVerify({
         actionId: request.actionId,

@@ -28,12 +28,18 @@ export interface AuthorizationLifecycleApi {
  *
  * 即使只是 child frame 导航也 fail closed，避免 grant 在页面结构变化后继续存活。
  */
+export interface TabScopedPendingAuthorizationStore {
+  clearTab(tabId: number): void;
+}
+
 export function bindAuthorizationLifecycle(
   api: AuthorizationLifecycleApi,
   authorizations: InMemoryAuthorizationStore,
+  pendingApprovals?: TabScopedPendingAuthorizationStore,
 ): () => void {
   const onRemoved = (tabId: number): void => {
     authorizations.clearTab(tabId);
+    pendingApprovals?.clearTab(tabId);
   };
 
   const onCommitted = (details: {
@@ -41,6 +47,7 @@ export function bindAuthorizationLifecycle(
     frameId: number;
   }): void => {
     authorizations.clearTab(details.tabId);
+    pendingApprovals?.clearTab(details.tabId);
   };
 
   api.tabs.onRemoved.addListener(onRemoved);

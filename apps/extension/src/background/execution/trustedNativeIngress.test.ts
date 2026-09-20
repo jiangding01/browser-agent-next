@@ -93,6 +93,181 @@ describe("connectTrustedNativeIngress", () => {
       },
     });
   });
+  it("control-plane 只能 request/status operator approval，不能直接 approve", async () => {
+    let listener:
+      | ((message: unknown) => void)
+      | undefined;
+    const responses: any[] = [];
+    const calls: string[] = [];
+
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage(message: unknown) {
+              responses.push(message);
+            },
+            disconnect() {},
+            onMessage: {
+              addListener(
+                next: (message: unknown) => void,
+              ) {
+                listener = next;
+              },
+              removeListener() {},
+            },
+            onDisconnect: {
+              addListener() {},
+              removeListener() {},
+            },
+          };
+        },
+      },
+      {
+        requestOperatorApproval() {
+          calls.push("request");
+          return {
+            approvalRequestId: "operator-1",
+            state: "pending",
+          };
+        },
+        operatorApprovalStatus() {
+          calls.push("status");
+          return {
+            approvalRequestId: "operator-1",
+            state: "pending",
+          };
+        },
+      } as never,
+    );
+
+    listener?.({
+      type: "authorization.request-operator-approval",
+      requestId: "request",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1_000,
+    });
+
+    listener?.({
+      type: "authorization.operator-approval-status",
+      requestId: "status",
+      approvalRequestId: "operator-1",
+    });
+
+    // 不存在 trusted-host approve 消息类型。
+    listener?.({
+      type: "authorization.approve-operator",
+      requestId: "forged",
+      approvalRequestId: "operator-1",
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual([
+      "request",
+      "status",
+    ]);
+    expect(
+      responses.some(
+        (response) =>
+          response.requestId === "forged" &&
+          response.ok === false,
+      ),
+    ).toBe(true);
+  });
+
+  it("enterprise assertion 只作为签名证明转发，不能自报 enterprise grant", async () => {
+    let listener:
+      | ((message: unknown) => void)
+      | undefined;
+    const responses: any[] = [];
+    const received: any[] = [];
+
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage(message: unknown) {
+              responses.push(message);
+            },
+            disconnect() {},
+            onMessage: {
+              addListener(
+                next: (message: unknown) => void,
+              ) {
+                listener = next;
+              },
+              removeListener() {},
+            },
+            onDisconnect: {
+              addListener() {},
+              removeListener() {},
+            },
+          };
+        },
+      },
+      {
+        async issueEnterprisePolicyAuthorization(
+          envelope: unknown,
+        ) {
+          received.push(envelope);
+          return {
+            id: "auth-enterprise",
+            assurance:
+              "enterprise-policy",
+          };
+        },
+      } as never,
+    );
+
+    const assertion = {
+      version: 1,
+      assertionId: "assertion-1",
+      keyId: "enterprise-key-1",
+      authorizationId: "auth-enterprise",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      origin: "https://fixture.test",
+      actionKind: "click",
+      effectClass: "unknown",
+      issuedAt: 1000,
+      expiresAt: 61000,
+      grantTtlMs: 30000,
+    };
+
+    listener?.({
+      type: "authorization.issue-enterprise-policy",
+      requestId: "enterprise",
+      assertion,
+      signature: "A".repeat(86),
+    });
+
+    await new Promise<void>(
+      (resolve) =>
+        setTimeout(resolve, 0),
+    );
+
+    expect(received).toEqual([{
+      assertion,
+      signature: "A".repeat(86),
+    }]);
+    expect(responses).toContainEqual({
+      type: "trusted-host.result",
+      requestId: "enterprise",
+      ok: true,
+      result: {
+        id: "auth-enterprise",
+        assurance:
+          "enterprise-policy",
+      },
+    });
+  });
+
   it("高层 browser.observe/verify/wait/act 通过同一 trusted ingress 路由", async () => {
     let listener: ((message: unknown) => void) | undefined;
     const responses: any[] = [];

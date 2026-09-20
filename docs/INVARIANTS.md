@@ -100,3 +100,12 @@
 92. MCP CLI 的 origin 配置必须复用 exact-origin policy；path/query/fragment/credentials 不能被静默 canonicalize 成更宽 origin。
 93. MCP CLI 的 `includeValues` 默认必须为 false；只有显式 operator 配置可以开启，模型自己的 includeValues 请求不能越过该开关。
 94. MCP CLI 启动失败只能写 stderr；任何 startup/config/debug 文本都不得污染 stdout MCP wire。
+
+
+95. Operator-approved grant 必须由专用 trusted Extension approval UI 的明确批准动作产生；control-plane 只能创建 pending approval / 查询状态，不能直接 approve。
+96. Operator approval request 必须单次消费且有界过期；任意 committed navigation 或 tab removal 必须清除该 tab 的 pending approval。
+97. Enterprise-policy grant 不能由第二个普通 control-plane token 或 caller-supplied assurance 产生；必须验证独立 enterprise proof。
+98. Enterprise authorization assertion 必须签名绑定 authorizationId、tab、revision、ref、origin、action/effect、validity window 与 grant TTL；任一字段修改都必须使签名失效。
+99. Enterprise verification public key 只能来自管理员受管配置；control-plane/model/page 不能在 issuance request 中提供或替换 verification key。
+100. Enterprise assertion 必须 consume-once，且 replay state 必须跨 MV3 service-worker restart 持久化；replay persistence 不可用时必须 fail closed。未过期 replay marker 不得因容量限制被驱逐，ledger 满时必须拒绝新的 enterprise issuance。
+101. Enterprise grant TTL 不得超出 signed assertion 的剩余有效期；signature 验证通过后仍必须重新执行 retained observation / ref / origin / minimum assurance 校验。
