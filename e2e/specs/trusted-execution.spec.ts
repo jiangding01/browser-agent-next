@@ -285,68 +285,6 @@ async function targetTabId(
   }, fixtureOrigin);
 }
 
-async function observe(
-  harness: Page,
-  tabId: number,
-): Promise<{
-  revision: { id: string };
-  elements: Array<{
-    ref: string;
-    semantic: {
-      name?: string;
-    };
-  }>;
-}> {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const response = await harness.evaluate(
-      async ({ tabId, requestId }) => {
-        const chromeApi = (
-          globalThis as unknown as {
-            chrome: {
-              runtime: {
-                sendMessage(
-                  message: unknown,
-                ): Promise<any>;
-              };
-            };
-          }
-        ).chrome;
-
-        return chromeApi.runtime.sendMessage({
-          type: "perception.observe-tab",
-          requestId,
-          tabId,
-          ownedBySession: true,
-          options: {
-            includeAx: true,
-          },
-        });
-      },
-      {
-        tabId,
-        requestId:
-          "trusted-e2e-observe-" +
-          attempt +
-          "-" +
-          Date.now(),
-      },
-    );
-
-    if (
-      response?.ok &&
-      response.observation
-    ) {
-      return response.observation;
-    }
-
-    await harness.waitForTimeout(50);
-  }
-
-  throw new Error(
-    "hybrid observation unavailable",
-  );
-}
-
 test(
   "真实 Chromium 中 trusted host 授权后执行一次 Strict Click 并独立验证结果",
   async () => {
@@ -437,10 +375,6 @@ test(
         ),
       );
 
-      const target = await context.newPage();
-      await target.goto(mainUrl);
-      await target.waitForLoadState("load");
-
       const harness = await context.newPage();
       await harness.goto(
         "chrome-extension://" +
@@ -448,8 +382,118 @@ test(
           "/e2e-harness.html",
       );
 
-      const tabId =
+      // 先证明用户已有 Tab 不会被 caller 自报成 Agent-owned。
+      const userTarget = await context.newPage();
+      await userTarget.goto(mainUrl);
+      await userTarget.waitForLoadState("load");
+
+      const userTabId =
         await targetTabId(harness);
+
+      const userObservation =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.observe",
+            requestId: "browser-observe-user-tab",
+            tabId: userTabId,
+            options: {
+              profile: "hybrid",
+            },
+          },
+        );
+
+      expect(userObservation).toMatchObject({
+        ok: true,
+        result: {
+          tab: {
+            tabId: userTabId,
+            ownedBySession: false,
+          },
+        },
+      });
+
+      const userSave =
+        userObservation.result.elements.find(
+          (element) =>
+            element.semantic.name === "Save",
+        );
+      if (!userSave) {
+        throw new Error("user-tab Save ref unavailable");
+      }
+
+      const policyResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId: "policy-1",
+            origins: [fixtureOrigin],
+          },
+        );
+
+      expect(policyResponse).toMatchObject({
+        ok: true,
+        result: {
+          origins: [fixtureOrigin],
+        },
+      });
+
+      const rejectedUserTabAuth =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId: "auth-user-tab-rejected",
+            authorizationId: "auth-user-tab",
+            tabId: userTabId,
+            observedRevision:
+              userObservation.result.revision.id,
+            ref: userSave.ref,
+            ttlMs: 5_000,
+          },
+        );
+
+      expect(rejectedUserTabAuth).toMatchObject({
+        ok: false,
+        error: {
+          code: "AUTHORIZATION_REQUIRED",
+        },
+      });
+
+      await userTarget.close();
+
+      // browser.open 是当前唯一可以 mint Agent-owned tab 的高层入口。
+      const createdPage = context.waitForEvent("page");
+      const openResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.open",
+            requestId: "browser-open-1",
+            url: mainUrl,
+            active: false,
+          },
+        );
+
+      expect(openResponse).toMatchObject({
+        ok: true,
+        result: {
+          url: mainUrl,
+          ownedBySession: true,
+        },
+      });
+
+      const target = await createdPage;
+      await target.waitForLoadState("load");
+
+      const tabId = openResponse.result.tabId;
 
       const currentResponse =
         await trustedRequest(
@@ -470,7 +514,7 @@ test(
         result: {
           tab: {
             tabId,
-            ownedBySession: false,
+            ownedBySession: true,
           },
         },
       });
@@ -541,74 +585,17 @@ test(
         ok: true,
         result: {
           timedOut: false,
+          observation: {
+            tab: {
+              tabId,
+              ownedBySession: true,
+            },
+          },
           verification: {
             verified: true,
           },
         },
       });
-
-      const policyResponse =
-        await trustedRequest(
-          rpcPort,
-          token,
-          {
-            type:
-              "policy.replace-autoact-origins",
-            requestId: "policy-1",
-            origins: [fixtureOrigin],
-          },
-        );
-
-      expect(policyResponse).toMatchObject({
-        ok: true,
-        result: {
-          origins: [fixtureOrigin],
-        },
-      });
-
-      const rejectedUserTabAuth =
-        await trustedRequest(
-          rpcPort,
-          token,
-          {
-            type:
-              "authorization.issue-strict-click",
-            requestId: "auth-user-tab-rejected",
-            authorizationId: "auth-user-tab",
-            tabId,
-            observedRevision:
-              current.revision.id,
-            ref: save.ref,
-            ttlMs: 5_000,
-          },
-        );
-
-      expect(rejectedUserTabAuth).toMatchObject({
-        ok: false,
-        error: {
-          code: "AUTHORIZATION_REQUIRED",
-        },
-      });
-
-      // 当前高层 browser.observe 不接受 caller supplied ownership，
-      // 因此按 user-existing tab 处理。成功执行路径继续使用内部测试
-      // harness 明确标记的 session-owned observation；未来由
-      // Tab Ownership Registry 替代该测试入口。
-      const executableCurrent =
-        await observe(harness, tabId);
-      const executableSave =
-        executableCurrent.elements.find(
-          (element) =>
-            element.semantic.name === "Save",
-        );
-
-      if (!executableSave) {
-        throw new Error(
-          "session-owned Save ref unavailable",
-        );
-      }
-
-      expect(executableSave.ref).toBe(save.ref);
 
       const authResponse =
         await trustedRequest(
@@ -621,8 +608,8 @@ test(
             authorizationId: "auth-1",
             tabId,
             observedRevision:
-              executableCurrent.revision.id,
-            ref: executableSave.ref,
+              current.revision.id,
+            ref: save.ref,
             ttlMs: 5_000,
           },
         );
@@ -663,8 +650,8 @@ test(
               kind: "click",
               authorizationId: "auth-1",
               observedRevision:
-                executableCurrent.revision.id,
-              ref: executableSave.ref,
+                current.revision.id,
+              ref: save.ref,
             },
             verification: {
               mode: "all",
@@ -704,6 +691,12 @@ test(
 
       expect(refreshedResponse).toMatchObject({
         ok: true,
+        result: {
+          tab: {
+            tabId,
+            ownedBySession: true,
+          },
+        },
       });
 
       const refreshed =
@@ -722,24 +715,6 @@ test(
 
       expect(replacementSave.ref).not.toBe(
         save.ref,
-      );
-
-      const executableRefreshed =
-        await observe(harness, tabId);
-      const executableReplacementSave =
-        executableRefreshed.elements.find(
-          (element) =>
-            element.semantic.name === "Save",
-        );
-
-      if (!executableReplacementSave) {
-        throw new Error(
-          "session-owned replacement Save ref unavailable",
-        );
-      }
-
-      expect(executableReplacementSave.ref).toBe(
-        replacementSave.ref,
       );
 
       await target.evaluate(() => {
@@ -768,8 +743,8 @@ test(
             authorizationId: "auth-2",
             tabId,
             observedRevision:
-              executableRefreshed.revision.id,
-            ref: executableReplacementSave.ref,
+              refreshed.revision.id,
+            ref: replacementSave.ref,
             ttlMs: 5_000,
           },
         );
@@ -795,8 +770,8 @@ test(
               kind: "click",
               authorizationId: "auth-2",
               observedRevision:
-                executableRefreshed.revision.id,
-              ref: executableReplacementSave.ref,
+                refreshed.revision.id,
+              ref: replacementSave.ref,
             },
             verification: {
               mode: "all",

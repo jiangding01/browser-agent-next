@@ -39,7 +39,8 @@ event-driven wait                        ⏭
 - browser.wait 只重复 fresh observation + verification，不执行动作；
 - browser.act 第一版只接 Strict Click；
 - trusted protocol 对 API 输入做数量、timeout、poll interval 等边界校验；
-- 真实 Chromium trusted E2E 已改为通过 browser.observe / verify / wait / act 驱动主闭环。
+- 真实 Chromium trusted E2E 已改为通过 browser.open / observe / verify / wait / act 驱动完整主闭环；
+- E2E 同时验证用户已有 Tab 仍要求 operator-approved，而 browser.open 创建的 Tab 可由 control-plane grant 驱动 Strict Click。
 
 ## 当前边界
 

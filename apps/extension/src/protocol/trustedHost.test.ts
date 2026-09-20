@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { isTrustedHostRequest } from "./trustedHost.js";
 
 describe("isTrustedHostRequest", () => {
+  it("browser.open 只接受有界 envelope，URL scheme 由 service 层继续验证", () => {
+    expect(isTrustedHostRequest({
+      type: "browser.open",
+      requestId: "open",
+      url: "https://example.test/",
+      active: false,
+    })).toBe(true);
+
+    expect(isTrustedHostRequest({
+      type: "browser.open",
+      requestId: "open",
+      url: "",
+    })).toBe(false);
+
+    expect(isTrustedHostRequest({
+      type: "browser.open",
+      requestId: "open",
+      url: "x".repeat(2049),
+    })).toBe(false);
+  });
+
   it("接受有界的 browser.observe 请求，且不存在 ownedBySession 字段", () => {
     expect(isTrustedHostRequest({
       type: "browser.observe", requestId: "req", tabId: 7,
