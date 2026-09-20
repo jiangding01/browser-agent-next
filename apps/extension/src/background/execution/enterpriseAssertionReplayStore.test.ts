@@ -85,7 +85,7 @@ describe(
     );
 
     it(
-      "过期 entry 可回收，容量保持 bounded",
+      "只回收已过期 entry；未过期 ledger 满时 fail closed，不驱逐 replay 记录",
       async () => {
         const context = setup();
 
@@ -106,18 +106,31 @@ describe(
             "b",
             400,
           );
-        await context.store
-          .consumeOnce(
-            "c",
-            500,
-          );
+
+        await expect(
+          context.store
+            .consumeOnce(
+              "c",
+              500,
+            ),
+        ).rejects.toMatchObject({
+          code: "POLICY_BLOCKED",
+        });
 
         expect(
           context.getValue(),
         ).toEqual({
+          a: 300,
           b: 400,
-          c: 500,
         });
+
+        await expect(
+          context.store
+            .consumeOnce(
+              "a",
+              300,
+            ),
+        ).resolves.toBe(false);
       },
     );
 
