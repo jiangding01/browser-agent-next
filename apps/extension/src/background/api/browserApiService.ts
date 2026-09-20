@@ -180,7 +180,7 @@ export class HighLevelBrowserApiService {
   private readonly defaultWaitTimeoutMs: number;
   private readonly maxWaitTimeoutMs: number;
   private readonly defaultPollIntervalMs: number;
-  private readonly changeSignals?: BrowserChangeSignalSource;
+  private readonly changeSignals: BrowserChangeSignalSource | undefined;
 
   constructor(
     private readonly states: TabStateStore,
