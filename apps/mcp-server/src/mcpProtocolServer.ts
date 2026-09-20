@@ -35,6 +35,8 @@ export interface ModelFacingMcpServerOptions {
 export interface ServeModelFacingMcpStdioOptions
   extends ModelFacingMcpServerOptions {
   legacy?: ServeStdioOptions["legacy"];
+  transport?: ServeStdioOptions["transport"];
+  onerror?: ServeStdioOptions["onerror"];
 }
 
 function boundedPositiveInteger(
@@ -220,6 +222,12 @@ export function serveModelFacingMcpStdio(
     ),
     {
       legacy: options.legacy ?? "serve",
+      ...(options.transport !== undefined
+        ? { transport: options.transport }
+        : {}),
+      ...(options.onerror !== undefined
+        ? { onerror: options.onerror }
+        : {}),
     },
   );
 }

@@ -54,7 +54,7 @@
 - [x] MCP stdio transport/server implementation
 - [x] minimal adapter → trusted Runtime client (browser.open / browser.observe only)
 - [x] operator config + executable MCP CLI (fail-closed defaults)
-- [ ] MCP transport integration tests
+- [x] MCP transport integration tests (real stdio pipe)
 - [ ] safe scoped authorization broker before exposing browser.act
 
 ## Phase 7 — Intelligence

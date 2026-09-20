@@ -69,3 +69,7 @@ node apps/mcp-server/dist/cli.js
 - `BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES`
 
 trusted token 本身不接受环境变量明文配置；CLI 只读取 native-host token file。
+
+## Wire-level integration
+
+测试使用官方 `StdioServerTransport` 和内存 pipe 真实执行 MCP legacy 握手、`tools/list` 与 `tools/call`。未暴露工具即使被客户端手工调用，也会在进入 adapter 前返回 `POLICY_BLOCKED`。

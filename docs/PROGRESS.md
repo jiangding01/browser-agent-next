@@ -27,6 +27,7 @@ MCP tool schema/catalog                    ✅
 MCP stdio transport                        ✅ server seam
 Model-facing Runtime client                ✅ open/observe only
 MCP executable CLI + operator config       ✅ fail-closed baseline
+MCP stdio wire integration                  ✅ legacy handshake + tools
 Safe browser.act authorization broker      ⏳
 ```
 
@@ -91,6 +92,14 @@ Safe browser.act authorization broker      ⏳
 - trusted token 在 stdio wire 启动前读取并验证，启动错误只写 stderr；
 - 每次 MCP connection factory 仍创建新的 adapter/model-visible revision store。
 
+## MCP wire integration
+
+- 使用 SDK 自带 `StdioServerTransport` + 内存 pipe 做真实 JSON-RPC wire 测试；
+- 覆盖 legacy `initialize` 握手、`notifications/initialized`、`tools/list`、`tools/call`；
+- 验证 catalog 只返回 operator allowlist 中的工具；
+- 验证未暴露工具在 wire 上返回 `POLICY_BLOCKED`，且不会进入 invoker；
+- 验证同一 stdio connection 只 pin 一个 factory instance。
+
 ## 当前边界
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
@@ -101,8 +110,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 增加真实 stdio 子进程集成测试与失败路径测试；
-2. 完成 PR #5 最终对抗式 Review 与文档收口；
+1. 完成 PR #5 最终对抗式 Review 与文档收口；
+2. 更新依赖 lockfile 并确认最终 HEAD CI；
 3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 留待后续独立阶段。
 
 ## 文档

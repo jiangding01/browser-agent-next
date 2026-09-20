@@ -287,10 +287,28 @@ origin 配置仍必须是纯 http/https exact origin。RPC host 只能是 `127.0
 
 `serveStdio(factory)` 每次构造连接实例时都会重新创建 `ModelFacingBrowserAdapter`，所以 projected revision state 仍然是 connection-local。
 
+## Wire-level Integration Gate
+
+PR #5 不只测试 bridge 方法本身，还使用官方 `StdioServerTransport` 与内存 `PassThrough` pipe 完成真实 JSON-RPC wire 验证：
+
+```text
+initialize
+  ↓
+notifications/initialized
+  ↓
+tools/list
+  ↓
+tools/call(browser.observe)
+  ↓
+tools/call(unexposed browser.open) → POLICY_BLOCKED
+```
+
+该测试确认 `serveStdio(factory)` 的 legacy connection 可以正常 pin server instance，catalog 与 dispatch policy 在真实 wire 上保持一致，未暴露工具不会因为客户端手工构造 `tools/call` 而绕过 catalog。
+
 ## 后续工作
 
 PR #5 接下来继续：
 
-1. 增加真实 stdio 子进程集成测试与失败路径测试；
-2. 完成 PR #5 最终对抗式 Review；
+1. 完成 PR #5 最终对抗式 Review 与文档收口；
+2. 更新依赖 lockfile 并确认最终 HEAD CI；
 3. `browser.act` 继续保持 model-facing 不可见；scoped authorization broker 作为后续独立安全阶段处理。
