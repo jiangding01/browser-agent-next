@@ -32,7 +32,8 @@
   - [x] navigation/detach/projection fail-closed E2E
   - [x] scroll + affine transform actuation / perspective fail-closed E2E
   - [x] nested parent-owner occlusion fail-closed
-  - [ ] detached child-session late-event hardening — implemented, CI pending
+  - [x] detached child-session late-event hardening
+  - [ ] Real Chromium nested parent-owner overlay fail-closed / recovery E2E — implemented, CI pending
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

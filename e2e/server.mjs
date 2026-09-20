@@ -110,6 +110,93 @@ const pages = new Map([
     </script>
   </body>
 </html>`],
+  ["/oopif-nested-main.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Nested OOPIF Main Fixture</title>
+    <style>
+      html, body { margin: 0; }
+      #oopif-nested-parent-frame {
+        display: block;
+        width: 440px;
+        height: 280px;
+        margin: 60px;
+        border: 8px solid #245;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      id="oopif-nested-parent-frame"
+      src="http://localhost:4173/oopif-nested-parent.html"
+    ></iframe>
+  </body>
+</html>`],
+  ["/oopif-nested-parent.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Nested OOPIF Parent Fixture</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body { position: relative; }
+      #oopif-nested-child-frame {
+        display: block;
+        width: 300px;
+        height: 160px;
+        margin: 40px;
+        border: 6px solid #473;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      id="oopif-nested-child-frame"
+      src="http://127.0.0.1:4173/oopif-nested-child.html"
+    ></iframe>
+  </body>
+</html>`],
+  ["/oopif-nested-child.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Nested OOPIF Child Fixture</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      #oopif-nested-action {
+        width: 180px;
+        height: 64px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="oopif-nested-action">Nested OOPIF Action</button>
+    <script>
+      document.querySelector("#oopif-nested-action")?.addEventListener(
+        "click",
+        (event) => {
+          const button = event.currentTarget;
+          if (!(button instanceof HTMLButtonElement)) return;
+          button.textContent = "Nested OOPIF Clicked";
+          document.body.dataset.clicked = "true";
+        },
+      );
+    </script>
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {

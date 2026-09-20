@@ -2064,3 +2064,490 @@ test(
     }
   },
 );
+
+test(
+  "真实 Chromium nested OOPIF 在中间 owner 被遮挡时 fail closed，解除遮挡后可完成 Strict Click",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+
+    const extensionPath = path.resolve(
+      "apps/extension/dist",
+    );
+    const home = mkdtempSync(
+      path.join(
+        tmpdir(),
+        "browser-agent-next-nested-oopif-e2e-home-",
+      ),
+    );
+    const rpcPort = await freePort();
+    const env = browserEnv(home, rpcPort);
+
+    let discovery:
+      | BrowserContext
+      | undefined;
+    let context:
+      | BrowserContext
+      | undefined;
+
+    try {
+      discovery =
+        await chromium.launchPersistentContext(
+          path.join(home, "profile-discovery"),
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      const extensionId =
+        await extensionIdOf(discovery);
+      await discovery.close();
+      discovery = undefined;
+
+      const executeProfile =
+        path.join(
+          home,
+          "profile-execute",
+        );
+
+      writeNativeHostRegistration(
+        home,
+        executeProfile,
+        extensionId,
+      );
+
+      context =
+        await chromium.launchPersistentContext(
+          executeProfile,
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      expect(
+        await extensionIdOf(context),
+      ).toBe(extensionId);
+
+      const token =
+        await waitForTrustedHost(
+          rpcPort,
+          path.join(
+            home,
+            ".browser-agent-next/trusted-rpc.token",
+          ),
+        );
+
+      const harness =
+        await context.newPage();
+      await harness.goto(
+        "chrome-extension://" +
+          extensionId +
+          "/e2e-harness.html",
+      );
+
+      const nestedUrl =
+        fixtureOrigin +
+        "/oopif-nested-main.html";
+      const createdPage =
+        context.waitForEvent("page");
+
+      const openResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.open",
+            requestId:
+              "browser-open-nested-oopif",
+            url: nestedUrl,
+            active: false,
+          },
+        );
+
+      expect(openResponse)
+        .toMatchObject({
+          ok: true,
+          result: {
+            requestedUrl:
+              nestedUrl,
+            ownedBySession: true,
+          },
+        });
+
+      const target =
+        await createdPage;
+      await target.waitForLoadState(
+        "load",
+      );
+
+      const tabId =
+        openResponse.result.tabId;
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId:
+              "policy-nested-oopif",
+            origins: [
+              fixtureOrigin,
+            ],
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      async function observeNested():
+        Promise<any> {
+        let last: any;
+
+        for (
+          let attempt = 0;
+          attempt < 50;
+          attempt += 1
+        ) {
+          const response =
+            await trustedRequest(
+              rpcPort,
+              token,
+              {
+                type:
+                  "browser.observe",
+                requestId:
+                  "browser-observe-nested-oopif-" +
+                  attempt,
+                tabId,
+                options: {
+                  profile: "hybrid",
+                },
+              },
+            );
+
+          if (response.ok) {
+            last =
+              response.result;
+            const child =
+              last.elements.find(
+                (element: any) =>
+                  element.semantic
+                    .name ===
+                  "Nested OOPIF Action",
+              );
+
+            if (
+              last.coverage
+                .actionable.status ===
+                "complete" &&
+              child?.provenance?.dom ===
+                true &&
+              child.provenance.ax ===
+                true
+            ) {
+              return last;
+            }
+          }
+
+          await harness.waitForTimeout(
+            100,
+          );
+        }
+
+        throw new Error(
+          "nested OOPIF observation did not stabilize: " +
+            JSON.stringify(
+              last?.coverage,
+            ),
+        );
+      }
+
+      const first =
+        await observeNested();
+      const firstChild =
+        first.elements.find(
+          (element: any) =>
+            element.semantic.name ===
+            "Nested OOPIF Action",
+        );
+
+      if (!firstChild) {
+        throw new Error(
+          "nested OOPIF child ref unavailable",
+        );
+      }
+
+      const parentFrame =
+        target.frames().find(
+          (frame) =>
+            frame.url().startsWith(
+              "http://localhost:4173/oopif-nested-parent.html",
+            ),
+        );
+      const nestedChildFrame =
+        target.frames().find(
+          (frame) =>
+            frame.url().startsWith(
+              "http://127.0.0.1:4173/oopif-nested-child.html",
+            ),
+        );
+
+      if (
+        !parentFrame ||
+        !nestedChildFrame
+      ) {
+        throw new Error(
+          "nested OOPIF frame chain missing",
+        );
+      }
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-nested-before-overlay",
+            authorizationId:
+              "auth-nested-before-overlay",
+            tabId,
+            observedRevision:
+              first.revision.id,
+            ref: firstChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      await parentFrame.evaluate(() => {
+        const frame =
+          document.querySelector(
+            "#oopif-nested-child-frame",
+          );
+        if (
+          !(frame instanceof
+            HTMLIFrameElement)
+        ) {
+          throw new Error(
+            "nested child frame missing",
+          );
+        }
+
+        const rect =
+          frame.getBoundingClientRect();
+        const overlay =
+          document.createElement(
+            "div",
+          );
+        overlay.id =
+          "nested-frame-overlay";
+        overlay.style.position =
+          "fixed";
+        overlay.style.left =
+          rect.left + "px";
+        overlay.style.top =
+          rect.top + "px";
+        overlay.style.width =
+          rect.width + "px";
+        overlay.style.height =
+          rect.height + "px";
+        overlay.style.zIndex =
+          "999999";
+        overlay.style.pointerEvents =
+          "auto";
+        overlay.style.background =
+          "rgba(255,0,0,0.2)";
+        document.body.append(
+          overlay,
+        );
+      });
+
+      const blocked =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-nested-overlay",
+            tabId,
+            action: {
+              actionId:
+                "action-nested-overlay",
+              kind: "click",
+              authorizationId:
+                "auth-nested-before-overlay",
+              observedRevision:
+                first.revision.id,
+              ref: firstChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type:
+                  "text_present",
+                text:
+                  "Nested OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs: 500,
+          },
+        );
+
+      expect(blocked)
+        .toMatchObject({
+          ok: false,
+          error: {
+            code:
+              "TARGET_IDENTITY_MISMATCH",
+          },
+        });
+
+      await expect(
+        nestedChildFrame.locator(
+          "#oopif-nested-action",
+        ),
+      ).toHaveText(
+        "Nested OOPIF Action",
+      );
+
+      await parentFrame.evaluate(() => {
+        document
+          .querySelector(
+            "#nested-frame-overlay",
+          )
+          ?.remove();
+      });
+
+      const second =
+        await observeNested();
+      const secondChild =
+        second.elements.find(
+          (element: any) =>
+            element.semantic.name ===
+            "Nested OOPIF Action",
+        );
+
+      if (!secondChild) {
+        throw new Error(
+          "nested OOPIF ref after overlay removal unavailable",
+        );
+      }
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-nested-after-overlay",
+            authorizationId:
+              "auth-nested-after-overlay",
+            tabId,
+            observedRevision:
+              second.revision.id,
+            ref: secondChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      const executed =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-nested-after-overlay",
+            tabId,
+            action: {
+              actionId:
+                "action-nested-after-overlay",
+              kind: "click",
+              authorizationId:
+                "auth-nested-after-overlay",
+              observedRevision:
+                second.revision.id,
+              ref: secondChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type:
+                  "text_present",
+                text:
+                  "Nested OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs:
+              3_000,
+          },
+        );
+
+      expect(executed)
+        .toMatchObject({
+          ok: true,
+          result: {
+            execution: {
+              status:
+                "executed",
+            },
+            verification: {
+              verified: true,
+              conclusive: true,
+            },
+          },
+        });
+
+      await expect(
+        nestedChildFrame.locator(
+          "#oopif-nested-action",
+        ),
+      ).toHaveText(
+        "Nested OOPIF Clicked",
+      );
+
+      await expect(target)
+        .toHaveURL(nestedUrl);
+    } finally {
+      await context?.close();
+      await discovery?.close();
+
+      rmSync(home, {
+        recursive: true,
+        force: true,
+      });
+    }
+  },
+);
