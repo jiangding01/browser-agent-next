@@ -51,7 +51,7 @@
 - [x] bounded model-visible revision store
 - [x] projected extract / verify / wait to prevent hidden-state side channels
 - [x] MCP tool schema/catalog
-- [ ] MCP stdio transport/server implementation
+- [x] MCP stdio transport/server implementation
 - [ ] minimal adapter → trusted Runtime client
 - [ ] MCP transport integration tests
 - [ ] safe scoped authorization broker before exposing browser.act

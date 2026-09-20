@@ -17,3 +17,13 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 第二阶段已增加显式 MCP tool catalog 与 JSON Schema。Schema 的核心 bounds 直接来自 runtime validator 使用的 `MODEL_INPUT_LIMITS`，catalog 仍需经过 `ModelToolExposurePolicy` 过滤。
 
 下一步增加真实 MCP stdio transport；transport 只能消费既有 catalog/adapter，不得重新定义安全边界。
+
+第三阶段已接入官方 MCP v2 stdio server seam：
+
+- `@modelcontextprotocol/server@2.0.0`；
+- 低层 `Server` 手工挂接 `tools/list` / `tools/call`；
+- `serveStdio(factory)` 建立 connection-pinned stdio server；
+- 每连接独立 adapter state；
+- bounded tool result 与错误脱敏。
+
+当前还没有最终可执行 CLI，因为下一步需要实现只映射 `browser.open / browser.observe` 的 trusted Runtime client。

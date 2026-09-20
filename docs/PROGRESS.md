@@ -24,7 +24,7 @@ Egress projection / value redaction       ✅ baseline
 Cross-origin child-frame egress filtering ✅ baseline
 Projected extract / verify / wait         ✅ baseline
 MCP tool schema/catalog                    ✅
-MCP stdio transport                        ⏳
+MCP stdio transport                        ✅ server seam
 Model-facing Runtime client                ⏳
 Safe browser.act authorization broker      ⏳
 ```
@@ -53,6 +53,17 @@ Safe browser.act authorization broker      ⏳
 - catalog definitions 深度冻结，transport 层不能在运行时修改安全契约；
 - catalog 最终仍由 `ModelToolExposurePolicy` 过滤，不存在扫描内部 RPC 自动注册的路径。
 
+## Stdio transport baseline
+
+- 使用官方 MCP TypeScript SDK v2 `@modelcontextprotocol/server@2.0.0`；
+- 使用低层 `Server` 保留现有 JSON Schema + runtime validator 单一安全契约；
+- stdio 使用官方 `serveStdio(factory)`，不是旧版 `StdioServerTransport.connect()` 路径；
+- 每个 stdio connection 在 factory 内创建新的 model-facing invoker，防止 model-visible revision store 跨连接共享；
+- 未暴露 tool 在 adapter dispatch 前 fail closed；
+- MCP tool result 默认最多 256 KiB，最大配置 1 MiB；
+- BrowserRuntimeError 只返回 bounded code/message，不返回 details；未知异常统一为 INTERNAL_ERROR；
+- 当前已完成 transport/server seam，但可执行 CLI 还依赖下一步 trusted Runtime client。
+
 ## 当前边界
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
@@ -63,10 +74,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 实现真实 MCP stdio transport；
-2. 实现 MCP adapter → trusted Runtime 的最小 client，只映射允许的 Runtime 方法；
-3. 增加 MCP transport 集成测试与失败路径测试；
-4. 最后再设计 `browser.act` 的内部 scoped authorization broker。
+1. 实现 MCP adapter → trusted Runtime 的最小 client，只映射允许的 Runtime 方法；
+2. 增加真实 stdio 子进程集成测试与失败路径测试；
+3. 最后再设计 `browser.act` 的内部 scoped authorization broker。
 
 ## 文档
 

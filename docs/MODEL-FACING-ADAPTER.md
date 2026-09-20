@@ -199,12 +199,35 @@ Schema 与 runtime validator 共用 `MODEL_INPUT_LIMITS`，包括 element count�
 
 Tool definitions 会被深度冻结，并且 `createModelFacingMcpToolCatalog()` 仍需通过 `ModelToolExposurePolicy` 过滤。未来新增 trusted RPC 不会自动注册为 MCP tool。
 
+## MCP Stdio Transport
+
+当前使用官方 MCP TypeScript SDK v2 的低层 `Server` 与 `serveStdio(factory)`。
+
+选择低层 `Server` 是有意的：本项目已经拥有独立 JSON Schema catalog 和 runtime validator，并且需要自己控制 tool dispatch。这样不用再维护第二份 Zod schema，也不会让 SDK registration API 变成新的安全策略来源。
+
+```text
+serveStdio
+  ↓ connection factory
+create Model-facing Invoker
+  ↓
+createModelFacingMcpServer
+  ↓
+tools/list ← frozen filtered catalog
+tools/call ← ModelFacingMcpBridge
+  ↓
+ModelFacingBrowserAdapter
+```
+
+每个 stdio connection 必须在 factory 内创建新的 invoker/adapter，model-visible revision store 不能跨连接共享。
+
+工具结果只通过 JSON text content 返回，并受结果字节数上限约束。Runtime error 仅允许 code/message 出境，`details`、stack 和未知异常原文不进入模型。
+
+当前这一层只是 server/transport seam；真正可执行的本地 MCP 进程仍需要下一阶段的 model-facing Runtime client。
+
 ## 后续工作
 
 PR #5 接下来继续：
 
-1. 为上述工具建立 MCP input schema/catalog；
-2. 增加真实 MCP stdio transport；
-3. 增加 model-facing adapter ↔ trusted Runtime client；
-4. 增加 MCP 层集成测试；
-5. 设计 browser.act 的内部 scoped authorization broker，确认模型无法直接 mint grant 后再开放副作用工具。
+1. 增加 model-facing adapter ↔ trusted Runtime client；
+2. 增加真实 stdio 子进程集成测试；
+3. 设计 browser.act 的内部 scoped authorization broker，确认模型无法直接 mint grant 后再开放副作用工具。

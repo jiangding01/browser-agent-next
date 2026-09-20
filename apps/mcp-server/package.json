@@ -13,6 +13,7 @@
   "dependencies": {
     "@browser-agent-next/core": "workspace:*",
     "@browser-agent-next/policy": "workspace:*",
-    "@browser-agent-next/runtime": "workspace:*"
+    "@browser-agent-next/runtime": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0"
   }
 }

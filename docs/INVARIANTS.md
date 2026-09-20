@@ -81,3 +81,9 @@
 76. credential/value 默认不进入模型；模型请求 `includeValues=true` 不能越过 trusted model-egress policy，verification evidence 也不得把被 redaction 的 observed value 二次带回模型。
 77. Model-facing `extract/verify/wait` 必须基于 projected model-visible observation；不得通过直接调用 trusted Runtime 的完整 retained state / verification 形成 hidden-state boolean side channel。
 78. `browser.act` 在模型边界完成 scoped authorization broker 前必须保持不可见；模型不能直接提供或 mint authorizationId/assurance 来绕过该边界。
+
+79. Model-facing MCP stdio 必须使用 connection factory 创建独立 adapter/invoker；model-visible revision store 不得跨 MCP connection 共享。
+80. MCP tools/call 的名称必须再次经过当前 catalog allowlist 校验；未列出的工具不得进入 model-facing adapter dispatch。
+81. MCP tool result 必须有显式字节数上限；超限结果 fail closed，不能无界写入模型上下文。
+82. MCP error 出境只能包含 bounded code/message；BrowserRuntimeError.details、stack 与未知异常原文不得返回模型。
+83. Stdio stdout 是 MCP protocol channel；实现不得向 stdout 写业务日志或调试文本。
