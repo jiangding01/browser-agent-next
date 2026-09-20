@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#5 已合并；PR #6 **Assurance Issuance Ingress** 已完成实现与最终审查，等待合并。
+PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已完成主链路实现，进入最终收口。
 
 已经完成：
 
@@ -36,7 +36,11 @@ PR #1～#5 已合并；PR #6 **Assurance Issuance Ingress** 已完成实现与�
 - model-visible revision store 与 projected extract/verify/wait baseline；
 - operator-approved 专用人工审批 ingress；
 - enterprise-policy managed-key + signed assertion ingress；
-- enterprise assertion 持久化 consume-once replay ledger。
+- enterprise assertion 持久化 consume-once replay ledger；
+- OOPIF flat child-session exact mapping；
+- child-frame session-aware Strict live revalidation；
+- child-frame → top-level viewport 坐标投影；
+- Real Chromium OOPIF / nested child-frame Strict Click 执行闭环。
 
 真实 Chromium 已验证：
 
@@ -62,10 +66,11 @@ DOM Perception
 → Authorization Assurance
 → High-level browser.* Runtime
 → Model-facing Adapter Boundary
-→ Source-bound Authorization Issuance (PR #6)
+→ Source-bound Authorization Issuance
+→ OOPIF + Child-frame Actuation (PR #7)
 ```
 
-child-frame 目前只开放 Perception/Identity；真实点击仍保持 fail closed，等待 top-level coordinate projection 与 projected hit-test。
+child-frame Strict Click 已在 exact session mapping、same-session live identity、逐层 frame-owner 投影与 live hit-test 成功时开放；任一 identity / session / projection / hit-test 不可证明时仍 fail closed。
 
 ## 核心原则
 
@@ -105,3 +110,4 @@ pnpm e2e
 
 - [PR #5 最终审查](./docs/PR5-FINAL-REVIEW.md)
 - [PR #6 最终审查](./docs/PR6-FINAL-REVIEW.md)
+- [PR #7 最终审查](./docs/PR7-FINAL-REVIEW.md)

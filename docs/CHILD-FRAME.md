@@ -90,78 +90,77 @@ Lifecycle registry 会同时记录 frameEpoch、CDP frame id 与 documentEpoch�
 
 ## OOPIF / cross-process iframe
 
-当前实现使用 tab root `chrome.debugger` session 中可观察到的 execution context 建立 mapping。
+PR #7 已把 OOPIF 从“root session 看不到就降级”推进为 flat child-session exact mapping：
 
-如果 cross-process/OOPIF 没有暴露在当前 root session：
+```text
+root tab debugger session
+  ↓ Target.setAutoAttach(flatten=true)
+iframe child session
+  ↓ opaque sessionId
+Runtime / Page / DOM / Accessibility
+```
+
+映射仍然只接受 strong evidence：
+
+- web frame 的 frameEpoch；
+- exact CDP frame id；
+- exact child session id；
+- documentEpoch。
+
+URL、frame 顺序、名称、几何相似度仍不参与 identity mapping。
+
+如果 auto-attach 不可用、session 已 detach、frameEpoch 无法唯一匹配或 child context provenance 不完整：
 
 ```text
 mapping unavailable
-→ degraded/unmapped frame
-→ AX coverage partial
+→ degraded / partial
+→ actuation fail closed
 ```
 
-当前不会：
+## Child-frame Strict Click
 
-- 按 URL 猜对应 session；
-- 自动 attach 任意 child target；
-- 把未知 child frame 当成 main-frame AX。
+PR #7 已完成 child-frame Strict Click 的受限开放。
 
-OOPIF exact session mapping 后续应作为独立能力设计。
-
-## 为什么暂不开放 child-frame Strict Click
-
-child frame 内：
+执行链：
 
 ```text
-getBoundingClientRect()
+retained Persistent Ref
+→ exact frame/session/document binding
+→ same-session live DOM + AX identity revalidation
+→ child-local target point
+→ 每层 live frame-owner content quad
+→ 每层 parent owner hit-test
+→ top-level viewport point
+→ second Strict prepare
+→ Input.dispatchMouseEvent
+→ fresh observation + verification
 ```
 
-得到的是 **frame-local viewport 坐标**。
+支持：
 
-而：
+- OOPIF；
+- nested child frame；
+- scroll / layout shift 后重新计算；
+- 2D affine translate / scale / rotate / skew。
 
-```text
-Input.dispatchMouseEvent
-```
+明确不支持并 fail closed：
 
-需要 top-level target viewport 坐标。
+- perspective / 3D 非 affine projection；
+- degenerate content quad；
+- stale document/session；
+- detached child session；
+- parent owner 被 overlay 遮挡；
+- projected point 超出任一 live parent viewport。
 
-直接把 child-local point 传给 CDP Input 会点错位置，因此 PR #3 明确只扩展：
+Real Chromium E2E 已覆盖：
 
-```text
-Perception
-Identity
-Lifecycle
-```
-
-不扩展：
-
-```text
-Child-frame Actuation
-```
-
-真正执行前至少还需要：
-
-1. frame-owner element exact identity；
-2. nested frame offset projection；
-3. scroll/transform/border 等坐标语义验证；
-4. top-level fresh hit-test；
-5. dispatch 前第二次 projection/preflight；
-6. adversarial E2E。
-
-## 当前结论
-
-PR #3 的 child-frame 支持是：
-
-```text
-可观察
-可建立强身份
-可维护生命周期
-不可直接自动点击
-```
-
-这是有意的安全边界，不是功能遗漏。
-
+- OOPIF Hybrid exact mapping；
+- OOPIF child 真正 Strict Click dispatch；
+- child reload 后旧 ref 拒绝；
+- iframe detach 后旧授权拒绝；
+- transform/scroll 后 live projection；
+- perspective transform fail closed；
+- nested OOPIF 中间 owner 遮挡 fail closed，解除遮挡后恢复可执行。
 
 ## PR #7：flat child-session transport baseline
 

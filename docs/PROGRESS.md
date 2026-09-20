@@ -17,7 +17,7 @@ PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
 PR #5 Model-facing Adapter Boundary      ✅ 已合并
 PR #6 Assurance Issuance Ingress         ✅ 已合并
-PR #7 OOPIF + Child-frame Actuation       🚧 进行中
+PR #7 OOPIF + Child-frame Actuation       ✅ 实现完成，等待最终合并
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -192,13 +192,28 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - child target detach 递归清理 session/context；
 - flat sessions 不可用时保留现有 root 能力，OOPIF 继续 fail closed。
 
+## PR #7 最终门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests ✅
+- Workspace build ✅
+- OOPIF flat-session exact mapping tests ✅
+- child same-session live identity tests ✅
+- nested / affine / perspective coordinate projection tests ✅
+- Real Chromium OOPIF Hybrid mapping ✅
+- Real Chromium child Strict Click dispatch ✅
+- reload / detach stale-target fail-closed ✅
+- transform / scroll / perspective adversarial E2E ✅
+- nested parent-owner occlusion fail-closed / recovery ✅
+- Final Adversarial Review ✅
+
 ## 下一步
 
-1. 第二小步通过完整 CI 后补 Real Chromium OOPIF exact-mapping 场景；
-2. 固化 frame-owner exact identity；
-3. 设计 nested frame viewport → root viewport 坐标投影；
-4. 接入 child-frame Strict Click prepare/dispatch；
-5. model-facing `browser.act` 继续保持不可见，Phase 6.6 独立推进。
+1. 合并 PR #7；
+2. 下一阶段进入 Phase 6.6 scoped authorization broker；
+3. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
+4. Phase 6.6 完成后再进入 Intelligence Layer。
 
 ## 文档
 
@@ -335,3 +350,4 @@ Fixture 中 OOPIF child button 只有收到真实 click 后才把文本改成 `O
 7. 必须在 dispatch 前以 `DOCUMENT_CHANGED` 拒绝。
 
 这两条验证 Strict prepare 的 freshness 与 lifecycle grant revocation 是双保险：页面结构改变后既不能复用旧强身份，也不能靠尚未消费的 grant 继续执行。
+- `docs/PR7-FINAL-REVIEW.md`：PR #7 OOPIF / child-frame actuation 最终对抗式审查。
