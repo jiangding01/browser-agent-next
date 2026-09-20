@@ -170,9 +170,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ 第四小步：child-frame → top-level coordinate projection core；
 - ✅ 第五小步：projection 接入 Strict prepare；
 - ✅ prepared target 显式约束为 top-level viewport coordinate space；
-- 🚧 第六小步：Real Chromium OOPIF child Strict Click actuation E2E 已实现，等待 CI；
-- 🚧 child-frame Strict Click dispatch 正在通过真实 Chromium 闭环验证；
-- ⏳ navigation / detach / stale projection fail-closed；
+- ✅ 第六小步：Real Chromium OOPIF child Strict Click actuation E2E；
+- ✅ child-frame Strict Click dispatch 已完成真实 Chromium 闭环；
+- 🚧 第七小步：child reload / iframe detach stale target fail-closed E2E 已实现，等待 CI；
 - 🚧 Real Chromium OOPIF / child-frame actuation E2E 收口中。
 
 ### PR #7 第一小步：flat child-session transport
@@ -315,4 +315,19 @@ browser.open(agent-owned OOPIF page)
 
 Fixture 中 OOPIF child button 只有收到真实 click 后才把文本改成 `OOPIF Clicked`，因此验证结果可以直接证明 root-session mouse dispatch 最终命中了 child target，而不是只证明 prepare 成功。
 
-当前该 E2E 已进入 PR #7，等待 GitHub Actions 验证。
+该 E2E 已在 GitHub Actions Run #130 通过，真实证明 root-session Input.dispatchMouseEvent 可以命中 OOPIF child target。
+
+
+### PR #7 第七小步：reload / detach fail-closed E2E
+
+继续覆盖授权签发后的结构竞态：
+
+1. 对 OOPIF child ref 签发短期 grant 后立即 reload child document；
+2. 使用旧 observedRevision/ref/grant 调用 `browser.act`；
+3. 必须在 dispatch 前以 `TARGET_IDENTITY_MISMATCH` 拒绝；
+4. 重新 Observe 得到新 child ref 并重新授权；
+5. 移除顶层 iframe，使 OOPIF target/session detach；
+6. 再用旧 observation/ref/grant 调用 `browser.act`；
+7. 必须在 dispatch 前以 `DOCUMENT_CHANGED` 拒绝。
+
+这两条验证 Strict prepare 的 freshness 与 lifecycle grant revocation 是双保险：页面结构改变后既不能复用旧强身份，也不能靠尚未消费的 grant 继续执行。

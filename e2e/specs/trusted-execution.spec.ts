@@ -1189,3 +1189,402 @@ test(
     }
   },
 );
+
+test(
+  "授权后的 OOPIF child reload 与 detach 必须在 dispatch 前 fail closed",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+
+    const extensionPath = path.resolve(
+      "apps/extension/dist",
+    );
+    const home = mkdtempSync(
+      path.join(
+        tmpdir(),
+        "browser-agent-next-oopif-stale-e2e-home-",
+      ),
+    );
+    const rpcPort = await freePort();
+    const env = browserEnv(home, rpcPort);
+
+    let discovery:
+      | BrowserContext
+      | undefined;
+    let context:
+      | BrowserContext
+      | undefined;
+
+    try {
+      discovery =
+        await chromium.launchPersistentContext(
+          path.join(home, "profile-discovery"),
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      const extensionId =
+        await extensionIdOf(discovery);
+      await discovery.close();
+      discovery = undefined;
+
+      const executeProfile =
+        path.join(
+          home,
+          "profile-execute",
+        );
+
+      writeNativeHostRegistration(
+        home,
+        executeProfile,
+        extensionId,
+      );
+
+      context =
+        await chromium.launchPersistentContext(
+          executeProfile,
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      expect(
+        await extensionIdOf(context),
+      ).toBe(extensionId);
+
+      const token = await waitForTrustedHost(
+        rpcPort,
+        path.join(
+          home,
+          ".browser-agent-next/trusted-rpc.token",
+        ),
+      );
+
+      const harness = await context.newPage();
+      await harness.goto(
+        "chrome-extension://" +
+          extensionId +
+          "/e2e-harness.html",
+      );
+
+      const oopifUrl =
+        fixtureOrigin +
+        "/oopif-main.html";
+      const createdPage =
+        context.waitForEvent("page");
+
+      const openResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.open",
+            requestId:
+              "browser-open-oopif-stale",
+            url: oopifUrl,
+            active: false,
+          },
+        );
+
+      const target = await createdPage;
+      await target.waitForLoadState("load");
+
+      const tabId =
+        openResponse.result.tabId;
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId:
+              "policy-oopif-stale",
+            origins: [fixtureOrigin],
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      async function observeChild(
+        expectedName:
+          "OOPIF Child Action" |
+          "OOPIF Clicked" =
+            "OOPIF Child Action",
+      ): Promise<any> {
+        let last: any;
+
+        for (
+          let attempt = 0;
+          attempt < 40;
+          attempt += 1
+        ) {
+          const response =
+            await trustedRequest(
+              rpcPort,
+              token,
+              {
+                type: "browser.observe",
+                requestId:
+                  "browser-observe-oopif-stale-" +
+                  expectedName +
+                  "-" +
+                  attempt,
+                tabId,
+                options: {
+                  profile: "hybrid",
+                },
+              },
+            );
+
+          if (response.ok) {
+            last = response.result;
+            const child =
+              last.elements.find(
+                (element: any) =>
+                  element.semantic.name ===
+                  expectedName,
+              );
+
+            if (
+              last.coverage.actionable
+                .status === "complete" &&
+              child?.provenance?.dom ===
+                true &&
+              child.provenance.ax === true
+            ) {
+              return last;
+            }
+          }
+
+          await harness.waitForTimeout(
+            100,
+          );
+        }
+
+        throw new Error(
+          "OOPIF child observation did not stabilize: " +
+            JSON.stringify(
+              last?.coverage,
+            ),
+        );
+      }
+
+      const first =
+        await observeChild();
+      const firstChild =
+        first.elements.find(
+          (element: any) =>
+            element.semantic.name ===
+            "OOPIF Child Action",
+        );
+
+      if (!firstChild) {
+        throw new Error(
+          "initial OOPIF child ref unavailable",
+        );
+      }
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-oopif-before-reload",
+            authorizationId:
+              "auth-oopif-before-reload",
+            tabId,
+            observedRevision:
+              first.revision.id,
+            ref: firstChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      const firstOopif =
+        target.frames().find(
+          (frame) =>
+            frame.url().startsWith(
+              "http://localhost:4173/oopif-child.html",
+            ),
+        );
+
+      if (!firstOopif) {
+        throw new Error(
+          "initial cross-site OOPIF frame missing",
+        );
+      }
+
+      await firstOopif.goto(
+        "http://localhost:4173/oopif-child.html?reload-before-act=1",
+      );
+
+      const afterReload =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-stale-after-child-reload",
+            tabId,
+            action: {
+              actionId:
+                "action-stale-after-child-reload",
+              kind: "click",
+              authorizationId:
+                "auth-oopif-before-reload",
+              observedRevision:
+                first.revision.id,
+              ref: firstChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type: "text_present",
+                text: "OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs: 500,
+          },
+        );
+
+      expect(afterReload).toMatchObject({
+        ok: false,
+        error: {
+          code:
+            "TARGET_IDENTITY_MISMATCH",
+        },
+      });
+
+      const reloaded =
+        await observeChild();
+      const reloadedChild =
+        reloaded.elements.find(
+          (element: any) =>
+            element.semantic.name ===
+            "OOPIF Child Action",
+        );
+
+      if (!reloadedChild) {
+        throw new Error(
+          "reloaded OOPIF child ref unavailable",
+        );
+      }
+
+      expect(reloadedChild.ref)
+        .not.toBe(firstChild.ref);
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-oopif-before-detach",
+            authorizationId:
+              "auth-oopif-before-detach",
+            tabId,
+            observedRevision:
+              reloaded.revision.id,
+            ref: reloadedChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      await target.evaluate(() => {
+        document
+          .querySelector(
+            "#oopif-child-frame",
+          )
+          ?.remove();
+      });
+
+      await harness.waitForTimeout(100);
+
+      const afterDetach =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-stale-after-child-detach",
+            tabId,
+            action: {
+              actionId:
+                "action-stale-after-child-detach",
+              kind: "click",
+              authorizationId:
+                "auth-oopif-before-detach",
+              observedRevision:
+                reloaded.revision.id,
+              ref: reloadedChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type: "text_present",
+                text: "OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs: 500,
+          },
+        );
+
+      expect(afterDetach).toMatchObject({
+        ok: false,
+        error: {
+          code: "DOCUMENT_CHANGED",
+        },
+      });
+
+      await expect(target).toHaveURL(
+        oopifUrl,
+      );
+    } finally {
+      await context?.close();
+      await discovery?.close();
+
+      rmSync(home, {
+        recursive: true,
+        force: true,
+      });
+    }
+  },
+);
+
