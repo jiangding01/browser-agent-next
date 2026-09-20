@@ -988,7 +988,7 @@ test(
       const target = await createdPage;
       await target.waitForLoadState("load");
 
-      const oopif =
+      let oopif =
         target.frames().find(
           (frame) =>
             frame.url().startsWith(
@@ -996,9 +996,24 @@ test(
             ),
         );
 
+      for (
+        let attempt = 0;
+        !oopif && attempt < 40;
+        attempt += 1
+      ) {
+        await target.waitForTimeout(50);
+        oopif =
+          target.frames().find(
+            (frame) =>
+              frame.url().startsWith(
+                "http://localhost:4173/oopif-child.html",
+              ),
+          );
+      }
+
       if (!oopif) {
         throw new Error(
-          "cross-site OOPIF frame missing",
+          "cross-site OOPIF frame missing after bounded wait",
         );
       }
 
