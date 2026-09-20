@@ -222,7 +222,7 @@ ModelFacingBrowserAdapter
 
 工具结果只通过 JSON text content 返回，并受结果字节数上限约束。Runtime error 仅允许 code/message 出境，`details`、stack 和未知异常原文不进入模型。
 
-当前这一层只是 server/transport seam；真正可执行的本地 MCP 进程仍需要下一阶段的 model-facing Runtime client。
+该 server/transport seam 已与 `TrustedRuntimeHttpClient` 组装为可执行的本地 MCP 进程；当前模型目录仍只包含 `browser.open`、`browser.observe`、`browser.extract`、`browser.verify`、`browser.wait`。
 
 ## Trusted Runtime Client
 
@@ -307,8 +307,8 @@ tools/call(unexposed browser.open) → POLICY_BLOCKED
 
 ## 后续工作
 
-PR #5 接下来继续：
+当前进入 Roadmap Phase 6.6：
 
-1. 完成 PR #5 最终对抗式 Review 与文档收口；
-2. 更新依赖 lockfile 并确认最终 HEAD CI；
-3. `browser.act` 继续保持 model-facing 不可见；scoped authorization broker 作为后续独立安全阶段处理。
+1. 完成不可由模型直接调用的 scoped authorization broker；
+2. 增加 model-facing `browser.act` policy、operator confirmation integration 与 side-effect MCP tests；
+3. 在上述边界完成前，`browser.act` 继续保持 model-facing 不可见。

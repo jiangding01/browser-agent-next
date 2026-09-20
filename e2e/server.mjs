@@ -29,6 +29,20 @@ const pages = new Map([
     ></iframe>
   </body>
 </html>`],
+  ["/oopif-delayed-child-main.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Delayed OOPIF Main Fixture</title></head>
+  <body>
+    <button id="oopif-main-action">OOPIF Main</button>
+    <iframe id="oopif-child-frame"></iframe>
+    <script>
+      setTimeout(() => {
+        document.querySelector("#oopif-child-frame").src =
+          "http://localhost:4173/oopif-child.html";
+      }, 2250);
+    </script>
+  </body>
+</html>`],
   ["/oopif-child.html", `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>OOPIF Child Fixture</title></head>
