@@ -102,12 +102,14 @@ function fixture(
     resultRetentionMs?: number;
   } = {},
 ) {
+  const now = options.now ?? (() => 100);
+
   const states = new TabStateStore();
   states.put(observation());
 
   const authorizations =
     new InMemoryAuthorizationStore({
-      now: options.now ?? (() => 100),
+      now,
     });
   const origins =
     new MutableExactOriginAllowlist();
@@ -130,9 +132,7 @@ function fixture(
         requestId:
           options.requestId ??
           (() => "approval-1"),
-        ...(options.now !== undefined
-          ? { now: options.now }
-          : {}),
+        now,
         ...(options.approvalTtlMs !== undefined
           ? {
               approvalTtlMs:
