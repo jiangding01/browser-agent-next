@@ -96,7 +96,7 @@ tabId + observedRevision + VerificationSpec
 
 ## browser.wait
 
-当前实现是 **bounded fresh-observation wait baseline**：
+当前实现是带 event-assisted 唤醒的 **bounded fresh-observation wait**：
 
 ```text
 Observe fresh state

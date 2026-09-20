@@ -54,6 +54,7 @@ async function observe(
   options?: {
     includeAx?: boolean;
     maxAxElements?: number;
+    includeOpenShadowRoots?: boolean;
   },
 ): Promise<Observation> {
   let lastError = "unknown";
@@ -245,6 +246,66 @@ test("真实 Chromium 中 Persistent Ref 遵守同节点、替换节点和导航
     );
     expect(refByName(mainReloaded, "Save")).not.toBe(replacedMain);
     expect(refByName(mainReloaded, "Child Action")).not.toBe(reloadedChild);
+  } finally {
+    await context.close();
+  }
+});
+
+test("真实 Chromium 中排除 open Shadow Root 不会 tombstone 仍存活的 ref", async () => {
+  const extensionPath = path.resolve("apps/extension/dist");
+
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    args: [
+      "--disable-extensions-except=" + extensionPath,
+      "--load-extension=" + extensionPath,
+    ],
+  });
+
+  try {
+    const extensionId = await extensionIdOf(context);
+
+    const target = await context.newPage();
+    await target.goto(mainUrl);
+    await target.waitForLoadState("load");
+    await target.evaluate(() => {
+      const host = document.createElement("div");
+      const shadow = host.attachShadow({ mode: "open" });
+      const button = document.createElement("button");
+      button.textContent = "Shadow Save";
+      shadow.appendChild(button);
+      document.body.appendChild(host);
+    });
+
+    const harness = await context.newPage();
+    await harness.goto(
+      "chrome-extension://" + extensionId + "/e2e-harness.html",
+    );
+
+    const tabId = await targetTabId(harness);
+    const first = await observe(harness, tabId);
+    const shadowRef = refByName(first, "Shadow Save");
+
+    const withoutOpenRoots = await observe(
+      harness,
+      tabId,
+      first.revision.id,
+      { includeOpenShadowRoots: false },
+    );
+
+    expect(
+      withoutOpenRoots.elements.some((element) => element.ref === shadowRef),
+    ).toBe(false);
+
+    const restored = await observe(
+      harness,
+      tabId,
+      withoutOpenRoots.revision.id,
+      { includeOpenShadowRoots: true },
+    );
+
+    expect(refByName(restored, "Shadow Save")).toBe(shadowRef);
   } finally {
     await context.close();
   }

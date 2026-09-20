@@ -24,6 +24,12 @@ export interface DomFrameLifecycleRecorder {
   recordObserved(
     tabId: number,
     frameEpochByFrame: Readonly<Record<string, string>>,
+    frameBindingsByFrame?: Readonly<Record<string, {
+      frameEpoch: string;
+      cdpFrameId: string;
+      documentEpoch: string;
+    }>>,
+    documentEpochByFrame?: Readonly<Record<string, string>>,
   ): void;
 }
 
@@ -57,6 +63,11 @@ export interface ObserveTabInput {
   }) => Promise<{
     dom: CollectedDomSource;
     extraSources: PerceptionSourceResult[];
+    frameBindingsByFrame?: Readonly<Record<string, {
+      frameEpoch: string;
+      cdpFrameId: string;
+      documentEpoch: string;
+    }>>;
   }>;
 
   /**
@@ -98,6 +109,13 @@ export class DomObservationCoordinator {
     });
 
     let extraSources = input.extraSources ?? [];
+    let frameBindingsByFrame:
+      | Readonly<Record<string, {
+          frameEpoch: string;
+          cdpFrameId: string;
+          documentEpoch: string;
+        }>>
+      | undefined;
 
     if (input.refineSources) {
       const refined = await input.refineSources({
@@ -106,6 +124,7 @@ export class DomObservationCoordinator {
       });
       dom = refined.dom;
       extraSources = refined.extraSources;
+      frameBindingsByFrame = refined.frameBindingsByFrame;
     }
 
     await input.validateBeforeCommit?.();
@@ -123,6 +142,10 @@ export class DomObservationCoordinator {
     this.lifecycle?.recordObserved(
       input.tab.tabId,
       dom.frameEpochByFrame,
+      frameBindingsByFrame,
+      Object.fromEntries(
+        input.frames.map((frame) => [frame.frameId, frame.documentEpoch]),
+      ),
     );
 
     const expectedSources: PerceptionSourceKind[] = [
@@ -186,7 +209,8 @@ export class DomObservationCoordinator {
       previous.observation.revision.documentEpoch === observation.revision.documentEpoch &&
       previous.observation.scope.kind === observation.scope.kind &&
       previous.observation.scope.ref === observation.scope.ref &&
-      observation.coverage.actionable.status === "complete"
+      observation.coverage.actionable.status === "complete" &&
+      observation.coverage.shadowDom.openRootsCovered
     ) {
       const currentRefs = new Set(
         observation.elements

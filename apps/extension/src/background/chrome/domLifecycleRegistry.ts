@@ -13,7 +13,11 @@ export interface TabScopedAuthorizationRevoker {
 }
 
 export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
-  private readonly frameEpochsByTab = new Map<number, Map<string, string>>();
+  private readonly frameEpochsByTab = new Map<number, Map<string, {
+    frameEpoch: string;
+    cdpFrameId?: string;
+    documentEpoch?: string;
+  }>>();
 
   constructor(
     private readonly refs: InMemoryPersistentRefStore,
@@ -24,6 +28,12 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
   recordObserved(
     tabId: number,
     frameEpochByFrame: Readonly<Record<string, string>>,
+    frameBindingsByFrame?: Readonly<Record<string, {
+      frameEpoch: string;
+      cdpFrameId: string;
+      documentEpoch: string;
+    }>>,
+    documentEpochByFrame?: Readonly<Record<string, string>>,
   ): void {
     let byFrame = this.frameEpochsByTab.get(tabId);
     if (!byFrame) {
@@ -32,14 +42,97 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
     }
 
     for (const [frameId, frameEpoch] of Object.entries(frameEpochByFrame)) {
-      byFrame.set(frameId, frameEpoch);
+      const binding = frameBindingsByFrame?.[frameId];
+      const previous = byFrame.get(frameId);
+      const documentEpoch =
+        binding?.documentEpoch ?? documentEpochByFrame?.[frameId];
+      const next = {
+        frameEpoch,
+        ...(documentEpoch !== undefined ? { documentEpoch } : {}),
+        ...(binding?.cdpFrameId !== undefined
+          ? { cdpFrameId: binding.cdpFrameId }
+          : {}),
+      };
+
+      if (
+        previous &&
+        (previous.frameEpoch !== frameEpoch ||
+          (previous.documentEpoch !== undefined &&
+            documentEpoch !== undefined &&
+            previous.documentEpoch !== documentEpoch))
+      ) {
+        const invalidationMarker =
+          "observation:" +
+          (documentEpoch ?? "frame-" + frameEpoch.slice(0, 128));
+        if (frameId === "web:0") {
+          // Invalidate each previously observed frame identity explicitly so
+          // this remains safe if lifecycle recording is moved after assembly.
+          for (const previousFrame of byFrame.values()) {
+            this.refs.invalidateFrame(
+              {
+                tabId,
+                frameEpoch: previousFrame.frameEpoch,
+                ...(previousFrame.cdpFrameId !== undefined
+                  ? { cdpFrameId: previousFrame.cdpFrameId }
+                  : {}),
+                ...(previousFrame.documentEpoch !== undefined
+                  ? { documentEpoch: previousFrame.documentEpoch }
+                  : {}),
+              },
+              invalidationMarker,
+              "main-document-observed",
+            );
+          }
+          this.states.clearTab(tabId);
+        } else {
+          this.refs.invalidateFrame(
+            {
+              tabId,
+              frameEpoch: previous.frameEpoch,
+              ...(previous.cdpFrameId !== undefined
+                ? { cdpFrameId: previous.cdpFrameId }
+                : {}),
+              ...(previous.documentEpoch !== undefined
+                ? { documentEpoch: previous.documentEpoch }
+                : {}),
+            },
+            invalidationMarker,
+            "child-document-observed",
+          );
+        }
+        this.authorizations?.clearTab(tabId);
+      }
+
+      if (
+        binding === undefined &&
+        previous?.frameEpoch === frameEpoch &&
+        (documentEpoch === undefined ||
+          previous.documentEpoch === documentEpoch)
+      ) {
+        // A later DOM-only/degraded observation may lack AX correspondence.
+        // Preserve an exact binding only for the same known document.
+        continue;
+      }
+
+      byFrame.set(frameId, next);
     }
   }
 
   committed(event: ChromeNavigationCommitted): void {
     const marker = "navigation:" + event.documentId;
+    const committedDocumentEpoch =
+      "chrome-document:" + event.documentId;
 
     if (event.frameId === 0) {
+      const observedMain = this.frameEpochsByTab
+        .get(event.tabId)
+        ?.get("web:0");
+
+      if (observedMain?.documentEpoch === committedDocumentEpoch) {
+        this.authorizations?.clearTab(event.tabId);
+        return;
+      }
+
       this.refs.invalidateTab(
         event.tabId,
         marker,
@@ -53,13 +146,26 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
 
     const canonical = "web:" + event.frameId;
     const byFrame = this.frameEpochsByTab.get(event.tabId);
-    const previousEpoch = byFrame?.get(canonical);
+    const previous = byFrame?.get(canonical);
 
-    if (previousEpoch) {
+    if (previous?.documentEpoch === committedDocumentEpoch) {
+      // The observation already belongs to this committed document. The
+      // event may simply have been delivered after the observation request.
+      this.authorizations?.clearTab(event.tabId);
+      return;
+    }
+
+    if (previous) {
       this.refs.invalidateFrame(
         {
           tabId: event.tabId,
-          frameEpoch: previousEpoch,
+          frameEpoch: previous.frameEpoch,
+          ...(previous.cdpFrameId !== undefined
+            ? { cdpFrameId: previous.cdpFrameId }
+            : {}),
+          ...(previous.documentEpoch !== undefined
+            ? { documentEpoch: previous.documentEpoch }
+            : {}),
         },
         marker,
         "child-document-committed",

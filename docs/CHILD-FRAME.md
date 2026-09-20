@@ -84,7 +84,9 @@ child reload 后：
 - 旧 child Persistent Ref 不得继续表示 replacement document 中的对象；
 - main frame 未导航时 main ref 保持。
 
-真实 Chromium E2E 已覆盖这个行为。
+Lifecycle registry 会同时记录 frameEpoch、CDP frame id 与 documentEpoch。这样，AX 对应关系缺失的后续 DOM-only observation 不会覆盖同一文档已有的精确 binding；如果 navigation committed event 在 observation 之后才到达，但 documentEpoch 已经是当前文档，也不会误失效新文档的 refs。
+
+真实 Chromium E2E 已覆盖 child reload 后的 frameEpoch、ref 失效与 main-frame ref 保持。AX-only binding 保留和迟到 navigation event 的回归目前由 unit tests 覆盖。
 
 ## OOPIF / cross-process iframe
 

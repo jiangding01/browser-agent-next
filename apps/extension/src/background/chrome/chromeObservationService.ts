@@ -86,6 +86,13 @@ export class ChromeDomObservationService {
     }
 
     const debuggerTransport = this.debuggerTransport;
+    let frameBindingsByFrame:
+      | Readonly<Record<string, {
+          frameEpoch: string;
+          cdpFrameId: string;
+          documentEpoch: string;
+        }>>
+      | undefined;
 
     return this.coordinator.observe({
       tab: {
@@ -123,6 +130,17 @@ export class ChromeDomObservationService {
                   resolver: identityResolver,
                 });
 
+              frameBindingsByFrame = Object.fromEntries(
+                correspondence.mappings.map((mapping) => [
+                  mapping.webFrameId,
+                  {
+                    frameEpoch: mapping.frameEpoch,
+                    cdpFrameId: mapping.cdpFrameId,
+                    documentEpoch: mapping.documentEpoch,
+                  },
+                ]),
+              );
+
               const ax = await collectMappedAxSource({
                 tabId: input.tabId,
                 mappings: correspondence.mappings,
@@ -159,6 +177,9 @@ export class ChromeDomObservationService {
                   ...extraSources,
                   linked.ax,
                 ],
+                ...(frameBindingsByFrame !== undefined
+                  ? { frameBindingsByFrame }
+                  : {}),
               };
             },
           }

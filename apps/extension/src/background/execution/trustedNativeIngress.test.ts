@@ -127,4 +127,87 @@ describe("connectTrustedNativeIngress", () => {
     expect(calls.sort()).toEqual(["act", "observe", "verify", "wait"]);
     expect(responses.filter((response) => response.ok === true)).toHaveLength(4);
   });
+
+  it("断连后不发送延迟完成请求的回包", async () => {
+    let listener: ((message: unknown) => void) | undefined;
+    let onDisconnect: (() => void) | undefined;
+    let resolveRequest: ((value: unknown) => void) | undefined;
+    let issueCalls = 0;
+    const responses: unknown[] = [];
+
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage(message: unknown) { responses.push(message); },
+            disconnect() {},
+            onMessage: {
+              addListener(next: (message: unknown) => void) { listener = next; },
+              removeListener() {},
+            },
+            onDisconnect: {
+              addListener(next: () => void) { onDisconnect = next; },
+              removeListener() {},
+            },
+          };
+        },
+      },
+      {
+        async issueStrictClickAuthorization() {
+          issueCalls += 1;
+          return new Promise((resolve) => { resolveRequest = resolve; });
+        },
+      } as never,
+    );
+
+    listener?.({
+      type: "authorization.issue-strict-click",
+      requestId: "req-1",
+      authorizationId: "auth",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1_000,
+    });
+
+    expect(onDisconnect).toBeTypeOf("function");
+    expect(issueCalls).toBe(1);
+    expect(resolveRequest).toBeTypeOf("function");
+    if (!resolveRequest) throw new Error("request resolver was not installed");
+    onDisconnect?.();
+    resolveRequest({ id: "auth" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(responses).toEqual([]);
+  });
+
+  it("suppresses a native postMessage failure after a completed request", async () => {
+    let listener: ((message: unknown) => void) | undefined;
+
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage() { throw new Error("native port closed"); },
+            disconnect() {},
+            onMessage: {
+              addListener(next: (message: unknown) => void) { listener = next; },
+              removeListener() {},
+            },
+            onDisconnect: { addListener() {}, removeListener() {} },
+          };
+        },
+      },
+      { replaceAutoActOrigins() { return []; } } as never,
+    );
+
+    listener?.({
+      type: "policy.replace-autoact-origins",
+      requestId: "req-1",
+      origins: [],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 });

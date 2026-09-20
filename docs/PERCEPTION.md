@@ -25,6 +25,10 @@ BrowserObservation 的 URL/origin 使用 main frame catalog URL，与 documentId
 
 coverage.complete 表示声明的 expectedSources/profile 已完整执行，不表示发现网页中所有由 JavaScript 事件形成的隐式可点击像素。
 
+当 open Shadow Roots 未纳入本次 observation 时，即使某个 actionable ref 没有出现在结果中，也不能据此证明它已从页面消失；disappearance tombstone 只允许在声明的 scope、同一文档、actionable coverage complete 且 open Shadow Roots 已覆盖时产生。
+
+AX identity 还必须保留对应的 frameEpoch、CDP frame id 和 documentEpoch。迟到的 navigation event 如果已经对应当前 observation 的 document，不得反过来清理当前文档的 refs 或 state。
+
 因此未来 FastPath 仍必须叠加 source-profile eligibility、origin/page allowlist、candidate policy 和 Strict Executor。
 
 ## Runtime restart

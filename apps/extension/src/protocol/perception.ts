@@ -64,13 +64,43 @@ export type ObserveTabResponse =
 export type PerceptionContentRequest = ObserveDomFrameRequest;
 export type PerceptionContentResponse = ObserveDomFrameResponse;
 
+const MAX_REQUEST_ID_LENGTH = 256;
+const MAX_REVISION_ID_LENGTH = 256;
+const MAX_OBSERVE_ELEMENTS = 500;
+
+function boundedNonEmptyString(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+
+function boundedElementCount(value: unknown): boolean {
+  return value === undefined || (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_OBSERVE_ELEMENTS
+  );
+}
+
+function isDomObserveOptions(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  const options = value as Record<string, unknown>;
+
+  return (
+    boundedElementCount(options.maxElements) &&
+    (options.includeValues === undefined || typeof options.includeValues === "boolean") &&
+    (options.includeOpenShadowRoots === undefined ||
+      typeof options.includeOpenShadowRoots === "boolean")
+  );
+}
+
 export function isObserveDomFrameRequest(value: unknown): value is ObserveDomFrameRequest {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
     candidate.type === "perception.observe-dom" &&
-    typeof candidate.requestId === "string" &&
-    candidate.requestId.length > 0
+    boundedNonEmptyString(candidate.requestId, MAX_REQUEST_ID_LENGTH) &&
+    isDomObserveOptions(candidate.options)
   );
 }
 
@@ -95,30 +125,23 @@ export function isObserveTabRequest(value: unknown): value is ObserveTabRequest 
 
   if (
     candidate.type !== "perception.observe-tab" ||
-    typeof candidate.requestId !== "string" ||
-    candidate.requestId.length === 0 ||
+    !boundedNonEmptyString(candidate.requestId, MAX_REQUEST_ID_LENGTH) ||
     !Number.isInteger(candidate.tabId) ||
     typeof candidate.tabId !== "number" ||
     candidate.tabId < 0 ||
     candidate.ownedBySession !== undefined ||
     (candidate.sinceRevision !== undefined &&
-      typeof candidate.sinceRevision !== "string")
+      !boundedNonEmptyString(candidate.sinceRevision, MAX_REVISION_ID_LENGTH))
   ) {
     return false;
   }
 
+  if (!isDomObserveOptions(candidate.options)) return false;
   if (candidate.options === undefined) return true;
-  if (typeof candidate.options !== "object" || candidate.options === null) {
-    return false;
-  }
-
   const options = candidate.options as Record<string, unknown>;
 
   return (
     (options.includeAx === undefined || typeof options.includeAx === "boolean") &&
-    (options.maxAxElements === undefined ||
-      (typeof options.maxAxElements === "number" &&
-        Number.isInteger(options.maxAxElements) &&
-        options.maxAxElements > 0))
+    boundedElementCount(options.maxAxElements)
   );
 }

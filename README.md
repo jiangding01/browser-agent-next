@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1、#2、#3 已合并；PR #4 正在推进 **Authorization Assurance + High-level Browser API**。
+PR #1、#2、#3、#4 已合并。PR #4 交付了 **Authorization Assurance + High-level Browser API**。
 
 已经完成：
 
@@ -30,6 +30,8 @@ PR #1、#2、#3 已合并；PR #4 正在推进 **Authorization Assurance + High-
 - 真实 Chromium lifecycle E2E；
 - 采集期间导航竞态防护；
 - complete observation 下 actionable ref 消失后的 tombstone。
+- Authorization Assurance、Tab Ownership Registry 与 `browser.*` 高层运行时 API；
+- `browser.wait` 的 event-assisted 唤醒与有界 timeout fallback。
 
 真实 Chromium 已验证：
 

@@ -262,6 +262,18 @@ describe("ChromeDomObservationService", () => {
 
     expect(result.extraSources).toHaveLength(1);
     expect(result.extraSources[0].coverage.actionable.status).toBe("complete");
+    expect(result.frameBindingsByFrame).toEqual({
+      "web:0": {
+        frameEpoch: "epoch-main",
+        cdpFrameId: "cdp-main",
+        documentEpoch: "chrome-document:doc-main",
+      },
+      "web:2": {
+        frameEpoch: "epoch-child",
+        cdpFrameId: "cdp-child",
+        documentEpoch: "chrome-document:doc-child",
+      },
+    });
 
     const axElements = result.extraSources[0].elements;
     expect(axElements).toEqual([

@@ -37,12 +37,10 @@
 - [x] browser.open + Tab Ownership Registry
 - [x] browser.observe
 - [x] browser.verify
-- [x] browser.wait bounded polling baseline
+- [x] browser.wait fresh observation + verification
 - [x] browser.act → Strict Click
-- [x] event-driven wait wake-up + bounded fallback
+- [x] event-assisted wait wake-up + bounded fallback
 - [x] browser.extract retained-observation projection
-- [x] Tab Ownership Registry
-- [x] event-assisted wait + bounded fallback
 - [x] PR #4 final adversarial review
 
 ## Phase 7 — Intelligence

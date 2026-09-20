@@ -207,7 +207,12 @@ export class InMemoryPersistentRefStore {
   }
 
   invalidateFrame(
-    selector: { tabId: number; frameEpoch?: string; cdpFrameId?: string },
+    selector: {
+      tabId: number;
+      frameEpoch?: string;
+      cdpFrameId?: string;
+      documentEpoch?: string;
+    },
     revision: string,
     reason = "frame-invalidated",
   ): void {
@@ -219,7 +224,10 @@ export class InMemoryPersistentRefStore {
         if (identity.tabId !== selector.tabId) return false;
         return identity.source === "dom"
           ? selector.frameEpoch !== undefined && identity.frameEpoch === selector.frameEpoch
-          : selector.cdpFrameId !== undefined && identity.cdpFrameId === selector.cdpFrameId;
+          : selector.cdpFrameId !== undefined &&
+            identity.cdpFrameId === selector.cdpFrameId &&
+            (selector.documentEpoch === undefined ||
+              identity.documentEpoch === selector.documentEpoch);
       });
 
       if (matches) this.tombstone(record.ref, revision, reason);

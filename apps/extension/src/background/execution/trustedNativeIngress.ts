@@ -141,14 +141,18 @@ export function connectTrustedNativeIngress(
     return { connected: false, disconnect() {} };
   }
 
+  let active = true;
+
   const listener = (message: unknown): void => {
+    if (!active) return;
+
     if (!isTrustedHostRequest(message)) {
       const requestId =
         typeof message === "object" && message !== null &&
         typeof (message as { requestId?: unknown }).requestId === "string"
           ? (message as { requestId: string }).requestId
           : "invalid";
-      port.postMessage({
+      safePost({
         type: "trusted-host.result",
         requestId,
         ok: false,
@@ -162,7 +166,7 @@ export function connectTrustedNativeIngress(
 
     void handleRequest(service, browserApi, message).then(
       (result) => {
-        port.postMessage({
+        safePost({
           type: "trusted-host.result",
           requestId: message.requestId,
           ok: true,
@@ -170,17 +174,44 @@ export function connectTrustedNativeIngress(
         });
       },
       (error: unknown) => {
-        port.postMessage(errorResponse(message.requestId, error));
+        safePost(errorResponse(message.requestId, error));
       },
     );
   };
 
+  const deactivate = (disconnectPort: boolean): void => {
+    if (!active) return;
+    active = false;
+    port.onMessage.removeListener(listener);
+    port.onDisconnect.removeListener(onDisconnect);
+    if (disconnectPort) {
+      try {
+        port.disconnect();
+      } catch {
+        // The port is already unusable; never retry or replay the request.
+      }
+    }
+  };
+
+  const safePost = (message: TrustedHostResponse): void => {
+    if (!active) return;
+    try {
+      port.postMessage(message);
+    } catch {
+      deactivate(true);
+    }
+  };
+
+  const onDisconnect = (): void => {
+    deactivate(false);
+  };
+
   port.onMessage.addListener(listener);
+  port.onDisconnect.addListener(onDisconnect);
   return {
     connected: true,
     disconnect() {
-      port.onMessage.removeListener(listener);
-      port.disconnect();
+      deactivate(true);
     },
   };
 }

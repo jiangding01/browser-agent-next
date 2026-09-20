@@ -1,6 +1,6 @@
 # 安全模型与信任边界
 
-最后更新：2026-09-19
+最后更新：2026-09-20
 
 ## 目标
 
@@ -62,9 +62,9 @@ Trusted grant 的存在只表示允许对该精确 target 尝试这个动作；�
 
 一旦 mousePressed 已成功，后续 transport error 必须视为 ACTION_OUTCOME_UNKNOWN。此时禁止自动 retry click，只允许重新 Observe → Verify → 由上层决定下一步。
 
-## 下一阶段
+## Authorization Assurance
 
-后续会增加更明确的 Authorization Assurance 层级，例如 control-plane、operator-approved、enterprise-policy，并让高风险 Effect Class 可以要求更高 assurance，而不是所有 grant 等价。
+当前已实现 `control-plane`、`operator-approved`、`enterprise-policy` 三个 assurance 层级，并按 Effect Class 校验最低 assurance。Trusted Native Host 只能签发 `control-plane`；operator-approved 与 enterprise-policy 仍需要各自独立的受信签发入口。
 
 ## Tab Ownership
 
@@ -82,4 +82,3 @@ trusted browser.open
 普通 `runtime.onMessage` 的 perception 请求不能携带 `ownedBySession`。即使请求来自 Extension 自己的页面/上下文，也不能通过该字段把用户已有 Tab 提升成 Agent-owned。
 
 MV3 service worker restart 后 registry 丢失，旧 Tab 会安全降级为 user-existing，而不是猜测恢复 ownership。
-\n
