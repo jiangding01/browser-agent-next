@@ -178,7 +178,9 @@ export class HighLevelBrowserApiService {
     this.defaultPollIntervalMs = options.defaultPollIntervalMs ?? 100;
   }
 
-  observe(input: BrowserObserveInput): Promise<BrowserObservation> {
+  async observe(
+    input: BrowserObserveInput,
+  ): Promise<BrowserObservation> {
     const options = normalizedObserveOptions(input.options);
     const profile = options.profile ?? "hybrid";
 
