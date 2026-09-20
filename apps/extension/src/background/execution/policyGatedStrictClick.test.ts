@@ -4,7 +4,9 @@ import { InMemoryAuthorizationStore } from "@browser-agent-next/policy";
 import { StrictClickDispatchError } from "./chromeStrictClickDispatcher.js";
 import { PolicyGatedStrictClickExecutor } from "./policyGatedStrictClick.js";
 
-function prepared() {
+function prepared(
+  ownedBySession = true,
+) {
   return {
     action: {
       actionId: "a1",
@@ -18,7 +20,7 @@ function prepared() {
         title: "Fixture",
         url: "https://fixture.test/",
         origin: "https://fixture.test",
-        ownedBySession: true,
+        ownedBySession,
       },
     },
     expected: {},
@@ -107,6 +109,33 @@ describe("PolicyGatedStrictClickExecutor", () => {
 
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("用户已有 Tab 的 unknown click 不接受 control-plane grant", async () => {
+    const dispatch = vi.fn(async () => undefined);
+
+    const executor = new PolicyGatedStrictClickExecutor(
+      {
+        async prepare() {
+          return prepared(false) as never;
+        },
+      } as never,
+      { dispatch } as never,
+      authorizedStore(),
+      { isAllowed: () => true },
+    );
+
+    await expect(executor.execute({
+      tabId: 7,
+      actionId: "a1",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      authorizationId: "grant-1",
+    })).rejects.toMatchObject({
+      code: "AUTHORIZATION_REQUIRED",
+    } satisfies Partial<BrowserRuntimeError>);
+
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("origin 不在 allowlist 时即使有授权也拒绝", async () => {
