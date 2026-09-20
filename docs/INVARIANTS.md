@@ -126,3 +126,5 @@
 109. Prepared Strict Click 的 dispatch 坐标必须显式标记为 `top-level-viewport`；child-local 或未声明 coordinate space 的 target 不得进入 `Input.dispatchMouseEvent`。
 110. Child-frame resolver 只有在 same-session live identity 与 child→root projection 都成功后才能返回 `identityMatches=true`；projection 失败必须等价于 target 不可安全执行。
 111. Effect/authorization policy 通过后仍必须执行第二次 Strict prepare，因此 child-frame identity 与 top-level projection 必须在真正 dispatch 前重新计算，不能复用第一次 prepare 的几何结果。
+
+102. nested child-frame 坐标投影的每一跳都必须在对应 parent execution context 中对 frame-owner 执行 live hit-test；只验证最外层 root iframe 不足以证明内层 iframe 未被 parent-document overlay 遮挡。

@@ -300,6 +300,9 @@ describe(
           },
         };
 
+        const hitTests: string[] = [];
+        let allowIntermediateHit = true;
+
         const transport = {
           contextBindingsForFrame(
             _tabId: number,
@@ -402,6 +405,7 @@ describe(
               method ===
               "Runtime.callFunctionOn"
             ) {
+              hitTests.push("root");
               return {
                 result: {
                   value: true,
@@ -469,6 +473,35 @@ describe(
                 },
               };
             }
+            if (
+              sessionId ===
+                "session-parent" &&
+              method ===
+                "DOM.resolveNode"
+            ) {
+              return {
+                object: {
+                  objectId:
+                    "inner-owner",
+                },
+              };
+            }
+            if (
+              sessionId ===
+                "session-parent" &&
+              method ===
+                "Runtime.callFunctionOn"
+            ) {
+              hitTests.push(
+                "session-parent",
+              );
+              return {
+                result: {
+                  value:
+                    allowIntermediateHit,
+                },
+              };
+            }
             return {
               result: {},
             };
@@ -501,6 +534,35 @@ describe(
           rootFrameOwnerBackendNodeId:
             500,
         });
+
+        expect(hitTests).toEqual([
+          "session-parent",
+          "root",
+        ]);
+
+        allowIntermediateHit = false;
+        hitTests.length = 0;
+
+        await expect(
+          projector.project({
+            tabId: 7,
+            targetFrameId:
+              "web:4",
+            point: {
+              x: 25,
+              y: 50,
+            },
+            frames,
+          }),
+        ).resolves.toMatchObject({
+          ok: false,
+          reason:
+            "parent hit-test no longer reaches the projected frame owner",
+        });
+
+        expect(hitTests).toEqual([
+          "session-parent",
+        ]);
       },
     );
 
@@ -663,7 +725,7 @@ describe(
     );
 
     it(
-      "root owner hit-test 失败时不返回 projected target",
+      "任一 parent owner hit-test 失败时不返回 projected target",
       async () => {
         const transport = {
           contextBindingsForFrame(
@@ -775,7 +837,7 @@ describe(
         expect(result).toMatchObject({
           ok: false,
           reason:
-            "root hit-test no longer reaches the projected frame owner",
+            "parent hit-test no longer reaches the projected frame owner",
         });
       },
     );

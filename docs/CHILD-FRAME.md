@@ -329,3 +329,44 @@ coordinateSpace: "top-level-viewport"
 dispatcher 在发出任何输入事件前再次检查该字段。这个字段属于 trusted internal prepared state，不进入 model-facing surface。
 
 真实执行路径仍会在 effect/authorization policy 通过后执行第二次 Strict prepare，所以 dispatch 前的 projection 是重新计算的，而不是复用第一次 prepare 的几何。
+
+
+## PR #7：逐层 owner hit-test
+
+nested child-frame 的坐标链不能只验证最外层 iframe。
+
+例如：
+
+```text
+root
+  └─ iframe A
+       └─ overlay
+       └─ iframe B
+            └─ target
+```
+
+即使 root 的 `elementFromPoint()` 仍然命中 iframe A，如果 iframe B 在 A 的文档内部已经被 overlay 覆盖，最终 top-level mouse event 也不会到达 target。
+
+因此 projection 现在对每一跳都执行：
+
+```text
+child-local point
+→ owner content quad projection
+→ parent live viewport bounds
+→ parent execution context
+→ DOM.resolveNode(owner backendNodeId)
+→ parent document.elementFromPoint(projected point)
+→ owner / owner descendant exact hit
+→ next parent
+```
+
+任意中间层 owner hit-test 失败：
+
+```text
+projection fail
+→ Strict resolver identityMatches=false
+→ TARGET_IDENTITY_MISMATCH
+→ no dispatch
+```
+
+这样 nested frame 的遮挡检查与坐标投影使用同一条 exact frame/session/document binding，不会只在 root 层做“看起来还在 iframe 里”的弱验证。

@@ -402,6 +402,52 @@ export class ChildFrameCoordinateProjector
 
         point = projected.point;
 
+        const parentRuntime =
+          await this.frameRuntimeSnapshot(
+            input.tabId,
+            parentBinding,
+          );
+
+        if (!parentRuntime) {
+          return {
+            ok: false,
+            reason:
+              "live parent viewport identity is unavailable",
+          };
+        }
+
+        if (
+          point.x < 0 ||
+          point.y < 0 ||
+          point.x > parentRuntime.width ||
+          point.y > parentRuntime.height
+        ) {
+          return {
+            ok: false,
+            reason:
+              "projected point is outside the live parent frame viewport",
+          };
+        }
+
+        const ownerHit =
+          await this.frameOwnerHitTest({
+            tabId: input.tabId,
+            binding: parentBinding,
+            contextId:
+              parentRuntime.contextId,
+            backendNodeId:
+              owner.backendNodeId,
+            point,
+          });
+
+        if (!ownerHit) {
+          return {
+            ok: false,
+            reason:
+              "parent hit-test no longer reaches the projected frame owner",
+          };
+        }
+
         if (parent.frameId === "web:0") {
           rootFrameOwnerBackendNodeId =
             owner.backendNodeId;
@@ -419,64 +465,6 @@ export class ChildFrameCoordinateProjector
           ok: false,
           reason:
             "projection chain did not reach the root frame",
-        };
-      }
-
-      const rootBinding =
-        this.bindings.bindingForFrame(
-          input.tabId,
-          "web:0",
-        );
-      if (!completeBinding(rootBinding)) {
-        return {
-          ok: false,
-          reason:
-            "root exact frame binding is unavailable",
-        };
-      }
-
-      const rootRuntime =
-        await this.frameRuntimeSnapshot(
-          input.tabId,
-          rootBinding,
-        );
-      if (!rootRuntime) {
-        return {
-          ok: false,
-          reason:
-            "live root viewport identity is unavailable",
-        };
-      }
-
-      if (
-        point.x < 0 ||
-        point.y < 0 ||
-        point.x > rootRuntime.width ||
-        point.y > rootRuntime.height
-      ) {
-        return {
-          ok: false,
-          reason:
-            "projected point is outside the live root viewport",
-        };
-      }
-
-      const hit =
-        await this.rootFrameOwnerHitTest({
-          tabId: input.tabId,
-          binding: rootBinding,
-          contextId:
-            rootRuntime.contextId,
-          backendNodeId:
-            rootFrameOwnerBackendNodeId,
-          point,
-        });
-
-      if (!hit) {
-        return {
-          ok: false,
-          reason:
-            "root hit-test no longer reaches the projected frame owner",
         };
       }
 
@@ -583,7 +571,7 @@ export class ChildFrameCoordinateProjector
       : undefined;
   }
 
-  private async rootFrameOwnerHitTest(input: {
+  private async frameOwnerHitTest(input: {
     tabId: number;
     binding:
       ObservedFrameBinding & {
