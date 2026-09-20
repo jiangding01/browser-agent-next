@@ -59,3 +59,4 @@
 55. browser.wait 可以重试 observation/verification，但不得执行或重放任何 browser action；当前 polling baseline 不得宣称 event-driven。
 56. browser.act 遇到未支持 action kind 必须 fail closed，不得自动降级 compatible/raw-CDP execution。
 57. Agent-facing Browser API 的集合大小、timeout 和 polling interval 必须有显式上限，避免 untrusted caller 造成无界资源消耗。
+58. unknown effect 在用户已有 Tab 上至少要求 operator-approved；control-plane 只能覆盖可信证明为 Agent-owned 的 unknown action。

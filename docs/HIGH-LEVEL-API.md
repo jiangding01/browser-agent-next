@@ -36,7 +36,7 @@ browser.act
 ownedBySession = false
 ```
 
-这是安全默认，避免 Agent 自己声称“这个 Tab 是我创建的”从而降低 Policy 门槛。
+这是安全默认，避免 Agent 自己声称“这个 Tab 是我创建的”从而降低 Policy 门槛。因此当前由高层 browser.observe 得到的 user-existing observation，generic unknown click 不能只靠 control-plane grant 执行；需要后续 operator-approved issuance 或可信 Tab Ownership Registry。
 
 ## browser.verify
 

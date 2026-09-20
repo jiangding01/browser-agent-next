@@ -29,6 +29,7 @@ event-driven wait                        ⏭
 - AuthorizationAssurance：control-plane / operator-approved / enterprise-policy；
 - grant consume 按 minimum assurance 校验；
 - trusted-host 只能签发 control-plane，不能由请求自报升级；
+- unknown effect 在用户已有 Tab 上提升到 operator-approved，落实“用户已有 Tab 默认更严格”；
 - 高层 browser.observe 默认 Hybrid；
 - 高层 API 不接受 ownedBySession，当前安全默认按 user-existing tab；
 - browser.verify 只验证指定 retained revision；

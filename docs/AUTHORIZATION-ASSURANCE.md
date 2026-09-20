@@ -33,7 +33,8 @@ Assurance 是 AuthorizationGrant 的可信属性，不是请求参数中的自�
 | read / local-ui | 无 |
 | navigation / draft-mutation（Agent-owned） | 无 |
 | navigation / draft-mutation（用户已有 Tab） | operator-approved |
-| unknown | control-plane |
+| unknown（Agent-owned Tab） | control-plane |
+| unknown（用户已有 Tab） | operator-approved |
 | download | operator-approved |
 | external-mutation | operator-approved |
 | irreversible | operator-approved |
@@ -42,7 +43,7 @@ Assurance 是 AuthorizationGrant 的可信属性，不是请求参数中的自�
 | permission | operator-approved |
 | payment | operator-approved |
 
-generic click 当前仍保守分类为 `unknown`，所以 PR #2 的 Strict Click 闭环继续可以由 control-plane grant 驱动。
+generic click 当前仍保守分类为 `unknown`。在可信 Tab Ownership 能证明目标是 Agent-owned 时，继续允许 control-plane grant；用户已有 Tab 则至少要求 operator-approved。
 
 如果未来结构化 Effect Classifier 能证明动作属于 payment、credential 等更高风险 effect，control-plane grant 将自然失效，必须由更高 assurance 的独立签发入口授权。
 
