@@ -283,7 +283,7 @@ describe("ModelFacingBrowserAdapter", () => {
         mode: "all",
         conditions: [{ type: "text_present", text: "third-party secret" }],
       },
-    }) as { verified: boolean; conclusive: boolean; evidence: Array<Record<string, unknown>> };
+    }) as VerificationResult;
 
     expect(hiddenText).toMatchObject({
       verified: false,
@@ -307,7 +307,7 @@ describe("ModelFacingBrowserAdapter", () => {
         mode: "all",
         conditions: [{ type: "field_value", ref: "@field", equals: "top-secret" }],
       },
-    }) as { verified: boolean; conclusive: boolean; evidence: Array<Record<string, unknown>> };
+    }) as VerificationResult;
 
     expect(result.verified).toBe(false);
     expect(result.conclusive).toBe(false);
