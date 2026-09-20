@@ -34,6 +34,17 @@ const pages = new Map([
   <head><meta charset="utf-8"><title>OOPIF Child Fixture</title></head>
   <body>
     <button id="oopif-child-action">OOPIF Child Action</button>
+    <script>
+      document.querySelector("#oopif-child-action")?.addEventListener(
+        "click",
+        (event) => {
+          const button = event.currentTarget;
+          if (!(button instanceof HTMLButtonElement)) return;
+          button.textContent = "OOPIF Clicked";
+          document.body.dataset.clicked = "true";
+        },
+      );
+    </script>
   </body>
 </html>`],
 ]);

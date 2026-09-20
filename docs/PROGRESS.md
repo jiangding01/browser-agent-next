@@ -170,10 +170,10 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ 第四小步：child-frame → top-level coordinate projection core；
 - ✅ 第五小步：projection 接入 Strict prepare；
 - ✅ prepared target 显式约束为 top-level viewport coordinate space；
-- 🚧 第六小步：Real Chromium OOPIF child Strict Click actuation E2E；
-- ⏳ child-frame Strict Click dispatch；
+- 🚧 第六小步：Real Chromium OOPIF child Strict Click actuation E2E 已实现，等待 CI；
+- 🚧 child-frame Strict Click dispatch 正在通过真实 Chromium 闭环验证；
 - ⏳ navigation / detach / stale projection fail-closed；
-- ⏳ Real Chromium OOPIF / child-frame actuation E2E。
+- 🚧 Real Chromium OOPIF / child-frame actuation E2E 收口中。
 
 ### PR #7 第一小步：flat child-session transport
 
@@ -294,3 +294,25 @@ E2E 要求：
 - main-frame prepared target 同样显式标记为 top-level viewport；
 - `ChromeStrictClickDispatcher` 在任何 `Input.dispatchMouseEvent` 前再次检查 coordinate space，非顶层坐标直接 fail closed；
 - trusted execution 原有“双 prepare”机制保持不变，因此真正 dispatch 前会重新完成 child identity + projection。
+
+
+### PR #7 第六小步：真实 OOPIF child Strict Click dispatch E2E
+
+新增 trusted-host Real Chromium 场景：
+
+```text
+browser.open(agent-owned OOPIF page)
+→ browser.observe(hybrid)
+→ child ref has DOM + AX provenance
+→ authorization.issue-strict-click
+→ browser.act
+→ second Strict prepare
+→ child local point projected to top-level viewport
+→ root Input.dispatchMouseEvent
+→ OOPIF child receives real click
+→ fresh Observe + Verify(text_present="OOPIF Clicked")
+```
+
+Fixture 中 OOPIF child button 只有收到真实 click 后才把文本改成 `OOPIF Clicked`，因此验证结果可以直接证明 root-session mouse dispatch 最终命中了 child target，而不是只证明 prepare 成功。
+
+当前该 E2E 已进入 PR #7，等待 GitHub Actions 验证。

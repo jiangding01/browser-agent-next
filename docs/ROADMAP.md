@@ -28,7 +28,7 @@
   - [x] top-level coordinate projection core
   - [x] projection → Strict prepare integration
   - [x] dispatcher top-level coordinate-space guard
-  - [ ] Real Chromium child Strict Click dispatch E2E
+  - [ ] Real Chromium child Strict Click dispatch E2E — implemented, CI pending
   - [ ] navigation/detach/projection fail-closed E2E
 
 ## Phase 5 — Effects and authorization
