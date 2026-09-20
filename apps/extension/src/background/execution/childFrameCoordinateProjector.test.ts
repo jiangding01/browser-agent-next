@@ -567,6 +567,275 @@ describe(
     );
 
     it(
+      "2D affine transform content quad 按实时 quad 正确投影",
+      async () => {
+        const transport = {
+          contextBindingsForFrame(
+            _tabId: number,
+            cdpFrameId: string,
+          ) {
+            return [{
+              ...(cdpFrameId ===
+              "cdp-child"
+                ? {
+                    sessionId:
+                      "session-child",
+                  }
+                : {}),
+              context: {
+                id: 1,
+                auxData: {
+                  frameId:
+                    cdpFrameId,
+                  isDefault: false,
+                },
+              },
+            }];
+          },
+          async send(
+            _tabId: number,
+            method: string,
+          ) {
+            if (
+              method ===
+              "DOM.getFrameOwner"
+            ) {
+              return {
+                backendNodeId: 500,
+              };
+            }
+            if (
+              method ===
+              "DOM.getBoxModel"
+            ) {
+              return {
+                model: {
+                  // 200x100 viewport 经过 90° 旋转 +
+                  // 平移后的 affine content quad。
+                  content: [
+                    300, 100,
+                    300, 300,
+                    200, 300,
+                    200, 100,
+                  ],
+                },
+              };
+            }
+            if (
+              method ===
+              "DOM.resolveNode"
+            ) {
+              return {
+                object: {
+                  objectId:
+                    "owner-root",
+                },
+              };
+            }
+            if (
+              method ===
+              "Runtime.callFunctionOn"
+            ) {
+              return {
+                result: {
+                  value: true,
+                },
+              };
+            }
+            return {
+              result: {
+                value: {
+                  width: 1000,
+                  height: 800,
+                },
+              },
+            };
+          },
+          async sendInSession() {
+            return {
+              result: {
+                value: {
+                  width: 200,
+                  height: 100,
+                },
+              },
+            };
+          },
+        };
+
+        await expect(
+          new ChildFrameCoordinateProjector(
+            transport as never,
+            singleBindings(),
+          ).project({
+            tabId: 7,
+            targetFrameId:
+              "web:2",
+            point: {
+              x: 50,
+              y: 25,
+            },
+            frames: singleFrames,
+          }),
+        ).resolves.toEqual({
+          ok: true,
+          point: {
+            x: 275,
+            y: 150,
+          },
+          rootFrameOwnerBackendNodeId:
+            500,
+        });
+      },
+    );
+
+    it(
+      "连续 prepare 使用最新 frame owner box model，不复用 scroll 前坐标",
+      async () => {
+        let boxLeft = 100;
+
+        const transport = {
+          contextBindingsForFrame(
+            _tabId: number,
+            cdpFrameId: string,
+          ) {
+            return [{
+              ...(cdpFrameId ===
+              "cdp-child"
+                ? {
+                    sessionId:
+                      "session-child",
+                  }
+                : {}),
+              context: {
+                id: 1,
+                auxData: {
+                  frameId:
+                    cdpFrameId,
+                  isDefault: false,
+                },
+              },
+            }];
+          },
+          async send(
+            _tabId: number,
+            method: string,
+          ) {
+            if (
+              method ===
+              "DOM.getFrameOwner"
+            ) {
+              return {
+                backendNodeId: 500,
+              };
+            }
+            if (
+              method ===
+              "DOM.getBoxModel"
+            ) {
+              return {
+                model: {
+                  content: [
+                    boxLeft, 50,
+                    boxLeft + 200, 50,
+                    boxLeft + 200, 150,
+                    boxLeft, 150,
+                  ],
+                },
+              };
+            }
+            if (
+              method ===
+              "DOM.resolveNode"
+            ) {
+              return {
+                object: {
+                  objectId:
+                    "owner-root",
+                },
+              };
+            }
+            if (
+              method ===
+              "Runtime.callFunctionOn"
+            ) {
+              return {
+                result: {
+                  value: true,
+                },
+              };
+            }
+            return {
+              result: {
+                value: {
+                  width: 1000,
+                  height: 800,
+                },
+              },
+            };
+          },
+          async sendInSession() {
+            return {
+              result: {
+                value: {
+                  width: 200,
+                  height: 100,
+                },
+              },
+            };
+          },
+        };
+
+        const projector =
+          new ChildFrameCoordinateProjector(
+            transport as never,
+            singleBindings(),
+          );
+
+        const first =
+          await projector.project({
+            tabId: 7,
+            targetFrameId:
+              "web:2",
+            point: {
+              x: 50,
+              y: 25,
+            },
+            frames: singleFrames,
+          });
+
+        boxLeft = 20;
+
+        const second =
+          await projector.project({
+            tabId: 7,
+            targetFrameId:
+              "web:2",
+            point: {
+              x: 50,
+              y: 25,
+            },
+            frames: singleFrames,
+          });
+
+        expect(first).toMatchObject({
+          ok: true,
+          point: {
+            x: 150,
+            y: 75,
+          },
+        });
+        expect(second).toMatchObject({
+          ok: true,
+          point: {
+            x: 70,
+            y: 75,
+          },
+        });
+      },
+    );
+
+    it(
       "透视/非 affine content quad 直接 fail closed",
       async () => {
         const transport = {
