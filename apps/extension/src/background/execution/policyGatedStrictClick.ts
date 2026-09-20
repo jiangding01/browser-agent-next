@@ -5,6 +5,7 @@ import {
 } from "@browser-agent-next/core";
 import {
   evaluateEffectPolicy,
+  minimumAuthorizationAssurance,
   type InMemoryAuthorizationStore,
 } from "@browser-agent-next/policy";
 import type {
@@ -88,6 +89,12 @@ export class PolicyGatedStrictClickExecutor {
 
     const effect = conservativeClickEffect();
 
+    const requiredAssurance =
+      minimumAuthorizationAssurance(
+        effect.class,
+        preparedBeforePolicy.observation.tab.ownedBySession,
+      );
+
     const auth = input.authorizationId
       ? this.authorizations.consume({
           id: input.authorizationId,
@@ -96,6 +103,9 @@ export class PolicyGatedStrictClickExecutor {
           ref: input.ref,
           actionKind: "click",
           effectClass: effect.class,
+          ...(requiredAssurance !== undefined
+            ? { minimumAssurance: requiredAssurance }
+            : {}),
         })
       : undefined;
 
@@ -106,7 +116,9 @@ export class PolicyGatedStrictClickExecutor {
       originAllowed: this.origins.isAllowed(
         preparedBeforePolicy.observation.tab.origin,
       ),
-      hasAuthorization: auth?.ok === true,
+      ...(auth?.ok === true
+        ? { authorizationAssurance: auth.grant.assurance }
+        : {}),
     });
 
     if (decision.verdict !== "allow") {
@@ -119,6 +131,7 @@ export class PolicyGatedStrictClickExecutor {
         {
           effect,
           verdict: decision.verdict,
+          requiredAssurance: decision.requiredAssurance,
           authorizationReason:
             auth && !auth.ok ? auth.reason : undefined,
         },

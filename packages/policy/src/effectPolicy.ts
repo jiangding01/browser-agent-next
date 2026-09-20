@@ -1,4 +1,11 @@
-import type { EffectAssessment } from "@browser-agent-next/core";
+import type {
+  AuthorizationAssurance,
+  EffectAssessment,
+  EffectClass,
+} from "@browser-agent-next/core";
+import {
+  authorizationAssuranceSatisfies,
+} from "./authorizationStore.js";
 
 export type PolicyVerdict = "allow" | "confirm" | "deny" | "escalate";
 
@@ -6,12 +13,42 @@ export interface EffectPolicyInput {
   effect: EffectAssessment;
   tabOwnedBySession: boolean;
   originAllowed: boolean;
-  hasAuthorization: boolean;
+  authorizationAssurance?: AuthorizationAssurance;
 }
 
 export interface EffectPolicyDecision {
   verdict: PolicyVerdict;
   reasons: string[];
+  requiredAssurance?: AuthorizationAssurance;
+}
+
+export function minimumAuthorizationAssurance(
+  effectClass: EffectClass,
+  tabOwnedBySession: boolean,
+): AuthorizationAssurance | undefined {
+  switch (effectClass) {
+    case "read":
+    case "local-ui":
+      return undefined;
+
+    case "navigation":
+    case "draft-mutation":
+      return tabOwnedBySession
+        ? undefined
+        : "operator-approved";
+
+    case "unknown":
+      return "control-plane";
+
+    case "download":
+    case "external-mutation":
+    case "irreversible":
+    case "credential":
+    case "file-egress":
+    case "permission":
+    case "payment":
+      return "operator-approved";
+  }
 }
 
 export function evaluateEffectPolicy(
@@ -24,62 +61,55 @@ export function evaluateEffectPolicy(
     };
   }
 
-  switch (input.effect.class) {
-    case "read":
-    case "local-ui":
-      return { verdict: "allow", reasons: [] };
+  const requiredAssurance =
+    minimumAuthorizationAssurance(
+      input.effect.class,
+      input.tabOwnedBySession,
+    );
 
-    case "navigation":
-    case "draft-mutation":
-      return input.tabOwnedBySession
-        ? { verdict: "allow", reasons: [] }
-        : {
-            verdict: "confirm",
-            reasons: ["action targets a user-existing tab"],
-          };
-
-    case "download":
-      return input.hasAuthorization
-        ? { verdict: "allow", reasons: [] }
-        : {
-            verdict: "confirm",
-            reasons: ["download requires authorization"],
-          };
-
-    case "external-mutation":
-    case "irreversible":
-    case "credential":
-    case "file-egress":
-    case "permission":
-    case "payment":
-      return input.hasAuthorization
-        ? { verdict: "allow", reasons: [] }
-        : {
-            verdict: "confirm",
-            reasons: [
-              input.effect.class + " effect requires authorization",
-            ],
-          };
-
-    case "unknown":
-      // 对任意 click，Runtime 往往无法仅凭 DOM/AX 在执行前证明其真实业务副作用。
-      // 没有 hard authorization 时必须升级；如果 trusted UI/host 已对该精确
-      // tab+revision+ref+action+effect 签发授权，则允许继续。
-      return input.hasAuthorization
-        ? {
-            verdict: "allow",
-            reasons: [
-              "unknown effect explicitly authorized by trusted control plane",
-            ],
-          }
-        : {
-            verdict: "escalate",
-            reasons: [
-              "action effect is unknown",
-              ...(input.effect.confidence === "unknown"
-                ? ["effect could not be classified confidently"]
-                : []),
-            ],
-          };
+  if (requiredAssurance === undefined) {
+    return { verdict: "allow", reasons: [] };
   }
+
+  const authorized =
+    input.authorizationAssurance !== undefined &&
+    authorizationAssuranceSatisfies(
+      input.authorizationAssurance,
+      requiredAssurance,
+    );
+
+  if (authorized) {
+    return {
+      verdict: "allow",
+      reasons: [
+        "authorization assurance satisfies required level: " +
+          requiredAssurance,
+      ],
+      requiredAssurance,
+    };
+  }
+
+  if (input.effect.class === "unknown") {
+    return {
+      verdict: "escalate",
+      reasons: [
+        "action effect is unknown",
+        "required authorization assurance: " + requiredAssurance,
+        ...(input.effect.confidence === "unknown"
+          ? ["effect could not be classified confidently"]
+          : []),
+      ],
+      requiredAssurance,
+    };
+  }
+
+  return {
+    verdict: "confirm",
+    reasons: [
+      input.effect.class +
+        " effect requires authorization assurance: " +
+        requiredAssurance,
+    ],
+    requiredAssurance,
+  };
 }

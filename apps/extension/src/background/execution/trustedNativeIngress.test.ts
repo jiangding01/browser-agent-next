@@ -28,6 +28,7 @@ describe("connectTrustedNativeIngress", () => {
           id: "auth",
           expiresAt: 1_000,
           origin: "https://fixture.test",
+          assurance: "control-plane",
         };
       },
       async executeStrictClickAndVerify() {
@@ -88,6 +89,7 @@ describe("connectTrustedNativeIngress", () => {
         id: "auth",
         expiresAt: 1_000,
         origin: "https://fixture.test",
+        assurance: "control-plane",
       },
     });
   });

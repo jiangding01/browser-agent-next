@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  type AuthorizationAssurance,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
@@ -36,6 +37,9 @@ export interface TrustedExecuteAndVerifyInput {
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
 }
+
+const TRUSTED_HOST_ASSURANCE: AuthorizationAssurance =
+  "control-plane";
 
 export interface TrustedExecuteAndVerifyResult {
   execution: ExecuteStrictClickResult;
@@ -117,6 +121,7 @@ export class TrustedHostExecutionService {
     id: string;
     expiresAt: number;
     origin: string;
+    assurance: AuthorizationAssurance;
   } {
     if (
       !Number.isFinite(input.ttlMs) ||
@@ -162,6 +167,7 @@ export class TrustedHostExecutionService {
       ref: input.ref,
       actionKind: "click",
       effectClass: "unknown",
+      assurance: TRUSTED_HOST_ASSURANCE,
       ttlMs: input.ttlMs,
       singleUse: true,
       source: "trusted-host",
@@ -171,6 +177,7 @@ export class TrustedHostExecutionService {
       id: grant.id,
       expiresAt: grant.expiresAt,
       origin: stored.observation.tab.origin,
+      assurance: grant.assurance,
     };
   }
 

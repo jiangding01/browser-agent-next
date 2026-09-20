@@ -86,6 +86,7 @@ describe("TrustedHostExecutionService", () => {
       id: "auth-1",
       expiresAt: 1_100,
       origin: "https://fixture.test",
+      assurance: "control-plane",
     });
   });
 

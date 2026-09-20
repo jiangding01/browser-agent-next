@@ -2,6 +2,7 @@ export * from "./state/types.js";
 export * from "./state/revision.js";
 export * from "./state/coverage.js";
 export * from "./effects/types.js";
+export * from "./authorization/types.js";
 export * from "./actions/types.js";
 export * from "./verification/types.js";
 export * from "./trace/types.js";

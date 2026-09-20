@@ -1,4 +1,5 @@
 import type {
+  AuthorizationAssurance,
   BrowserActionKind,
   EffectClass,
   RevisionId,
@@ -11,6 +12,7 @@ export interface AuthorizationGrant {
   ref: string;
   actionKind: BrowserActionKind;
   effectClass: EffectClass;
+  assurance: AuthorizationAssurance;
   issuedAt: number;
   expiresAt: number;
   singleUse: boolean;
@@ -24,6 +26,7 @@ export interface IssueAuthorizationInput {
   ref: string;
   actionKind: BrowserActionKind;
   effectClass: EffectClass;
+  assurance: AuthorizationAssurance;
   ttlMs: number;
   singleUse?: boolean;
   source: AuthorizationGrant["source"];
@@ -36,6 +39,7 @@ export interface ConsumeAuthorizationInput {
   ref: string;
   actionKind: BrowserActionKind;
   effectClass: EffectClass;
+  minimumAssurance?: AuthorizationAssurance;
 }
 
 export type AuthorizationConsumeResult =
@@ -48,7 +52,8 @@ export type AuthorizationConsumeResult =
       reason:
         | "missing"
         | "expired"
-        | "binding-mismatch";
+        | "binding-mismatch"
+        | "assurance-insufficient";
     };
 
 export interface AuthorizationStoreOptions {
@@ -56,10 +61,23 @@ export interface AuthorizationStoreOptions {
   maxGrants?: number;
 }
 
+const ASSURANCE_RANK: Record<AuthorizationAssurance, number> = {
+  "control-plane": 1,
+  "operator-approved": 2,
+  "enterprise-policy": 3,
+};
+
+export function authorizationAssuranceSatisfies(
+  actual: AuthorizationAssurance,
+  minimum: AuthorizationAssurance,
+): boolean {
+  return ASSURANCE_RANK[actual] >= ASSURANCE_RANK[minimum];
+}
+
 /**
- * 只保存由 trusted UI / host 签发的短期授权。
+ * 只保存由可信控制面签发的短期授权。
  *
- * Agent、页面文本、模型 confidence 都不能通过这个类自行“升级”为授权。
+ * assurance 是 grant 的可信属性，必须由签发入口决定，不能由模型或页面声明。
  * Grant 与 tab/revision/ref/action/effect 精确绑定，默认一次性消费。
  */
 export class InMemoryAuthorizationStore {
@@ -103,6 +121,7 @@ export class InMemoryAuthorizationStore {
       ref: input.ref,
       actionKind: input.actionKind,
       effectClass: input.effectClass,
+      assurance: input.assurance,
       issuedAt,
       expiresAt: issuedAt + input.ttlMs,
       singleUse: input.singleUse ?? true,
@@ -135,6 +154,19 @@ export class InMemoryAuthorizationStore {
       grant.effectClass !== input.effectClass
     ) {
       return { ok: false, reason: "binding-mismatch" };
+    }
+
+    if (
+      input.minimumAssurance !== undefined &&
+      !authorizationAssuranceSatisfies(
+        grant.assurance,
+        input.minimumAssurance,
+      )
+    ) {
+      return {
+        ok: false,
+        reason: "assurance-insufficient",
+      };
     }
 
     if (grant.singleUse) {
