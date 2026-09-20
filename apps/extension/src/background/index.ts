@@ -5,6 +5,7 @@ import {
 import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
 import {
   StoredObservationStrictCoordinator,
+  TabOwnershipRegistry,
   TabRevisionRegistry,
   TabStateStore,
 } from "@browser-agent-next/runtime";
@@ -65,7 +66,18 @@ interface ChromeBackgroundApi extends ChromeLifecycleApi {
     & BackgroundRuntimeApi
     & TrustedNativeRuntimeApi;
   debugger: ChromeDebuggerApi;
-  tabs: ChromeLifecycleApi["tabs"] & ChromeTabsApi;
+  tabs:
+    & ChromeLifecycleApi["tabs"]
+    & ChromeTabsApi
+    & {
+      create(input: {
+        url: string;
+        active?: boolean;
+      }): Promise<{
+        id?: number;
+        url?: string;
+      }>;
+    };
   webNavigation:
     & ChromeLifecycleApi["webNavigation"]
     & ChromeWebNavigationApi;
@@ -93,6 +105,7 @@ const refs = new InMemoryPersistentRefStore();
 const states = new TabStateStore();
 const revisions = new TabRevisionRegistry(runtimeEpoch());
 const lifecycle = new DomLifecycleRegistry(refs, states);
+const tabOwnership = new TabOwnershipRegistry();
 
 const coordinator = new DomObservationCoordinator(
   refs,
@@ -168,9 +181,14 @@ const browserApiService =
     states,
     perceptionService,
     trustedHostService,
+    tabOwnership,
+    chrome.tabs,
   );
 
 bindChromeDomLifecycle(chrome, lifecycle);
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabOwnership.tabRemoved(tabId);
+});
 bindAuthorizationLifecycle(
   chrome,
   authorizations,

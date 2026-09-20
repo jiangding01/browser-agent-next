@@ -67,6 +67,14 @@ async function handleRequest(
         verification: request.verification,
         ...(request.verifyTimeoutMs !== undefined ? { verifyTimeoutMs: request.verifyTimeoutMs } : {}),
       });
+    case "browser.open":
+      if (!browserApi) throw new Error("high-level browser API is unavailable");
+      return browserApi.open({
+        url: request.url,
+        ...(request.active !== undefined
+          ? { active: request.active }
+          : {}),
+      });
     case "browser.observe":
       if (!browserApi) throw new Error("high-level browser API is unavailable");
       return browserApi.observe({

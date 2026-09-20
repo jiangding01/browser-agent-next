@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { TabStateStore } from "@browser-agent-next/runtime";
+import {
+  TabOwnershipRegistry,
+  TabStateStore,
+} from "@browser-agent-next/runtime";
 import type { BrowserObservation } from "@browser-agent-next/core";
 import { HighLevelBrowserApiService } from "./browserApiService.js";
 
@@ -31,7 +34,7 @@ function observation(id = "rev-1", url = "https://fixture.test/"): BrowserObserv
 }
 
 describe("HighLevelBrowserApiService", () => {
-  it("browser.observe 默认使用 hybrid，并且不允许调用方自报 ownedBySession", async () => {
+  it("browser.observe 默认使用 hybrid，未知 tab 安全降级为 user-existing", async () => {
     let received: any;
     const service = new HighLevelBrowserApiService(
       new TabStateStore(),
@@ -48,6 +51,63 @@ describe("HighLevelBrowserApiService", () => {
     expect(received).toMatchObject({
       tabId: 7, ownedBySession: false, options: { includeAx: true },
     });
+  });
+
+  it("browser.open 只有真实创建的 tab 才进入 ownership registry", async () => {
+    let createdInput: unknown;
+    const ownership = new TabOwnershipRegistry(() => 123);
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {
+        async observe(input: any) {
+          return {
+            ...observation(),
+            tab: {
+              ...observation().tab,
+              ownedBySession: input.ownedBySession,
+            },
+          };
+        },
+      } as never,
+      {} as never,
+      ownership,
+      {
+        async create(input) {
+          createdInput = input;
+          return {
+            id: 88,
+            url: input.url,
+          };
+        },
+      },
+    );
+
+    expect(ownership.isOwned(88)).toBe(false);
+
+    await expect(service.open({
+      url: "javascript:alert(1)",
+    })).rejects.toThrow(/http\/https/);
+
+    const opened = await service.open({
+      url: "https://fixture.test/start?q=1",
+      active: false,
+    });
+
+    expect(opened).toEqual({
+      tabId: 88,
+      url: "https://fixture.test/start?q=1",
+      ownedBySession: true,
+    });
+    expect(createdInput).toEqual({
+      url: "https://fixture.test/start?q=1",
+      active: false,
+    });
+    expect(ownership.isOwned(88)).toBe(true);
+
+    const observed = await service.observe({
+      tabId: 88,
+    });
+    expect(observed.tab.ownedBySession).toBe(true);
   });
 
   it("browser.observe 在 service 层也拒绝无界 maxElements", async () => {

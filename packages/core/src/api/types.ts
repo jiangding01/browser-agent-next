@@ -18,6 +18,17 @@ export interface BrowserObserveOptions {
   includeOpenShadowRoots?: boolean;
 }
 
+export interface BrowserOpenInput {
+  url: string;
+  active?: boolean;
+}
+
+export interface BrowserOpenResult {
+  tabId: number;
+  url: string;
+  ownedBySession: true;
+}
+
 export interface BrowserObserveInput {
   tabId: number;
   sinceRevision?: RevisionId;

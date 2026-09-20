@@ -62,3 +62,6 @@
 58. unknown effect 在用户已有 Tab 上至少要求 operator-approved；control-plane 只能覆盖可信证明为 Agent-owned 的 unknown action。
 59. 高层 observation 单次 candidate 上限必须与传输预算匹配；当前 DOM/AX 各最多 500，超大 action space 应通过 truncation/scoping/paging 处理，而不是无界扩大 Native Messaging payload。
 60. authorization source 必须具有自己的 assurance ceiling；trusted-host 最高只能 control-plane，不能只依赖 ingress 层硬编码来阻止权限升级。
+51. Agent-owned Tab 只能由 Runtime 真实创建动作 mint ownership；高层 API 不接受 caller supplied ownedBySession/claim，未知 Tab 与 MV3 restart 后均按 user-existing 处理。
+52. browser.open 只允许无 credentials 的绝对 http/https URL；javascript:/data:/file:/chrome: 等 scheme 必须 fail closed。
+\n

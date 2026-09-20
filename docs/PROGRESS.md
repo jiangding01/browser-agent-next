@@ -15,6 +15,7 @@ PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 Authorization Assurance                  ✅
+browser.open + Tab Ownership Registry    ✅
 browser.observe                          ✅
 browser.verify                           ✅
 browser.wait baseline                    ✅
@@ -30,8 +31,10 @@ event-driven wait                        ⏭
 - grant consume 按 minimum assurance 校验；
 - trusted-host 只能签发 control-plane，不能由请求自报升级；
 - unknown effect 在用户已有 Tab 上提升到 operator-approved，落实“用户已有 Tab 默认更严格”；
+- browser.open 通过真实 chrome.tabs.create mint Agent-owned tab；
+- Tab Ownership Registry 不提供 caller claim，未知 tab 与 MV3 restart 后均安全降级为 user-existing；
 - 高层 browser.observe 默认 Hybrid；
-- 高层 API 不接受 ownedBySession，当前安全默认按 user-existing tab；
+- 高层 API 不接受 caller supplied ownedBySession，ownership 只来自 browser.open；
 - browser.verify 只验证指定 retained revision；
 - browser.wait 只重复 fresh observation + verification，不执行动作；
 - browser.act 第一版只接 Strict Click；

@@ -34,13 +34,14 @@
 - [ ] enterprise-policy issuance ingress
 
 ## Phase 6 — High-level API
+- [x] browser.open + Tab Ownership Registry
 - [x] browser.observe
 - [x] browser.verify
 - [x] browser.wait bounded polling baseline
 - [x] browser.act → Strict Click
 - [ ] event-driven wait
 - [ ] browser.extract
-- [ ] Tab Ownership Registry
+- [x] Tab Ownership Registry
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router

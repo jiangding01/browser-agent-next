@@ -35,6 +35,12 @@ export type TrustedHostRequest =
       verifyTimeoutMs?: number;
     }
   | {
+      type: "browser.open";
+      requestId: string;
+      url: string;
+      active?: boolean;
+    }
+  | {
       type: "browser.observe";
       requestId: string;
       tabId: number;
@@ -223,6 +229,11 @@ export function isTrustedHostRequest(
         nonEmptyString(request.ref) &&
         isVerificationSpec(request.verification) &&
         optionalFiniteNumber(request.verifyTimeoutMs, 0, 5_000);
+
+    case "browser.open":
+      return nonEmptyString(request.url) &&
+        request.url.length <= 2_048 &&
+        (request.active === undefined || typeof request.active === "boolean");
 
     case "browser.observe":
       return tabId(request.tabId) &&

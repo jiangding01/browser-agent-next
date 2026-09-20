@@ -2,6 +2,8 @@ import {
   BrowserRuntimeError,
   type BrowserActInput,
   type BrowserObservation,
+  type BrowserOpenInput,
+  type BrowserOpenResult,
   type BrowserObserveInput,
   type BrowserObserveOptions,
   type BrowserVerifyInput,
@@ -12,10 +14,21 @@ import {
 } from "@browser-agent-next/core";
 import {
   verifyObservation,
+  type TabOwnershipRegistry,
   type TabStateStore,
 } from "@browser-agent-next/runtime";
 import type { ChromeDomObservationService } from "../chrome/chromeObservationService.js";
 import type { TrustedHostExecutionService } from "../execution/trustedHostExecutionService.js";
+
+export interface BrowserTabCreateApi {
+  create(input: {
+    url: string;
+    active?: boolean;
+  }): Promise<{
+    id?: number;
+    url?: string;
+  }>;
+}
 
 export interface BrowserApiServiceOptions {
   now?: () => number;
@@ -144,8 +157,10 @@ function timeoutVerification(
 /**
  * Agent-facing high-level Browser API facade.
  *
- * 重要：高层 API 不接收 ownedBySession。当前在没有独立 Tab ownership registry
- * 之前一律按 user-existing tab 处理，避免调用方自行降低授权门槛。
+ * 重要：高层 API 不接收 caller supplied ownedBySession。
+ *
+ * ownership 只能由 browser.open 的真实 tabs.create 结果进入 TabOwnershipRegistry；
+ * 未记录的 tab 一律按 user-existing 处理。MV3 restart 后 registry 丢失时同样 fail safe。
  */
 export class HighLevelBrowserApiService {
   private readonly now: () => number;
@@ -158,6 +173,8 @@ export class HighLevelBrowserApiService {
     private readonly states: TabStateStore,
     private readonly observations: ChromeDomObservationService,
     private readonly trustedExecution: TrustedHostExecutionService,
+    private readonly ownership?: TabOwnershipRegistry,
+    private readonly tabs?: BrowserTabCreateApi,
     options: BrowserApiServiceOptions = {},
   ) {
     this.now = options.now ?? Date.now;
@@ -169,6 +186,76 @@ export class HighLevelBrowserApiService {
     this.defaultPollIntervalMs = options.defaultPollIntervalMs ?? 100;
   }
 
+  async open(
+    input: BrowserOpenInput,
+  ): Promise<BrowserOpenResult> {
+    if (!this.ownership || !this.tabs) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "browser.open is unavailable because tab ownership control is not configured",
+      );
+    }
+
+    if (
+      typeof input.url !== "string" ||
+      input.url.length < 1 ||
+      input.url.length > 2_048
+    ) {
+      throw new BrowserRuntimeError(
+        "POLICY_BLOCKED",
+        "browser.open url must be between 1 and 2048 characters",
+      );
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(input.url);
+    } catch {
+      throw new BrowserRuntimeError(
+        "POLICY_BLOCKED",
+        "browser.open requires an absolute URL",
+      );
+    }
+
+    if (
+      (parsed.protocol !== "http:" &&
+        parsed.protocol !== "https:") ||
+      parsed.username ||
+      parsed.password
+    ) {
+      throw new BrowserRuntimeError(
+        "POLICY_BLOCKED",
+        "browser.open only supports credential-free http/https URLs",
+      );
+    }
+
+    const created = await this.tabs.create({
+      url: parsed.href,
+      ...(input.active !== undefined
+        ? { active: input.active }
+        : {}),
+    });
+
+    if (
+      typeof created.id !== "number" ||
+      !Number.isInteger(created.id) ||
+      created.id < 0
+    ) {
+      throw new BrowserRuntimeError(
+        "ACTION_OUTCOME_UNKNOWN",
+        "Chrome created a tab without a usable tabId",
+      );
+    }
+
+    this.ownership.markCreated(created.id);
+
+    return {
+      tabId: created.id,
+      url: created.url ?? parsed.href,
+      ownedBySession: true,
+    };
+  }
+
   async observe(
     input: BrowserObserveInput,
   ): Promise<BrowserObservation> {
@@ -177,7 +264,8 @@ export class HighLevelBrowserApiService {
 
     return this.observations.observe({
       tabId: input.tabId,
-      ownedBySession: false,
+      ownedBySession:
+        this.ownership?.isOwned(input.tabId) ?? false,
       ...(input.sinceRevision !== undefined
         ? { sinceRevision: input.sinceRevision }
         : {}),
