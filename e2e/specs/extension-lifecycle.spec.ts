@@ -306,7 +306,62 @@ test("真实 Chromium 中 DOM↔AX exact correspondence 合并为单一 Persiste
       ax: true,
     });
 
+    const hybridChild = hybrid.elements.filter(
+      (element) => element.semantic.name === "Child Action",
+    );
+
+    expect(hybridChild).toHaveLength(1);
+    expect(hybridChild[0]?.provenance).toMatchObject({
+      dom: true,
+      ax: true,
+    });
+    expect(hybrid.coverage.actionable.status).toBe("complete");
+
     const firstHybridRef = hybridSave[0]!.ref;
+    const firstHybridChildRef = hybridChild[0]!.ref;
+
+    const child = target.frames().find((frame) =>
+      frame.url().includes("/child.html"),
+    );
+    if (!child) throw new Error("child frame missing");
+
+    await child.goto(fixtureOrigin + "/child.html?hybrid-reload=1");
+
+    const childReloaded = await observe(
+      harness,
+      tabId,
+      hybrid.revision.id,
+      { includeAx: true },
+    );
+
+    const childAfterReload = childReloaded.elements.filter(
+      (element) => element.semantic.name === "Child Action",
+    );
+    expect(childAfterReload).toHaveLength(1);
+    expect(childAfterReload[0]?.provenance).toMatchObject({
+      dom: true,
+      ax: true,
+    });
+    expect(childAfterReload[0]?.ref).not.toBe(firstHybridChildRef);
+
+    const saveAfterChildReload = childReloaded.elements.filter(
+      (element) => element.semantic.name === "Save",
+    );
+    expect(saveAfterChildReload).toHaveLength(1);
+    expect(saveAfterChildReload[0]?.ref).toBe(firstHybridRef);
+
+    const childStrict = await prepareStrictClick(
+      harness,
+      tabId,
+      childReloaded.revision.id,
+      childAfterReload[0]!.ref,
+    );
+    expect(childStrict).toMatchObject({
+      ok: false,
+      error: {
+        code: "TARGET_IDENTITY_MISMATCH",
+      },
+    });
 
     await target.evaluate(() => {
       const current = document.querySelector("#main-action");

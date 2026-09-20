@@ -10,13 +10,15 @@ import {
 } from "./chromeDomTransport.js";
 import type { ChromeDebuggerReadTransport } from "./chromeDebuggerTransport.js";
 import {
-  collectMainAxSource,
-  type CollectedAxSource,
+  collectMappedAxSource,
 } from "../perception/axSource.js";
 import {
   IsolatedWorldDomIdentityResolver,
-  linkMainFrameDomAx,
+  linkDomAxFrames,
 } from "../perception/domAxCorrespondence.js";
+import {
+  mapDomFramesToCdp,
+} from "../perception/frameCorrespondence.js";
 import type { DomObservationCoordinator } from "../perception/observationCoordinator.js";
 
 export interface ChromeTabRecord {
@@ -76,26 +78,14 @@ export class ChromeDomObservationService {
     }
 
     const includeAx = input.options?.includeAx === true;
-    let extraSources = undefined;
-    let collectedAx: CollectedAxSource | undefined;
 
-    if (includeAx) {
-      if (!this.debuggerTransport) {
-        throw new Error("AX perception requested but debugger transport is unavailable");
-      }
-
-      collectedAx = await collectMainAxSource({
-        tabId: input.tabId,
-        mainDocumentEpoch: catalog.mainDocumentEpoch,
-        transport: this.debuggerTransport,
-        hasChildFrames: catalog.frames.length > 1,
-        ...(input.options?.maxAxElements !== undefined
-          ? { maxElements: input.options.maxAxElements }
-          : {}),
-      });
-
-      extraSources = [collectedAx];
+    if (includeAx && !this.debuggerTransport) {
+      throw new Error(
+        "AX perception requested but debugger transport is unavailable",
+      );
     }
+
+    const debuggerTransport = this.debuggerTransport;
 
     return this.coordinator.observe({
       tab: {
@@ -110,31 +100,65 @@ export class ChromeDomObservationService {
       mainFrameId: catalog.mainFrameId,
       mainDocumentEpoch: catalog.mainDocumentEpoch,
       transport: this.transport,
-      ...(extraSources !== undefined ? { extraSources } : {}),
-      ...(collectedAx !== undefined && this.debuggerTransport !== undefined
+      ...(includeAx && debuggerTransport !== undefined
         ? {
             refineSources: async ({
               dom,
-              extraSources: sources,
+              extraSources,
             }: {
               dom: import("../perception/domCollector.js").CollectedDomSource;
               extraSources: import("@browser-agent-next/perception").PerceptionSourceResult[];
             }) => {
-              const linked = await linkMainFrameDomAx({
+              const identityResolver =
+                new IsolatedWorldDomIdentityResolver(
+                  debuggerTransport,
+                );
+
+              const correspondence =
+                await mapDomFramesToCdp({
+                  tabId: input.tabId,
+                  frames: catalog.frames,
+                  dom,
+                  transport: debuggerTransport,
+                  resolver: identityResolver,
+                });
+
+              const ax = await collectMappedAxSource({
                 tabId: input.tabId,
-                mainFrameId: catalog.mainFrameId,
+                mappings: correspondence.mappings,
+                expectedFrameIds: catalog.frames
+                  .filter((frame) => frame.accessible)
+                  .map((frame) => frame.frameId),
+                transport: debuggerTransport,
+                ...(input.options?.maxAxElements !== undefined
+                  ? {
+                      maxElements:
+                        input.options.maxAxElements,
+                    }
+                  : {}),
+              });
+
+              const axWithMappingWarnings = {
+                ...ax,
+                warnings: [
+                  ...correspondence.warnings,
+                  ...(ax.warnings ?? []),
+                ],
+              };
+
+              const linked = await linkDomAxFrames({
+                tabId: input.tabId,
                 dom,
-                ax: collectedAx!,
-                resolver: new IsolatedWorldDomIdentityResolver(
-                  this.debuggerTransport!,
-                ),
+                ax: axWithMappingWarnings,
+                resolver: identityResolver,
               });
 
               return {
                 dom: linked.dom,
-                extraSources: sources.map((source) =>
-                  source === collectedAx ? linked.ax : source,
-                ),
+                extraSources: [
+                  ...extraSources,
+                  linked.ax,
+                ],
               };
             },
           }
@@ -164,7 +188,10 @@ export class ChromeDomObservationService {
                 ? { includeValues: input.options.includeValues }
                 : {}),
               ...(input.options.includeOpenShadowRoots !== undefined
-                ? { includeOpenShadowRoots: input.options.includeOpenShadowRoots }
+                ? {
+                    includeOpenShadowRoots:
+                      input.options.includeOpenShadowRoots,
+                  }
                 : {}),
             },
           }

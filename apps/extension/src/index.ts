@@ -4,6 +4,8 @@ export * from "./content/domFrameSource.js";
 export * from "./content/perceptionHandler.js";
 export * from "./background/chrome/chromeDebuggerTransport.js";
 export * from "./background/perception/axSource.js";
+export * from "./background/perception/frameCorrespondence.js";
+export * from "./background/perception/domAxCorrespondence.js";
 export * from "./background/perception/domSourceAdapter.js";
 export * from "./background/perception/domCollector.js";
 export * from "./background/perception/observationCoordinator.js";

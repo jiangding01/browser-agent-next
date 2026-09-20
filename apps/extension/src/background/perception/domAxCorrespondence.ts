@@ -21,12 +21,6 @@ interface DomResolveNodeResult {
   object: RuntimeRemoteObject;
 }
 
-interface DomNodeDescription {
-  node: {
-    backendNodeId?: number;
-  };
-}
-
 export interface BackendStableIdMapInput {
   tabId: number;
   cdpFrameId: string;
@@ -40,6 +34,13 @@ export interface DomAxIdentityResolver {
   ): Promise<Map<number, string>>;
 }
 
+export interface DomFrameEpochResolver {
+  frameEpochForCdpFrame(input: {
+    tabId: number;
+    cdpFrameId: string;
+  }): Promise<string | undefined>;
+}
+
 let objectGroupSequence = 0;
 
 function nextObjectGroup(tabId: number): string {
@@ -47,15 +48,54 @@ function nextObjectGroup(tabId: number): string {
   return "browser-agent-next-identity:t" + tabId + ":" + objectGroupSequence;
 }
 
-export class IsolatedWorldDomIdentityResolver implements DomAxIdentityResolver {
+export class IsolatedWorldDomIdentityResolver
+  implements DomAxIdentityResolver, DomFrameEpochResolver
+{
   constructor(
     private readonly transport: ChromeDebuggerReadTransport,
   ) {}
 
+  async frameEpochForCdpFrame(input: {
+    tabId: number;
+    cdpFrameId: string;
+  }): Promise<string | undefined> {
+    await this.transport.attach(input.tabId);
+
+    const contexts = this.transport
+      .contextsForFrame(input.tabId, input.cdpFrameId)
+      .filter((context) => context.auxData?.isDefault !== true);
+
+    for (const context of contexts) {
+      const result = await this.transport.send<RuntimeCallResult>(
+        input.tabId,
+        "Runtime.evaluate",
+        {
+          expression:
+            "globalThis[" +
+            JSON.stringify(DOM_IDENTITY_BRIDGE_KEY) +
+            "]?.version === 1 ? globalThis[" +
+            JSON.stringify(DOM_IDENTITY_BRIDGE_KEY) +
+            "].frameEpoch : null",
+          contextId: context.id,
+          returnByValue: true,
+          silent: true,
+        },
+      );
+
+      if (
+        !result.exceptionDetails &&
+        typeof result.result.value === "string"
+      ) {
+        return result.result.value;
+      }
+    }
+
+    return undefined;
+  }
+
   async stableIdsForBackendNodes(
     input: BackendStableIdMapInput,
   ): Promise<Map<number, string>> {
-    // attach + Runtime.enable 会让 transport 收到现有 execution contexts。
     await this.transport.attach(input.tabId);
 
     const contexts = this.transport
@@ -191,12 +231,12 @@ function backendMergeKey(
   ].join(":");
 }
 
-export interface LinkMainFrameDomAxInput {
+export interface LinkDomAxInput {
   tabId: number;
-  mainFrameId: string;
   dom: CollectedDomSource;
   ax: CollectedAxSource;
   resolver: DomAxIdentityResolver;
+  frameIds?: string[];
   maxLinks?: number;
 }
 
@@ -207,90 +247,120 @@ export interface LinkedDomAxSources {
   warnings: string[];
 }
 
-/**
- * 使用 content isolated-world object identity + CDP backendDOMNodeId 建立
- * exact correspondence。role/name/geometry 只作为最终状态字段，不参与身份判定。
- */
-export async function linkMainFrameDomAx(
-  input: LinkMainFrameDomAxInput,
+export async function linkDomAxFrames(
+  input: LinkDomAxInput,
 ): Promise<LinkedDomAxSources> {
-  const frameEpoch = input.dom.frameEpochByFrame[input.mainFrameId];
-  if (!frameEpoch) {
-    return {
-      dom: input.dom,
-      ax: input.ax,
-      linkedCount: 0,
-      warnings: ["main frame DOM frameEpoch 不可用，跳过 DOM↔AX identity linking"],
-    };
-  }
-
+  const allowed = input.frameIds
+    ? new Set(input.frameIds)
+    : undefined;
   const axCandidates = input.ax.elements.filter(
     (candidate) =>
-      candidate.frameId === input.mainFrameId &&
-      candidate.identity.source === "ax",
+      candidate.identity.source === "ax" &&
+      (allowed?.has(candidate.frameId) ?? true),
   );
 
-  const maxLinks = input.maxLinks ?? 200;
-  const limitedAx = axCandidates.slice(0, maxLinks);
+  // AX collection 已经有明确 maxElements 上限。默认 linking 必须覆盖全部
+  // 已收集 candidate，不能额外引入一个静默的第二重截断。
+  const maxLinks = input.maxLinks ?? input.ax.elements.length;
+  const limited = axCandidates.slice(0, maxLinks);
+  const byFrame = new Map<string, typeof limited>();
 
-  const stableIds = await input.resolver.stableIdsForBackendNodes({
-    tabId: input.tabId,
-    cdpFrameId: input.ax.mainCdpFrameId,
-    frameEpoch,
-    backendNodeIds: limitedAx.map((candidate) => {
-      if (candidate.identity.source !== "ax") {
-        throw new Error("unexpected non-AX identity");
-      }
-      return candidate.identity.backendNodeId;
-    }),
-  });
-
-  const domIndexByStableId = new Map<string, number>();
-
-  input.dom.elements.forEach((candidate, index) => {
-    if (
-      candidate.frameId !== input.mainFrameId ||
-      candidate.identity.source !== "dom" ||
-      candidate.identity.frameEpoch !== frameEpoch
-    ) {
-      return;
-    }
-
-    domIndexByStableId.set(candidate.identity.stableId, index);
-  });
+  for (const candidate of limited) {
+    const group = byFrame.get(candidate.frameId);
+    if (group) group.push(candidate);
+    else byFrame.set(candidate.frameId, [candidate]);
+  }
 
   const domElements = input.dom.elements.map((candidate) => ({ ...candidate }));
   const axElements = input.ax.elements.map((candidate) => ({ ...candidate }));
-  let linkedCount = 0;
   const warnings: string[] = [];
+  let linkedCount = 0;
 
-  for (let axIndex = 0; axIndex < axElements.length; axIndex += 1) {
-    const axCandidate = axElements[axIndex]!;
-    if (
-      axCandidate.frameId !== input.mainFrameId ||
-      axCandidate.identity.source !== "ax"
-    ) {
+  for (const [frameId, frameCandidates] of byFrame) {
+    const frameEpoch = input.dom.frameEpochByFrame[frameId];
+    if (!frameEpoch) {
+      warnings.push(
+        "DOM frameEpoch 不可用，跳过 DOM↔AX linking: " +
+          frameId,
+      );
       continue;
     }
 
-    const stableId = stableIds.get(axCandidate.identity.backendNodeId);
-    if (!stableId) continue;
+    const cdpFrameIds = new Set(
+      frameCandidates.flatMap((candidate) =>
+        candidate.identity.source === "ax"
+          ? [candidate.identity.cdpFrameId]
+          : [],
+      ),
+    );
 
-    const domIndex = domIndexByStableId.get(stableId);
-    if (domIndex === undefined) continue;
+    if (cdpFrameIds.size !== 1) {
+      warnings.push(
+        "同一 web frame 对应多个 CDP frame identity，拒绝 linking: " +
+          frameId,
+      );
+      continue;
+    }
 
-    const domCandidate = domElements[domIndex]!;
-    const mergeKey = backendMergeKey(axCandidate.identity);
+    const cdpFrameId = [...cdpFrameIds][0]!;
+    const stableIds = await input.resolver.stableIdsForBackendNodes({
+      tabId: input.tabId,
+      cdpFrameId,
+      frameEpoch,
+      backendNodeIds: frameCandidates.flatMap((candidate) =>
+        candidate.identity.source === "ax"
+          ? [candidate.identity.backendNodeId]
+          : [],
+      ),
+    });
 
-    domElements[domIndex] = {
-      ...domCandidate,
-      mergeKey,
-    };
-    axElements[axIndex] = {
-      ...axCandidate,
-      mergeKey,
-    };
-    linkedCount += 1;
+    const domIndexByStableId = new Map<string, number>();
+
+    domElements.forEach((candidate, index) => {
+      if (
+        candidate.frameId !== frameId ||
+        candidate.identity.source !== "dom" ||
+        candidate.identity.frameEpoch !== frameEpoch
+      ) {
+        return;
+      }
+      domIndexByStableId.set(
+        candidate.identity.stableId,
+        index,
+      );
+    });
+
+    for (let axIndex = 0; axIndex < axElements.length; axIndex += 1) {
+      const axCandidate = axElements[axIndex]!;
+      if (
+        axCandidate.frameId !== frameId ||
+        axCandidate.identity.source !== "ax" ||
+        axCandidate.identity.cdpFrameId !== cdpFrameId
+      ) {
+        continue;
+      }
+
+      const stableId = stableIds.get(
+        axCandidate.identity.backendNodeId,
+      );
+      if (!stableId) continue;
+
+      const domIndex = domIndexByStableId.get(stableId);
+      if (domIndex === undefined) continue;
+
+      const domCandidate = domElements[domIndex]!;
+      const mergeKey = backendMergeKey(axCandidate.identity);
+
+      domElements[domIndex] = {
+        ...domCandidate,
+        mergeKey,
+      };
+      axElements[axIndex] = {
+        ...axCandidate,
+        mergeKey,
+      };
+      linkedCount += 1;
+    }
   }
 
   if (axCandidates.length > maxLinks) {
@@ -323,6 +393,30 @@ export async function linkMainFrameDomAx(
     linkedCount,
     warnings,
   };
+}
+
+export interface LinkMainFrameDomAxInput {
+  tabId: number;
+  mainFrameId: string;
+  dom: CollectedDomSource;
+  ax: CollectedAxSource;
+  resolver: DomAxIdentityResolver;
+  maxLinks?: number;
+}
+
+export async function linkMainFrameDomAx(
+  input: LinkMainFrameDomAxInput,
+): Promise<LinkedDomAxSources> {
+  return linkDomAxFrames({
+    tabId: input.tabId,
+    dom: input.dom,
+    ax: input.ax,
+    resolver: input.resolver,
+    frameIds: [input.mainFrameId],
+    ...(input.maxLinks !== undefined
+      ? { maxLinks: input.maxLinks }
+      : {}),
+  });
 }
 
 export type HybridSourcePair = {

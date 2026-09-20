@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1 已合并；PR #2 正在收口 **Hybrid Perception + Strict Execution + Trusted Control Plane**。
+PR #1、PR #2 已合并；PR #3 正在完成 **Child-frame Exact Mapping + Hybrid Perception**。
 
 已经完成：
 
@@ -47,14 +47,17 @@ main document reload
 → document epoch 变化 / refs 失效
 ```
 
-下一阶段将进入：
+当前已完成：
 
 ```text
-AX Perception
-→ DOM ↔ AX 强身份关联
-→ Hybrid BrowserState
-→ Stored Observation Strict Executor
+DOM Perception
+→ main-frame Hybrid
+→ Strict Click closed loop
+→ child-frame exact CDP mapping
+→ child-frame Hybrid Perception
 ```
+
+child-frame 目前只开放 Perception/Identity；真实点击仍保持 fail closed，等待 top-level coordinate projection 与 projected hit-test。
 
 ## 核心原则
 
@@ -85,3 +88,5 @@ pnpm e2e
 - [PR #1 最终审查](./docs/PR1-FINAL-REVIEW.md)
 - [安全模型](./docs/SECURITY.md)
 - [PR #2 最终审查](./docs/PR2-FINAL-REVIEW.md)
+- [Child-frame Exact Mapping](./docs/CHILD-FRAME.md)
+- [PR #3 最终审查](./docs/PR3-FINAL-REVIEW.md)
