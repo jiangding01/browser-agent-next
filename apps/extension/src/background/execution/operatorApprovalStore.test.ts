@@ -67,9 +67,7 @@ function setup() {
               now + input.ttlMs,
             origin:
               "https://fixture.test",
-            assurance:
-              "operator-approved"
-              as const,
+            assurance: "operator-approved" as const,
           };
         },
       } as never,
