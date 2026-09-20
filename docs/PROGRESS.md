@@ -165,7 +165,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ PR #7 已同步 PR #6 合并后的最新 main，冲突清零；
 - ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
 - ✅ 第一小步：Chrome debugger flat child-session transport；
-- 🚧 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
+- ✅ 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
+- 🚧 第三小步：Real Chromium OOPIF exact-mapping E2E；
 - ⏳ child-frame coordinate projection；
 - ⏳ child-frame Strict Click dispatch；
 - ⏳ navigation / detach / stale projection fail-closed；
@@ -225,3 +226,22 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - backendDOMNodeId → stableId linking 使用同一 exact child session；
 - lifecycle binding 同时保留 frameEpoch / cdpFrameId / cdpSessionId / documentEpoch；
 - root-session 原有行为保持兼容。
+
+
+### PR #7 第三小步：Real Chromium OOPIF E2E
+
+新增跨站 fixture：
+
+```text
+main:  http://127.0.0.1:4173/oopif-main.html
+child: http://localhost:4173/oopif-child.html
+Chromium: --site-per-process
+```
+
+E2E 要求：
+
+- OOPIF child 元素最终具备 DOM + AX provenance；
+- actionable coverage 必须达到 complete；
+- OOPIF reload 后 child Persistent Ref 必须变化；
+- main frame Persistent Ref 必须保持；
+- 测试允许首次 attach/auto-attach 的短暂 partial observation，通过 bounded retry 等待 exact child session 建立。

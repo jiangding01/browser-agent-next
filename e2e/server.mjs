@@ -18,6 +18,24 @@ const pages = new Map([
     <button id="child-action">Child Action</button>
   </body>
 </html>`],
+  ["/oopif-main.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>OOPIF Main Fixture</title></head>
+  <body>
+    <button id="oopif-main-action">OOPIF Main</button>
+    <iframe
+      id="oopif-child-frame"
+      src="http://localhost:4173/oopif-child.html"
+    ></iframe>
+  </body>
+</html>`],
+  ["/oopif-child.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>OOPIF Child Fixture</title></head>
+  <body>
+    <button id="oopif-child-action">OOPIF Child Action</button>
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {
