@@ -17,6 +17,10 @@ jobs:
         with:
           node-version: "20.19.0"
       - run: pnpm install --no-frozen-lockfile
+      - name: 导出 lockfile 差异
+        run: |
+          git diff -- pnpm-lock.yaml | gzip -9 | base64 -w0
+          echo
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
