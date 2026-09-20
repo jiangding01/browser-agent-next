@@ -1588,3 +1588,479 @@ test(
   },
 );
 
+test(
+  "真实 Chromium 中滚动后的 affine transform OOPIF 可点击，而 perspective OOPIF 在 dispatch 前 fail closed",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+
+    const extensionPath = path.resolve(
+      "apps/extension/dist",
+    );
+    const home = mkdtempSync(
+      path.join(
+        tmpdir(),
+        "browser-agent-next-oopif-transform-e2e-home-",
+      ),
+    );
+    const rpcPort = await freePort();
+    const env = browserEnv(home, rpcPort);
+
+    let discovery:
+      | BrowserContext
+      | undefined;
+    let context:
+      | BrowserContext
+      | undefined;
+
+    try {
+      discovery =
+        await chromium.launchPersistentContext(
+          path.join(home, "profile-discovery"),
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      const extensionId =
+        await extensionIdOf(discovery);
+
+      await discovery.close();
+      discovery = undefined;
+
+      const executeProfile =
+        path.join(
+          home,
+          "profile-execute",
+        );
+
+      writeNativeHostRegistration(
+        home,
+        executeProfile,
+        extensionId,
+      );
+
+      context =
+        await chromium.launchPersistentContext(
+          executeProfile,
+          {
+            channel: "chromium",
+            headless: true,
+            env,
+            args: [
+              "--site-per-process",
+              "--disable-extensions-except=" +
+                extensionPath,
+              "--load-extension=" +
+                extensionPath,
+            ],
+          },
+        );
+
+      expect(
+        await extensionIdOf(context),
+      ).toBe(extensionId);
+
+      const token =
+        await waitForTrustedHost(
+          rpcPort,
+          path.join(
+            home,
+            ".browser-agent-next/trusted-rpc.token",
+          ),
+        );
+
+      const harness =
+        await context.newPage();
+      await harness.goto(
+        "chrome-extension://" +
+          extensionId +
+          "/e2e-harness.html",
+      );
+
+      const transformUrl =
+        fixtureOrigin +
+        "/oopif-transform-main.html";
+      const createdPage =
+        context.waitForEvent("page");
+
+      const openResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.open",
+            requestId:
+              "browser-open-oopif-transform",
+            url: transformUrl,
+            active: false,
+          },
+        );
+
+      expect(openResponse)
+        .toMatchObject({
+          ok: true,
+          result: {
+            requestedUrl:
+              transformUrl,
+            ownedBySession: true,
+          },
+        });
+
+      const target =
+        await createdPage;
+      await target.waitForLoadState(
+        "load",
+      );
+
+      const tabId =
+        openResponse.result.tabId;
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId:
+              "policy-oopif-transform",
+            origins: [
+              fixtureOrigin,
+            ],
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      await target.evaluate(() => {
+        document
+          .querySelector(
+            "#oopif-transform-frame",
+          )
+          ?.scrollIntoView({
+            block: "center",
+            inline: "center",
+          });
+      });
+
+      await harness.waitForTimeout(
+        100,
+      );
+
+      async function observeAction():
+        Promise<any> {
+        let last: any;
+
+        for (
+          let attempt = 0;
+          attempt < 40;
+          attempt += 1
+        ) {
+          const response =
+            await trustedRequest(
+              rpcPort,
+              token,
+              {
+                type:
+                  "browser.observe",
+                requestId:
+                  "browser-observe-oopif-transform-" +
+                  attempt,
+                tabId,
+                options: {
+                  profile: "hybrid",
+                },
+              },
+            );
+
+          if (response.ok) {
+            last =
+              response.result;
+            const child =
+              last.elements.find(
+                (element: any) =>
+                  element.semantic
+                    .name ===
+                  "Transformed OOPIF Action",
+              );
+
+            if (
+              last.coverage
+                .actionable.status ===
+                "complete" &&
+              child?.provenance?.dom ===
+                true &&
+              child.provenance.ax ===
+                true
+            ) {
+              return last;
+            }
+          }
+
+          await harness.waitForTimeout(
+            100,
+          );
+        }
+
+        throw new Error(
+          "transformed OOPIF observation did not stabilize: " +
+            JSON.stringify(
+              last?.coverage,
+            ),
+        );
+      }
+
+      const affineObservation =
+        await observeAction();
+      const affineChild =
+        affineObservation
+          .elements.find(
+            (element: any) =>
+              element.semantic
+                .name ===
+              "Transformed OOPIF Action",
+          );
+
+      if (!affineChild) {
+        throw new Error(
+          "transformed OOPIF child ref unavailable",
+        );
+      }
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-oopif-affine",
+            authorizationId:
+              "auth-oopif-affine",
+            tabId,
+            observedRevision:
+              affineObservation
+                .revision.id,
+            ref: affineChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      const affineAct =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-oopif-affine",
+            tabId,
+            action: {
+              actionId:
+                "action-oopif-affine",
+              kind: "click",
+              authorizationId:
+                "auth-oopif-affine",
+              observedRevision:
+                affineObservation
+                  .revision.id,
+              ref: affineChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type:
+                  "text_present",
+                text:
+                  "Transformed OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs:
+              3_000,
+          },
+        );
+
+      expect(affineAct)
+        .toMatchObject({
+          ok: true,
+          result: {
+            execution: {
+              status:
+                "executed",
+            },
+            verification: {
+              verified: true,
+              conclusive: true,
+            },
+          },
+        });
+
+      const childFrame =
+        target.frames().find(
+          (frame) =>
+            frame.url().startsWith(
+              "http://localhost:4173/oopif-transform-child.html",
+            ),
+        );
+
+      if (!childFrame) {
+        throw new Error(
+          "transformed cross-site OOPIF frame missing",
+        );
+      }
+
+      await expect(
+        childFrame.locator(
+          "#oopif-transform-action",
+        ),
+      ).toHaveText(
+        "Transformed OOPIF Clicked",
+      );
+
+      await target.evaluate(() => {
+        const frame =
+          document.querySelector(
+            "#oopif-transform-frame",
+          );
+        if (
+          !(frame instanceof
+            HTMLIFrameElement)
+        ) {
+          throw new Error(
+            "transform frame missing",
+          );
+        }
+
+        frame.style.transform =
+          "perspective(500px) rotateY(28deg)";
+      });
+
+      await childFrame.goto(
+        "http://localhost:4173/oopif-transform-child.html?perspective=1",
+      );
+      await harness.waitForTimeout(
+        100,
+      );
+
+      const perspectiveObservation =
+        await observeAction();
+      const perspectiveChild =
+        perspectiveObservation
+          .elements.find(
+            (element: any) =>
+              element.semantic
+                .name ===
+              "Transformed OOPIF Action",
+          );
+
+      if (!perspectiveChild) {
+        throw new Error(
+          "perspective OOPIF child ref unavailable",
+        );
+      }
+
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-oopif-perspective",
+            authorizationId:
+              "auth-oopif-perspective",
+            tabId,
+            observedRevision:
+              perspectiveObservation
+                .revision.id,
+            ref:
+              perspectiveChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+      });
+
+      const perspectiveAct =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.act",
+            requestId:
+              "browser-act-oopif-perspective",
+            tabId,
+            action: {
+              actionId:
+                "action-oopif-perspective",
+              kind: "click",
+              authorizationId:
+                "auth-oopif-perspective",
+              observedRevision:
+                perspectiveObservation
+                  .revision.id,
+              ref:
+                perspectiveChild.ref,
+            },
+            verification: {
+              mode: "all",
+              conditions: [{
+                type:
+                  "text_present",
+                text:
+                  "Transformed OOPIF Clicked",
+              }],
+            },
+            verifyTimeoutMs: 500,
+          },
+        );
+
+      expect(perspectiveAct)
+        .toMatchObject({
+          ok: false,
+          error: {
+            code:
+              "TARGET_IDENTITY_MISMATCH",
+          },
+        });
+
+      await expect(
+        childFrame.locator(
+          "#oopif-transform-action",
+        ),
+      ).toHaveText(
+        "Transformed OOPIF Action",
+      );
+
+      await expect(target)
+        .toHaveURL(transformUrl);
+    } finally {
+      await context?.close();
+      await discovery?.close();
+
+      rmSync(home, {
+        recursive: true,
+        force: true,
+      });
+    }
+  },
+);

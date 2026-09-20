@@ -29,7 +29,8 @@
   - [x] projection → Strict prepare integration
   - [x] dispatcher top-level coordinate-space guard
   - [x] Real Chromium child Strict Click dispatch E2E
-  - [ ] navigation/detach/projection fail-closed E2E — implemented, CI pending
+  - [x] navigation/detach/projection fail-closed E2E
+  - [ ] scroll + affine transform actuation / perspective fail-closed E2E — implemented, CI pending
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

@@ -172,8 +172,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ prepared target 显式约束为 top-level viewport coordinate space；
 - ✅ 第六小步：Real Chromium OOPIF child Strict Click actuation E2E；
 - ✅ child-frame Strict Click dispatch 已完成真实 Chromium 闭环；
-- 🚧 第七小步：child reload / iframe detach stale target fail-closed E2E 已实现，等待 CI；
-- 🚧 Real Chromium OOPIF / child-frame actuation E2E 收口中。
+- ✅ 第七小步：child reload / iframe detach stale target fail-closed E2E；
+- 🚧 第八小步：scroll + affine transform OOPIF 实际点击 / perspective fail-closed E2E 已实现，等待 CI；
+- 🚧 Real Chromium OOPIF / child-frame actuation 对抗式 E2E 收口中。
 
 ### PR #7 第一小步：flat child-session transport
 

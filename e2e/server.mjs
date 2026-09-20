@@ -47,6 +47,69 @@ const pages = new Map([
     </script>
   </body>
 </html>`],
+  ["/oopif-transform-main.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>OOPIF Transform Main Fixture</title>
+    <style>
+      html, body { margin: 0; min-height: 1800px; }
+      #before-transform-frame { height: 900px; }
+      #oopif-transform-frame {
+        display: block;
+        width: 360px;
+        height: 220px;
+        margin-left: 180px;
+        border: 10px solid #333;
+        transform-origin: 0 0;
+        transform: rotate(4deg) scale(0.92);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="before-transform-frame"></div>
+    <iframe
+      id="oopif-transform-frame"
+      src="http://localhost:4173/oopif-transform-child.html"
+    ></iframe>
+  </body>
+</html>`],
+  ["/oopif-transform-child.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>OOPIF Transform Child Fixture</title>
+    <style>
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      #oopif-transform-action {
+        width: 180px;
+        height: 64px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="oopif-transform-action">Transformed OOPIF Action</button>
+    <script>
+      document.querySelector("#oopif-transform-action")?.addEventListener(
+        "click",
+        (event) => {
+          const button = event.currentTarget;
+          if (!(button instanceof HTMLButtonElement)) return;
+          button.textContent = "Transformed OOPIF Clicked";
+          document.body.dataset.clicked = "true";
+        },
+      );
+    </script>
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {
