@@ -591,6 +591,18 @@ test(
         },
       });
 
+      // 真实验证 event-assisted wait：
+      // 使用一个稍后插入的 actionable button 触发 content MutationObserver，
+      // browser.wait 应被 signal 提前唤醒，然后重新 Observe + Verify。
+      await target.evaluate(() => {
+        setTimeout(() => {
+          const button = document.createElement("button");
+          button.id = "wait-ready";
+          button.textContent = "Wait Ready";
+          document.body.appendChild(button);
+        }, 150);
+      });
+
       const waitResponse =
         await trustedRequest(
           rpcPort,
@@ -599,13 +611,13 @@ test(
             type: "browser.wait",
             requestId: "browser-wait-1",
             tabId,
-            timeoutMs: 1_000,
-            pollIntervalMs: 100,
+            timeoutMs: 3_000,
+            pollIntervalMs: 1_000,
             verification: {
               mode: "all",
               conditions: [{
-                type: "ref_exists",
-                ref: save.ref,
+                type: "text_present",
+                text: "Wait Ready",
               }],
             },
           },
@@ -626,6 +638,10 @@ test(
           },
         },
       });
+
+      expect(
+        waitResponse.result.signalWakeups,
+      ).toBeGreaterThanOrEqual(1);
 
       const authResponse =
         await trustedRequest(

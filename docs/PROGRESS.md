@@ -22,7 +22,7 @@ browser.wait baseline                    ✅
 browser.act / Strict Click               ✅
 browser.extract                          ✅ retained projection
 Real Chromium High-level API E2E         ✅
-event-driven wait wake-up                🚧
+event-driven wait wake-up                ✅
 ```
 
 ## PR #4 当前完成内容
@@ -59,6 +59,7 @@ event-driven wait wake-up                🚧
 
 ## 下一步
 
-1. 增加真实 Chromium DOM mutation wake-up E2E；
-2. 对 High-level API / ownership / assurance 做最终对抗式 Review；
-3. 收口 PR #4。
+1. 真实 Chromium DOM mutation wake-up E2E 已加入；
+2. 等待最新 CI；
+3. 对 High-level API / ownership / assurance 做最终对抗式 Review；
+4. 收口 PR #4。
