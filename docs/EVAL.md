@@ -20,6 +20,7 @@ real Chromium MV3 E2E
 - same-looking replacement node 获得新 ref；
 - child document reload 只改变 child identity；
 - main document reload 改变 document epoch 和 refs。
+- Agent-owned OOPIF Strict Click 以 hybrid Observe 的 complete DOM + AX provenance 作为 readiness；child iframe 延迟导航时不得依赖 Playwright 的 page load 或 frame URL 出现。
 
 ## Failure attribution
 

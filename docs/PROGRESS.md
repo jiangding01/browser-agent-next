@@ -183,6 +183,12 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 相关 dispatcher / execution 测试、Real Chromium OOPIF / nested-frame 场景、遮挡 fail closed 与解除遮挡恢复均已验证；
 - 全量门禁已通过：typecheck、263 个测试、10/10 Chromium E2E、workspace build，以及旧实现回归红 / 新实现回归绿验证。
 
+### 本轮修复：Agent-owned OOPIF E2E readiness（已完成）
+
+- `browser.open` 的 `tabs.create` 结果只证明 tab 已创建，不能证明目标文档已提交；因此 E2E 不再把 Playwright `createdPage` / `load` 或 child frame URL 当作 OOPIF readiness；
+- OOPIF readiness 统一由 hybrid Observe 的 actionable complete、DOM + AX provenance 和 child ref 证明；Strict Click / Verify 成功后才读取 Playwright child frame 作最终 DOM 文本断言；
+- 专用 delayed-child fixture 在 2250ms 后才导航 child，固定覆盖旧版约 2 秒 frame 轮询会失败、Observe retry 能完成真实 dispatch 的 CI 慢路径。
+
 ### PR #7 第一小步：flat child-session transport
 
 本小步已实现：

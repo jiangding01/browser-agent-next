@@ -167,9 +167,15 @@ Stored Observation
 
 ## 当前未完成
 
-- operator-approved / enterprise-policy issuance ingress；
-- child-frame Strict Click；
-- OOPIF exact session mapping。
+- scoped authorization broker（Phase 6.6）；
+- model-facing `browser.act` policy 与 side-effect MCP integration tests（Phase 6.6）。
+
+以下能力已在 trusted control plane baseline 中完成，但仍不等于面向模型开放：
+
+- operator-approved / enterprise-policy issuance ingress（PR #6）；
+- OOPIF exact session mapping 与 child-frame Strict Click（PR #7）。
+
+当前 `browser.act` 仍只在 trusted control plane 内可用；在 Phase 6.6 的 scoped authorization broker 完成前，不进入 model-facing tool catalog。
 
 
 ## Transport 与 Model Boundary
@@ -183,21 +189,23 @@ Stored Observation
 ```text
 LLM / Agent
     ↓
-Future MCP Adapter
+Model-facing MCP Adapter（当前已交付五工具）
     ↓  model-egress policy / tool exposure policy
 browser.* runtime facade
     ↓
 Trusted Native Host / Extension
 ```
 
-未来真正面向模型的 MCP adapter 必须：
+当前面向模型的 MCP adapter 已交付以下边界：
 
 1. 只暴露允许模型直接调用的 `browser.*` 工具；
 2. 不暴露 `policy.replace-autoact-origins`；
 3. 不暴露 operator / enterprise authorization minting；
 4. 在 BrowserObservation 或 extract 内容进入模型前执行独立的 model-egress policy；
 5. model-egress allowlist 与 auto-act origin allowlist 保持两个独立策略面；
-6. 对 secret / credential / proprietary data 做独立的数据出境控制。
+6. read/navigation 使用 exact-origin allowlist，跨 frame 的结果先经过 model-visible projection，`includeValues` 默认关闭。
+
+按 secret、credential、proprietary data 等语义分类执行更细的数据出境控制仍属于后续工作；当前 baseline 的约束不能替代该能力。
 
 因此，当前 trusted RPC token 只证明 control-plane caller 身份，不能因为 `browser.*` 已经存在就宣称“任意 LLM 可以安全直接连接该端口”。
 
@@ -207,7 +215,7 @@ Trusted Native Host / Extension
 
 它**不等价于最终模型导航策略**。
 
-未来 MCP/model adapter 必须在调用 `browser.open` 前执行自己的 navigation / egress policy。不能拿 auto-act allowlist 代替这一层，因为：
+MCP/model adapter 已在调用 `browser.open` 前执行自己的 navigation policy；read / egress policy 则在 `browser.observe`、`browser.extract` 等结果返回模型前执行。不能拿 auto-act allowlist 代替这些策略，因为：
 
 ```text
 允许模型读取某个 origin

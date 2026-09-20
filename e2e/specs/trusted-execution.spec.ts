@@ -987,7 +987,7 @@ test(
 
       const oopifUrl =
         fixtureOrigin +
-        "/oopif-main.html";
+        "/oopif-delayed-child-main.html";
       const createdPage =
         context.waitForEvent("page");
 
@@ -1012,36 +1012,6 @@ test(
       });
 
       const target = await createdPage;
-      await target.waitForLoadState("load");
-
-      let oopif =
-        target.frames().find(
-          (frame) =>
-            frame.url().startsWith(
-              "http://localhost:4173/oopif-child.html",
-            ),
-        );
-
-      for (
-        let attempt = 0;
-        !oopif && attempt < 40;
-        attempt += 1
-      ) {
-        await target.waitForTimeout(50);
-        oopif =
-          target.frames().find(
-            (frame) =>
-              frame.url().startsWith(
-                "http://localhost:4173/oopif-child.html",
-              ),
-          );
-      }
-
-      if (!oopif) {
-        throw new Error(
-          "cross-site OOPIF frame missing after bounded wait",
-        );
-      }
 
       const tabId =
         openResponse.result.tabId;
@@ -1209,6 +1179,20 @@ test(
           },
         },
       });
+
+      const oopif = target.frames().find(
+        (frame) =>
+          frame.url().startsWith(
+            "http://localhost:4173/oopif-child.html",
+          ),
+      );
+
+      if (!oopif) {
+        throw new Error(
+          "OOPIF child frame missing after confirmed observe and act; frame URLs: " +
+            target.frames().map((frame) => frame.url()).join(", "),
+        );
+      }
 
       await expect(
         oopif.locator(
