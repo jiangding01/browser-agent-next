@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1、#2、#3、#4 已合并；PR #5 正在推进 **Model-facing Adapter Boundary**。
+PR #1、#2、#3、#4 已合并；PR #5 **Model-facing Adapter Boundary** 已完成实现与最终审查，等待合并。
 
 已经完成：
 
@@ -98,3 +98,5 @@ pnpm e2e
 - [High-level Browser API](./docs/HIGH-LEVEL-API.md)
 - [PR #4 最终审查](./docs/PR4-FINAL-REVIEW.md)
 - [Model-facing Adapter Boundary](./docs/MODEL-FACING-ADAPTER.md)
+
+- [PR #5 最终审查](./docs/PR5-FINAL-REVIEW.md)

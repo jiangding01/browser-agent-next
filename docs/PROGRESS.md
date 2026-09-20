@@ -15,7 +15,7 @@ PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
-PR #5 Model-facing Adapter Boundary      🚧 进行中
+PR #5 Model-facing Adapter Boundary      ✅ 实现完成，等待合并
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -28,7 +28,7 @@ MCP stdio transport                        ✅ server seam
 Model-facing Runtime client                ✅ open/observe only
 MCP executable CLI + operator config       ✅ fail-closed baseline
 MCP stdio wire integration                  ✅ legacy handshake + tools
-Safe browser.act authorization broker      ⏳
+PR #5 Final Adversarial Review              ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -110,12 +110,27 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 完成 PR #5 最终对抗式 Review 与文档收口；
-2. 更新依赖 lockfile 并确认最终 HEAD CI；
-3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 留待后续独立阶段。
+1. PR #5 已完成实现与最终对抗式 Review，等待合并；
+2. 下一阶段优先进入 operator-approved / enterprise-policy 独立签发 ingress；
+3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 作为后续独立安全阶段处理；
+4. OOPIF / child-frame actuation 与 Intelligence Layer 继续按 Roadmap 独立推进。
 
 ## 文档
 
 - `docs/MODEL-FACING-ADAPTER.md`：PR #5 模型信任边界与第一阶段设计；
 - `docs/INVARIANTS.md`：新增 model-visible revision / projected verification 等不变量；
 - `docs/ROADMAP.md`：Phase 6.5 按可验证子阶段推进。
+
+
+## PR #5 最终门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests ✅
+- Workspace build ✅
+- MCP stdio wire integration ✅
+- Real Chromium E2E ✅
+- MCP SDK v2 / serveStdio connection-pinned 语义核对 ✅
+- Model-facing / trusted control-plane 边界最终对抗式 Review ✅
+
+详见 `docs/PR5-FINAL-REVIEW.md`。

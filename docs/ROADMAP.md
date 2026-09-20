@@ -55,7 +55,13 @@
 - [x] minimal adapter → trusted Runtime client (browser.open / browser.observe only)
 - [x] operator config + executable MCP CLI (fail-closed defaults)
 - [x] MCP transport integration tests (real stdio pipe)
-- [ ] safe scoped authorization broker before exposing browser.act
+- [x] PR #5 final adversarial review + frozen-lockfile gate
+
+## Phase 6.6 — Model-facing side-effect authorization
+- [ ] safe scoped authorization broker
+- [ ] browser.act model-facing policy
+- [ ] operator-approved user confirmation integration
+- [ ] side-effect MCP integration tests
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router
