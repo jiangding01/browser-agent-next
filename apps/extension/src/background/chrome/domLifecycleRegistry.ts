@@ -16,6 +16,7 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
   private readonly frameEpochsByTab = new Map<number, Map<string, {
     frameEpoch: string;
     cdpFrameId?: string;
+    cdpSessionId?: string;
     documentEpoch?: string;
   }>>();
 
@@ -31,6 +32,7 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
     frameBindingsByFrame?: Readonly<Record<string, {
       frameEpoch: string;
       cdpFrameId: string;
+      cdpSessionId?: string;
       documentEpoch: string;
     }>>,
     documentEpochByFrame?: Readonly<Record<string, string>>,
@@ -51,6 +53,9 @@ export class DomLifecycleRegistry implements DomFrameLifecycleRecorder {
         ...(documentEpoch !== undefined ? { documentEpoch } : {}),
         ...(binding?.cdpFrameId !== undefined
           ? { cdpFrameId: binding.cdpFrameId }
+          : {}),
+        ...(binding?.cdpSessionId !== undefined
+          ? { cdpSessionId: binding.cdpSessionId }
           : {}),
       };
 

@@ -90,6 +90,7 @@ export class ChromeDomObservationService {
       | Readonly<Record<string, {
           frameEpoch: string;
           cdpFrameId: string;
+          cdpSessionId?: string;
           documentEpoch: string;
         }>>
       | undefined;
@@ -136,6 +137,9 @@ export class ChromeDomObservationService {
                   {
                     frameEpoch: mapping.frameEpoch,
                     cdpFrameId: mapping.cdpFrameId,
+                    ...(mapping.cdpSessionId !== undefined
+                      ? { cdpSessionId: mapping.cdpSessionId }
+                      : {}),
                     documentEpoch: mapping.documentEpoch,
                   },
                 ]),

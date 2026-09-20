@@ -73,6 +73,10 @@ function debuggerTransport() {
 
   return {
     async attach() {},
+    async waitForChildSessionInitialization() {},
+    childSessions() {
+      return [];
+    },
     contextsForFrame(_tabId: number, frameId: string) {
       const id = contextByFrame[frameId];
       return id === undefined

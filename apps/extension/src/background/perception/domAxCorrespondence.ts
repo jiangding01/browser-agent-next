@@ -24,6 +24,7 @@ interface DomResolveNodeResult {
 export interface BackendStableIdMapInput {
   tabId: number;
   cdpFrameId: string;
+  cdpSessionId?: string;
   frameEpoch: string;
   backendNodeIds: number[];
 }
@@ -38,6 +39,7 @@ export interface DomFrameEpochResolver {
   frameEpochForCdpFrame(input: {
     tabId: number;
     cdpFrameId: string;
+    cdpSessionId?: string;
   }): Promise<string | undefined>;
 }
 
@@ -58,16 +60,22 @@ export class IsolatedWorldDomIdentityResolver
   async frameEpochForCdpFrame(input: {
     tabId: number;
     cdpFrameId: string;
+    cdpSessionId?: string;
   }): Promise<string | undefined> {
     await this.transport.attach(input.tabId);
 
-    const contexts = this.transport
-      .contextsForFrame(input.tabId, input.cdpFrameId)
-      .filter((context) => context.auxData?.isDefault !== true);
+    const bindings = this.contextBindings(
+      input.tabId,
+      input.cdpFrameId,
+      input.cdpSessionId,
+    );
 
-    for (const context of contexts) {
-      const result = await this.transport.send<RuntimeCallResult>(
+    const epochs = new Set<string>();
+
+    for (const binding of bindings) {
+      const result = await this.sendForSession<RuntimeCallResult>(
         input.tabId,
+        binding.sessionId,
         "Runtime.evaluate",
         {
           expression:
@@ -76,7 +84,7 @@ export class IsolatedWorldDomIdentityResolver
             "]?.version === 1 ? globalThis[" +
             JSON.stringify(DOM_IDENTITY_BRIDGE_KEY) +
             "].frameEpoch : null",
-          contextId: context.id,
+          contextId: binding.context.id,
           returnByValue: true,
           silent: true,
         },
@@ -86,11 +94,13 @@ export class IsolatedWorldDomIdentityResolver
         !result.exceptionDetails &&
         typeof result.result.value === "string"
       ) {
-        return result.result.value;
+        epochs.add(result.result.value);
       }
     }
 
-    return undefined;
+    return epochs.size === 1
+      ? [...epochs][0]
+      : undefined;
   }
 
   async stableIdsForBackendNodes(
@@ -98,27 +108,35 @@ export class IsolatedWorldDomIdentityResolver
   ): Promise<Map<number, string>> {
     await this.transport.attach(input.tabId);
 
-    const contexts = this.transport
-      .contextsForFrame(input.tabId, input.cdpFrameId)
-      .filter((context) => context.auxData?.isDefault !== true);
+    const bindings = this.contextBindings(
+      input.tabId,
+      input.cdpFrameId,
+      input.cdpSessionId,
+    );
 
-    if (contexts.length === 0) {
+    if (bindings.length === 0) {
       return new Map();
     }
 
     const objectGroup = nextObjectGroup(input.tabId);
+    const matchingBridges: Array<{
+      objectId: string;
+      sessionId?: string;
+      contextId: number;
+    }> = [];
 
     try {
-      for (const context of contexts) {
-        const bridge = await this.transport.send<RuntimeCallResult>(
+      for (const binding of bindings) {
+        const bridge = await this.sendForSession<RuntimeCallResult>(
           input.tabId,
+          binding.sessionId,
           "Runtime.evaluate",
           {
             expression:
               "globalThis[" +
               JSON.stringify(DOM_IDENTITY_BRIDGE_KEY) +
               "] ?? null",
-            contextId: context.id,
+            contextId: binding.context.id,
             objectGroup,
             returnByValue: false,
             silent: true,
@@ -128,8 +146,9 @@ export class IsolatedWorldDomIdentityResolver
         const bridgeObjectId = bridge.result.objectId;
         if (!bridgeObjectId || bridge.exceptionDetails) continue;
 
-        const meta = await this.transport.send<RuntimeCallResult>(
+        const meta = await this.sendForSession<RuntimeCallResult>(
           input.tabId,
+          binding.sessionId,
           "Runtime.callFunctionOn",
           {
             objectId: bridgeObjectId,
@@ -146,39 +165,55 @@ export class IsolatedWorldDomIdentityResolver
           | undefined;
 
         if (
-          value?.version !== 1 ||
-          value.frameEpoch !== input.frameEpoch
+          value?.version === 1 &&
+          value.frameEpoch === input.frameEpoch
         ) {
+          matchingBridges.push({
+            objectId: bridgeObjectId,
+            contextId: binding.context.id,
+            ...(binding.sessionId !== undefined
+              ? { sessionId: binding.sessionId }
+              : {}),
+          });
+        }
+      }
+
+      // 一个 frameEpoch 在指定 CDP session/frame 中必须唯一。
+      if (matchingBridges.length !== 1) {
+        return new Map();
+      }
+
+      const bridge = matchingBridges[0]!;
+      const result = new Map<number, string>();
+
+      for (const backendNodeId of input.backendNodeIds) {
+        let resolved: DomResolveNodeResult;
+
+        try {
+          resolved = await this.sendForSession<DomResolveNodeResult>(
+            input.tabId,
+            bridge.sessionId,
+            "DOM.resolveNode",
+            {
+              backendNodeId,
+              executionContextId: bridge.contextId,
+              objectGroup,
+            },
+          );
+        } catch {
           continue;
         }
 
-        const result = new Map<number, string>();
+        const nodeObjectId = resolved.object.objectId;
+        if (!nodeObjectId) continue;
 
-        for (const backendNodeId of input.backendNodeIds) {
-          let resolved: DomResolveNodeResult;
-
-          try {
-            resolved = await this.transport.send<DomResolveNodeResult>(
-              input.tabId,
-              "DOM.resolveNode",
-              {
-                backendNodeId,
-                executionContextId: context.id,
-                objectGroup,
-              },
-            );
-          } catch {
-            continue;
-          }
-
-          const nodeObjectId = resolved.object.objectId;
-          if (!nodeObjectId) continue;
-
-          const stableIdResult = await this.transport.send<RuntimeCallResult>(
+        const stableIdResult =
+          await this.sendForSession<RuntimeCallResult>(
             input.tabId,
+            bridge.sessionId,
             "Runtime.callFunctionOn",
             {
-              objectId: bridgeObjectId,
+              objectId: bridge.objectId,
               functionDeclaration:
                 "function(element){return this.stableIdOf(element);}",
               arguments: [{ objectId: nodeObjectId }],
@@ -188,32 +223,81 @@ export class IsolatedWorldDomIdentityResolver
             },
           );
 
-          if (
-            !stableIdResult.exceptionDetails &&
-            typeof stableIdResult.result.value === "string"
-          ) {
-            result.set(
-              backendNodeId,
-              stableIdResult.result.value,
-            );
-          }
+        if (
+          !stableIdResult.exceptionDetails &&
+          typeof stableIdResult.result.value === "string"
+        ) {
+          result.set(
+            backendNodeId,
+            stableIdResult.result.value,
+          );
         }
-
-        return result;
       }
 
-      return new Map();
+      return result;
     } finally {
-      try {
-        await this.transport.send(
-          input.tabId,
-          "Runtime.releaseObjectGroup",
-          { objectGroup },
-        );
-      } catch {
-        // 只影响临时 remote object 回收，不改变 identity 结果。
+      const sessions = new Set(
+        bindings.map((binding) => binding.sessionId),
+      );
+
+      for (const sessionId of sessions) {
+        try {
+          await this.sendForSession(
+            input.tabId,
+            sessionId,
+            "Runtime.releaseObjectGroup",
+            { objectGroup },
+          );
+        } catch {
+          // 只影响临时 remote object 回收，不改变 identity 结果。
+        }
       }
     }
+  }
+
+  private contextBindings(
+    tabId: number,
+    cdpFrameId: string,
+    cdpSessionId?: string,
+  ): Array<{
+    context: {
+      id: number;
+      auxData?: {
+        isDefault?: boolean;
+      };
+    };
+    sessionId?: string;
+  }> {
+    if (cdpSessionId === undefined) {
+      return this.transport
+        .contextsForFrame(tabId, cdpFrameId)
+        .filter((context) => context.auxData?.isDefault !== true)
+        .map((context) => ({ context }));
+    }
+
+    return this.transport
+      .contextBindingsForFrame(tabId, cdpFrameId)
+      .filter(
+        (binding) =>
+          binding.sessionId === cdpSessionId &&
+          binding.context.auxData?.isDefault !== true,
+      );
+  }
+
+  private sendForSession<T>(
+    tabId: number,
+    sessionId: string | undefined,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<T> {
+    return sessionId === undefined
+      ? this.transport.send<T>(tabId, method, params)
+      : this.transport.sendInSession<T>(
+          tabId,
+          sessionId,
+          method,
+          params,
+        );
   }
 }
 
@@ -303,9 +387,15 @@ export async function linkDomAxFrames(
     }
 
     const cdpFrameId = [...cdpFrameIds][0]!;
+    const cdpSessionId =
+      input.ax.cdpSessionIdByFrame?.[frameId];
+
     const stableIds = await input.resolver.stableIdsForBackendNodes({
       tabId: input.tabId,
       cdpFrameId,
+      ...(cdpSessionId !== undefined
+        ? { cdpSessionId }
+        : {}),
       frameEpoch,
       backendNodeIds: frameCandidates.flatMap((candidate) =>
         candidate.identity.source === "ax"

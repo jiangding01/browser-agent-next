@@ -66,7 +66,13 @@ describe("collectMainAxSource", () => {
 });
 
 describe("collectMappedAxSource", () => {
-  it("按 exact frame mapping 采集 main + child AX，并保留 web frame identity", async () => {
+  it("按 exact frame/session mapping 采集 main + OOPIF AX", async () => {
+    const rootSent: string[] = [];
+    const childSent: Array<{
+      sessionId: string;
+      method: string;
+    }> = [];
+
     const result = await collectMappedAxSource({
       tabId: 7,
       mappings: [
@@ -79,32 +85,57 @@ describe("collectMappedAxSource", () => {
         {
           webFrameId: "web:2",
           cdpFrameId: "cdp-child",
+          cdpSessionId: "session-child",
           frameEpoch: "epoch-child",
           documentEpoch: "doc-child",
         },
       ],
       expectedFrameIds: ["web:0", "web:2"],
       transport: {
-        async send(_tabId: number, _method: string, params: { frameId?: string }) {
+        async send(
+          _tabId: number,
+          method: string,
+          params: { frameId?: string },
+        ) {
+          rootSent.push(method);
           return {
-            nodes: [
-              {
-                nodeId: "ax-" + params.frameId,
-                role: { value: "button" },
-                name: {
-                  value: params.frameId === "cdp-main"
-                    ? "Save"
-                    : "Child Action",
-                },
-                backendDOMNodeId:
-                  params.frameId === "cdp-main" ? 42 : 84,
-              },
-            ],
+            nodes: [{
+              nodeId: "ax-" + params.frameId,
+              role: { value: "button" },
+              name: { value: "Save" },
+              backendDOMNodeId: 42,
+            }],
+          };
+        },
+        async sendInSession(
+          _tabId: number,
+          sessionId: string,
+          method: string,
+          params: { frameId?: string },
+        ) {
+          childSent.push({ sessionId, method });
+          return {
+            nodes: [{
+              nodeId: "ax-" + params.frameId,
+              role: { value: "button" },
+              name: { value: "Child Action" },
+              backendDOMNodeId: 84,
+            }],
           };
         },
       } as never,
     });
 
+    expect(rootSent).toEqual([
+      "Accessibility.getFullAXTree",
+    ]);
+    expect(childSent).toEqual([{
+      sessionId: "session-child",
+      method: "Accessibility.getFullAXTree",
+    }]);
+    expect(result.cdpSessionIdByFrame).toEqual({
+      "web:2": "session-child",
+    });
     expect(result.coverage.actionable.status).toBe("complete");
     expect(result.elements).toEqual([
       expect.objectContaining({

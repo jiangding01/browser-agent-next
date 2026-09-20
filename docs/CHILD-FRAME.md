@@ -189,3 +189,35 @@ nested iframe session
 - 如果 flat auto-attach 不可用，现有 main-frame 功能继续工作，OOPIF 保持 unmapped / fail-closed。
 
 这一小步本身不会让 child-frame Strict Click 变为可执行。
+
+
+## OOPIF session-aware exact mapping
+
+在 flat-session transport 之上，PR #7 第二小步把 session provenance 纳入 exact mapping：
+
+```text
+web frame
+  ↓ frameEpoch exact equality
+CDP frame candidate
+  + root/child session provenance
+  ↓
+ExactFrameMapping {
+  webFrameId,
+  cdpFrameId,
+  cdpSessionId?,
+  frameEpoch,
+  documentEpoch
+}
+```
+
+OOPIF 的 AX 与 DOM identity resolution 必须使用 mapping 中同一个 `cdpSessionId`：
+
+```text
+Accessibility.getFullAXTree
+DOM.resolveNode
+Runtime.evaluate / callFunctionOn
+```
+
+不能因为已知 `cdpFrameId` 就把 child-session command 退回 root session。
+
+如果同一 `frameEpoch` 在多个 CDP session/frame 中都能被证明，映射视为歧义并 fail closed。

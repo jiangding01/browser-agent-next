@@ -164,8 +164,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 - ✅ PR #7 已同步 PR #6 合并后的最新 main，冲突清零；
 - ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
-- 🚧 第一小步：Chrome debugger flat child-session transport；
-- ⏳ OOPIF frameEpoch exact session mapping；
+- ✅ 第一小步：Chrome debugger flat child-session transport；
+- 🚧 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
 - ⏳ child-frame coordinate projection；
 - ⏳ child-frame Strict Click dispatch；
 - ⏳ navigation / detach / stale projection fail-closed；
@@ -186,10 +186,11 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 第一小步通过完整 CI 后，让 frameEpoch resolver 使用 exact child session；
-2. 将 OOPIF exact mapping 接入 Hybrid AX collection；
-3. 再设计 frame-owner exact identity 与坐标投影；
-4. model-facing `browser.act` 继续保持不可见，Phase 6.6 独立推进。
+1. 第二小步通过完整 CI 后补 Real Chromium OOPIF exact-mapping 场景；
+2. 固化 frame-owner exact identity；
+3. 设计 nested frame viewport → root viewport 坐标投影；
+4. 接入 child-frame Strict Click prepare/dispatch；
+5. model-facing `browser.act` 继续保持不可见，Phase 6.6 独立推进。
 
 ## 文档
 
@@ -211,3 +212,16 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 详见 `docs/PR5-FINAL-REVIEW.md`。
 - `docs/PR6-FINAL-REVIEW.md`：PR #6 最终对抗式审查与 merge gate。
+
+
+### PR #7 第二小步：session-aware exact mapping
+
+- `ExactFrameMapping` 新增可选 `cdpSessionId`；
+- root frame tree 与已登记 iframe child-session frame tree 组成 CDP candidate 集；
+- OOPIF mapping 仍只通过 `frameEpoch` exact equality，URL/顺序/名称不参与；
+- 同一 frameEpoch 跨多个 CDP session/frame 出现时 fail closed；
+- `Accessibility.getFullAXTree` 对 OOPIF 必须发送到 mapping 指定的 child session；
+- AX source 保存 `webFrameId → cdpSessionId` provenance；
+- backendDOMNodeId → stableId linking 使用同一 exact child session；
+- lifecycle binding 同时保留 frameEpoch / cdpFrameId / cdpSessionId / documentEpoch；
+- root-session 原有行为保持兼容。

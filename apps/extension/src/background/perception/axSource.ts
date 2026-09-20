@@ -71,6 +71,7 @@ const FIELD_ROLES = new Set([
 
 export interface CollectedAxSource extends PerceptionSourceResult {
   cdpFrameIdByFrame: Record<string, string>;
+  cdpSessionIdByFrame?: Record<string, string>;
   mainCdpFrameId?: string;
 }
 
@@ -272,13 +273,23 @@ export async function collectMappedAxSource(
   const settled = await Promise.all(
     input.mappings.map(async (mapping) => {
       try {
-        const result = await input.transport.send<{
-          nodes: AXNode[];
-        }>(
-          input.tabId,
-          "Accessibility.getFullAXTree",
-          { frameId: mapping.cdpFrameId },
-        );
+        const result =
+          mapping.cdpSessionId === undefined
+            ? await input.transport.send<{
+                nodes: AXNode[];
+              }>(
+                input.tabId,
+                "Accessibility.getFullAXTree",
+                { frameId: mapping.cdpFrameId },
+              )
+            : await input.transport.sendInSession<{
+                nodes: AXNode[];
+              }>(
+                input.tabId,
+                mapping.cdpSessionId,
+                "Accessibility.getFullAXTree",
+                { frameId: mapping.cdpFrameId },
+              );
 
         const actionable = result.nodes.filter((node) => {
           if (node.ignored || !node.backendDOMNodeId) return false;
@@ -336,11 +347,25 @@ export async function collectMappedAxSource(
     ]),
   );
 
+  const cdpSessionIdByFrame = Object.fromEntries(
+    successful.flatMap((entry) =>
+      entry.mapping.cdpSessionId !== undefined
+        ? [[
+            entry.mapping.webFrameId,
+            entry.mapping.cdpSessionId,
+          ]]
+        : [],
+    ),
+  ) as Record<string, string>;
+
   const mainCdpFrameId = cdpFrameIdByFrame["web:0"];
 
   return {
     source: "ax",
     cdpFrameIdByFrame,
+    ...(Object.keys(cdpSessionIdByFrame).length > 0
+      ? { cdpSessionIdByFrame }
+      : {}),
     ...(mainCdpFrameId !== undefined ? { mainCdpFrameId } : {}),
     coverage: {
       actionable: aggregateCoverage({
