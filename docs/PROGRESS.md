@@ -2,11 +2,9 @@
 
 最后更新：2026-09-20
 
-## 当前分支
+## 当前基线
 
-```text
-feat/authorization-assurance-ingress
-```
+PR #7 已合并；Strict Click 时序修复已完成并通过全量验收。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -17,7 +15,7 @@ PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
 PR #5 Model-facing Adapter Boundary      ✅ 已合并
 PR #6 Assurance Issuance Ingress         ✅ 已合并
-PR #7 OOPIF + Child-frame Actuation       ✅ 实现完成，等待最终合并
+PR #7 OOPIF + Child-frame Actuation       ✅ 已合并，Strict Click 时序修复已验证
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -66,7 +64,7 @@ PR #5 Final Adversarial Review              ✅
 - 未暴露 tool 在 adapter dispatch 前 fail closed；
 - MCP tool result 默认最多 256 KiB，最大配置 1 MiB；
 - BrowserRuntimeError 只返回 bounded code/message，不返回 details；未知异常统一为 INTERNAL_ERROR；
-- 当前已完成 transport/server seam，但可执行 CLI 还依赖下一步 trusted Runtime client。
+- transport/server seam 与可执行 CLI 已完成，并已通过 stdio wire integration 验证。
 
 ## Trusted Runtime client baseline
 
@@ -160,7 +158,7 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E ✅
 - Final Adversarial Review ✅
 
-## PR #7 当前进度
+## PR #7 当前进度（已合并，修复已验证）
 
 - ✅ PR #7 已同步 PR #6 合并后的最新 main，冲突清零；
 - ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
@@ -176,12 +174,18 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ 第八小步：scroll + affine transform OOPIF 实际点击 / perspective fail-closed Real Chromium E2E；
 - ✅ 第九小步：nested projection 每一层 parent iframe owner hit-test fail-closed；
 - ✅ 第十小步：detached child session late-event resurrection 防护；
-- 🚧 第十一小步：nested OOPIF 中间 owner overlay fail-closed / 解除遮挡后真实点击 E2E 已实现，等待 CI；
-- 🚧 Real Chromium OOPIF / child-frame actuation 最终对抗式 Review 收口中。
+- ✅ 第十一小步：nested OOPIF 中间 owner overlay fail-closed / 解除遮挡后真实点击 E2E；
+- ✅ Real Chromium OOPIF / child-frame actuation 最终对抗式 Review；Strict Click `mouseMoved` 时序修复已完成并通过全量验收。
+
+### 本轮修复：Strict Click `mouseMoved` 时序（已完成）
+
+- dispatcher 已移除会制造竞态的显式 `mouseMoved`，并保持 `mousePressed` / `mouseReleased` 的安全失败语义；press transport reject 保守映射为 `ACTION_OUTCOME_UNKNOWN`，禁止自动重试；
+- 相关 dispatcher / execution 测试、Real Chromium OOPIF / nested-frame 场景、遮挡 fail closed 与解除遮挡恢复均已验证；
+- 全量门禁已通过：typecheck、263 个测试、10/10 Chromium E2E、workspace build，以及旧实现回归红 / 新实现回归绿验证。
 
 ### PR #7 第一小步：flat child-session transport
 
-当前实现准备新增：
+本小步已实现：
 
 - root debugger attach 后尝试 `Target.setAutoAttach({ flatten: true })`；
 - 只登记 `targetInfo.type === "iframe"` 的 child session；
@@ -210,10 +214,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 合并 PR #7；
-2. 下一阶段进入 Phase 6.6 scoped authorization broker；
-3. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
-4. Phase 6.6 完成后再进入 Intelligence Layer。
+1. 进入 Phase 6.6 scoped authorization broker；
+2. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
+3. Phase 6.6 完成后再进入 Intelligence Layer。
 
 ## 文档
 
@@ -300,7 +303,7 @@ E2E 要求：
 - root 层额外用 `document.elementFromPoint()` 验证 projected point 仍命中最外层 frame owner；
 - 任一 document binding stale、session/isolated-world identity 缺失、owner/geometry/hit-test 失败都不返回 projected target。
 
-当前仍未将 projector 接入 Strict resolver 的成功分支，所以 child-frame actuation 尚未开放。
+projector 已接入 Strict resolver 的成功分支；child-frame actuation 已通过后续真实 Chromium E2E 闭环验证。
 
 
 ### PR #7 第五小步：projection → Strict prepare

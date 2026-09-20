@@ -38,7 +38,7 @@
 34. Trusted grant 默认 single-use 且有 TTL；navigation/tab removal 必须撤销相关 grant。
 35. Generic click 的业务副作用在无法由结构化 primitive 证明时必须保持 unknown；hard authorization 不能把 unknown 重新标记成 known。
 36. 真正 dispatch 前必须执行第二次 Strict Prepare；第一次 preflight 得到的 point 不能跨 policy/authorization 窗口复用。
-37. mousePressed 成功后任何 transport failure 都属于 ambiguous outcome；不得自动重放动作。
+37. mousePressed 请求发出后任何 transport failure 都属于 ambiguous outcome；不得自动重放动作。
 38. execute 后的 observation/verification 可以重试，但 non-idempotent action 本身不得因 Verify inconclusive 自动 retry。
 39. trusted authorization ingress 必须与普通 runtime message ingress 分离；普通页面或 Agent message 不得调用 grant issue / real dispatch。
 40. grant 签发后若 live node 被 same-looking replacement 替换，旧 revision/ref/grant 仍必须在 dispatch 前因 strong identity mismatch 被拒绝。

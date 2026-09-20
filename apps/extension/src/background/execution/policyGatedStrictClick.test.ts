@@ -198,4 +198,43 @@ describe("PolicyGatedStrictClickExecutor", () => {
       code: "ACTION_OUTCOME_UNKNOWN",
     } satisfies Partial<BrowserRuntimeError>);
   });
+
+  it("mousePressed transport failure 转换为 ACTION_OUTCOME_UNKNOWN，且不重放 click", async () => {
+    const dispatch = vi.fn(async () => {
+      throw new StrictClickDispatchError(
+        "debugger response lost after mouse press dispatch",
+        {
+          phase: "mouse-pressed",
+          outcomeMayHaveChanged: true,
+          cause: new Error("debugger detached"),
+        },
+      );
+    });
+
+    const executor = new PolicyGatedStrictClickExecutor(
+      {
+        async prepare() {
+          return prepared() as never;
+        },
+      } as never,
+      { dispatch } as never,
+      authorizedStore(),
+      { isAllowed: () => true },
+    );
+
+    await expect(executor.execute({
+      tabId: 7,
+      actionId: "a1",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      authorizationId: "grant-1",
+    })).rejects.toMatchObject({
+      code: "ACTION_OUTCOME_UNKNOWN",
+      details: {
+        phase: "mouse-pressed",
+      },
+    } satisfies Partial<BrowserRuntimeError>);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
 });

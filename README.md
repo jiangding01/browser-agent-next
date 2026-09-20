@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已完成主链路实现，进入最终收口。
+PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已合并，Strict Click 时序修复已完成并通过全量验收。
 
 已经完成：
 
@@ -40,7 +40,7 @@ PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已完成主链�
 - OOPIF flat child-session exact mapping；
 - child-frame session-aware Strict live revalidation；
 - child-frame → top-level viewport 坐标投影；
-- Real Chromium OOPIF / nested child-frame Strict Click 执行闭环。
+- Real Chromium OOPIF / nested child-frame Strict Click 执行闭环（含 `mouseMoved` 时序修复）。
 
 真实 Chromium 已验证：
 

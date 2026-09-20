@@ -60,7 +60,7 @@ Trusted grant 的存在只表示允许对该精确 target 尝试这个动作；�
 
 ## Ambiguous Outcome
 
-一旦 mousePressed 已成功，后续 transport error 必须视为 ACTION_OUTCOME_UNKNOWN。此时禁止自动 retry click，只允许重新 Observe → Verify → 由上层决定下一步。
+mousePressed 请求发出后发生的任何 transport error 都必须视为 ACTION_OUTCOME_UNKNOWN，因为浏览器可能已执行输入但响应丢失。此时禁止自动 retry click，只允许重新 Observe → Verify → 由上层决定下一步。
 
 ## Authorization Assurance
 

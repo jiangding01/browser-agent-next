@@ -773,7 +773,30 @@ test(
           );
         }
 
+        document.addEventListener("mousemove", () => {
+          const rect = button.getBoundingClientRect();
+          const overlay = document.createElement("div");
+          overlay.id = "strict-mousemove-overlay";
+          Object.assign(overlay.style, {
+            position: "fixed",
+            left: rect.left + "px",
+            top: rect.top + "px",
+            width: rect.width + "px",
+            height: rect.height + "px",
+            zIndex: "2147483647",
+          });
+          overlay.addEventListener("click", () => {
+            window.name = "strict-overlay-click";
+          });
+          document.body.append(overlay);
+        }, { once: true });
+
         button.addEventListener("click", () => {
+          window.name = document.querySelector(
+            "#strict-mousemove-overlay",
+          )
+            ? "strict-target-click-after-move"
+            : "strict-target-click-without-move";
           location.href = "/done.html";
         });
       });
@@ -849,6 +872,9 @@ test(
       await expect(target).toHaveURL(
         fixtureOrigin + "/done.html",
       );
+      expect(
+        await target.evaluate(() => window.name),
+      ).toBe("strict-target-click-without-move");
     } finally {
       await context?.close();
       await discovery?.close();
