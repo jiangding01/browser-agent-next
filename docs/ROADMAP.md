@@ -8,7 +8,7 @@
 - [x] DOM baseline — PR #1
 - [x] Main-frame Hybrid — PR #2
 - [x] Child-frame Hybrid — PR #3
-- [ ] OOPIF/session exact mapping
+- [ ] OOPIF/session exact mapping — PR #7 in progress
 
 ## Phase 2 — Persistent identity
 - [x] DOM lifecycle identity
@@ -23,7 +23,7 @@
 ## Phase 4 — Strict executor
 - [x] main-frame Strict Click closed loop
 - [x] child-frame target fail closed
-- [ ] child-frame coordinate projection / actuation
+- [ ] child-frame coordinate projection / actuation — PR #7 planned
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

@@ -161,3 +161,31 @@ PR #3 的 child-frame 支持是：
 ```
 
 这是有意的安全边界，不是功能遗漏。
+
+
+## PR #7：flat child-session transport baseline
+
+PR #7 第一小步先扩展 Chrome debugger transport，不立即放宽 child-frame actuation。
+
+Chrome 125+ 的 `chrome.debugger` flat sessions 可以在根 tab debugger 会话下通过 `sessionId` 精确寻址 OOPIF child target。当前 baseline 的目标是：
+
+```text
+root tab session
+  ↓ Target.setAutoAttach(flatten=true, iframe only)
+child iframe session
+  ↓ Runtime/Page/DOM/Accessibility enable
+  ↓ Target.setAutoAttach(flatten=true, iframe only)
+nested iframe session
+```
+
+安全约束：
+
+- registry 只接受 `targetInfo.type === "iframe"`；
+- child session identity 使用 opaque `sessionId`，不按 URL 猜 target；
+- Runtime execution context 记录所属 session；
+- root-only `contextsForFrame()` 暂时保持原语义，避免现有调用方误把 child context 发送到 root session；
+- 新增 session-aware context binding，后续 exact frame mapping 显式使用；
+- child detach 会递归删除 descendants 与对应 contexts；
+- 如果 flat auto-attach 不可用，现有 main-frame 功能继续工作，OOPIF 保持 unmapped / fail-closed。
+
+这一小步本身不会让 child-frame Strict Click 变为可执行。

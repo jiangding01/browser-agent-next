@@ -5,7 +5,7 @@
 ## 当前分支
 
 ```text
-feat/assurance-issuance-ingress
+feat/authorization-assurance-ingress
 ```
 
 ## 当前阶段
@@ -16,7 +16,8 @@ PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
 PR #5 Model-facing Adapter Boundary      ✅ 已合并
-PR #6 Assurance Issuance Ingress         ✅ 实现完成，等待合并
+PR #6 Assurance Issuance Ingress         ✅ 已合并
+PR #7 OOPIF + Child-frame Actuation       🚧 进行中
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -159,12 +160,36 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E ✅
 - Final Adversarial Review ✅
 
+## PR #7 当前进度
+
+- ✅ PR #7 已同步 PR #6 合并后的最新 main，冲突清零；
+- ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
+- 🚧 第一小步：Chrome debugger flat child-session transport；
+- ⏳ OOPIF frameEpoch exact session mapping；
+- ⏳ child-frame coordinate projection；
+- ⏳ child-frame Strict Click dispatch；
+- ⏳ navigation / detach / stale projection fail-closed；
+- ⏳ Real Chromium OOPIF / child-frame actuation E2E。
+
+### PR #7 第一小步：flat child-session transport
+
+当前实现准备新增：
+
+- root debugger attach 后尝试 `Target.setAutoAttach({ flatten: true })`；
+- 只登记 `targetInfo.type === "iframe"` 的 child session；
+- 记录 `sessionId / targetId / parentSessionId`；
+- 每个 child session 递归启用 iframe auto-attach，覆盖 nested OOPIF；
+- Runtime execution context 按 root / child session 分桶；
+- 提供 session-aware context binding，但现有 root-only resolver 暂不改变；
+- child target detach 递归清理 session/context；
+- flat sessions 不可用时保留现有 root 能力，OOPIF 继续 fail closed。
+
 ## 下一步
 
-1. 合并 PR #6；
-2. 下一阶段优先处理 OOPIF / child-frame coordinate projection / actuation；
-3. model-facing `browser.act` 仍保持不可见，Phase 6.6 scoped authorization broker 独立推进；
-4. 之后再进入 Intelligence Layer（deterministic router / Jev / shadow / fast path）。
+1. 第一小步通过完整 CI 后，让 frameEpoch resolver 使用 exact child session；
+2. 将 OOPIF exact mapping 接入 Hybrid AX collection；
+3. 再设计 frame-owner exact identity 与坐标投影；
+4. model-facing `browser.act` 继续保持不可见，Phase 6.6 独立推进。
 
 ## 文档
 

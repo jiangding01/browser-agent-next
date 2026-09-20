@@ -109,3 +109,7 @@
 99. Enterprise verification public key 只能来自管理员受管配置；control-plane/model/page 不能在 issuance request 中提供或替换 verification key。
 100. Enterprise assertion 必须 consume-once，且 replay state 必须跨 MV3 service-worker restart 持久化；replay persistence 不可用时必须 fail closed。未过期 replay marker 不得因容量限制被驱逐，ledger 满时必须拒绝新的 enterprise issuance。
 101. Enterprise grant TTL 不得超出 signed assertion 的剩余有效期；signature 验证通过后仍必须重新执行 retained observation / ref / origin / minimum assurance 校验。
+
+102. OOPIF child session 必须由 debugger flat-session 的 opaque sessionId/targetId 证明，禁止使用 URL、frame 顺序或名称推断 child target。
+103. Root-session execution context 与 child-session execution context 必须保持 session provenance；任何 child context 的 CDP command 不得退回 root session 发送。
+104. OOPIF auto-attach 不可用、child session 未登记或 session 已 detach 时必须保持 mapping/actuation fail closed，不能退化为 main-frame dispatch。
