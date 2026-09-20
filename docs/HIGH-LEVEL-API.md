@@ -107,7 +107,21 @@ Observe fresh state
 
 它不会执行任何 action，也不会因为条件没满足而重放动作。
 
-当前仍是有界 polling，真正的 event-driven mutation/navigation wake-up 留到后续优化。因此 Roadmap 中“event-driven wait”尚未完成。
+当前实现已经加入 event-assisted wake-up：
+
+```text
+DOM Mutation / Navigation
+        ↓
+change signal（无页面内容）
+        ↓
+提前唤醒 browser.wait
+        ↓
+Fresh Observe
+        ↓
+Verify
+```
+
+signal 只负责 pacing，不是 correctness proof。为避免 MV3 suspend、不可访问 frame 或事件遗漏造成永久等待，仍保留 bounded timeout fallback。
 
 ## browser.act
 
@@ -153,7 +167,6 @@ Stored Observation
 
 ## 当前未完成
 
-- event-driven wait；
 - operator-approved / enterprise-policy issuance ingress；
 - child-frame Strict Click；
 - OOPIF exact session mapping。

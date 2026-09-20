@@ -39,7 +39,7 @@
 - [x] browser.verify
 - [x] browser.wait bounded polling baseline
 - [x] browser.act → Strict Click
-- [ ] event-driven wait
+- [x] event-driven wait wake-up + bounded fallback
 - [x] browser.extract retained-observation projection
 - [x] Tab Ownership Registry
 

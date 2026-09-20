@@ -21,8 +21,8 @@ browser.verify                           ✅
 browser.wait baseline                    ✅
 browser.act / Strict Click               ✅
 browser.extract                          ✅ retained projection
-Real Chromium High-level API E2E         🚧 CI 验证中
-event-driven wait                        ⏭
+Real Chromium High-level API E2E         ✅
+event-driven wait wake-up                🚧
 ```
 
 ## PR #4 当前完成内容
@@ -49,9 +49,16 @@ event-driven wait                        ⏭
 
 `browser.act` 只支持 main-frame Strict Click；child-frame actuation 继续 fail closed。
 
+## 本轮继续实现
+
+- 新增 DOM mutation + navigation change signal；
+- signal 只包含 frameEpoch/sequence，不携带 DOM 文本、属性值或用户输入；
+- browser.wait 在 Observe 前记录 signal cursor，避免 observation 窗口丢事件；
+- signal 到达后只提前唤醒，仍必须重新 Observe + Verify；
+- 没有 signal 时保留 bounded timeout fallback，因此 signal 不是 correctness proof。
+
 ## 下一步
 
-1. 等待并处理最新 CI / Real Chromium E2E；
-2. 对 High-level API 做最终对抗式 Review；
-3. 对 browser.extract / ownership / assurance 做最终边界 Review；
-4. 收口后再通知合并。
+1. 增加真实 Chromium DOM mutation wake-up E2E；
+2. 对 High-level API / ownership / assurance 做最终对抗式 Review；
+3. 收口 PR #4。

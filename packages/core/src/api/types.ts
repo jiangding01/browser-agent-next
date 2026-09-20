@@ -80,6 +80,12 @@ export interface BrowserWaitResult {
   timedOut: boolean;
   observation?: BrowserObservation;
   lastObservationError?: string;
+
+  /**
+   * 由 DOM mutation / navigation 等浏览器事件提前唤醒的次数。
+   * 为 0 不表示没有变化，只表示本次 wait 没有依赖事件提前唤醒。
+   */
+  signalWakeups?: number;
 }
 
 export interface BrowserActInput {

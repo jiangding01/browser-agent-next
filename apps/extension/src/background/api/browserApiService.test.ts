@@ -242,6 +242,72 @@ describe("HighLevelBrowserApiService", () => {
     expect(result).toMatchObject({ timedOut: false, attempts: 2, verification: { verified: true } });
   });
 
+  it("browser.wait 有 signal source 时可被事件提前唤醒，但仍重新 Observe+Verify", async () => {
+    let now = 0;
+    let attempts = 0;
+    let version = 0;
+    let waitCalls = 0;
+
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {
+        async observe() {
+          attempts += 1;
+          return observation(
+            "rev-" + attempts,
+            attempts >= 2
+              ? "https://fixture.test/done"
+              : "https://fixture.test/",
+          );
+        },
+      } as never,
+      {} as never,
+      undefined,
+      undefined,
+      {
+        now: () => now,
+        sleep: async (ms: number) => {
+          now += ms;
+        },
+        defaultPollIntervalMs: 1_000,
+        changeSignals: {
+          version() {
+            return version;
+          },
+          async waitForChange() {
+            waitCalls += 1;
+            version += 1;
+            now += 10;
+            return true;
+          },
+        },
+      },
+    );
+
+    const result = await service.wait({
+      tabId: 7,
+      timeoutMs: 1_000,
+      pollIntervalMs: 1_000,
+      verification: {
+        mode: "all",
+        conditions: [{
+          type: "url_matches",
+          pattern: "https://fixture.test/done",
+        }],
+      },
+    });
+
+    expect(waitCalls).toBe(1);
+    expect(attempts).toBe(2);
+    expect(result).toMatchObject({
+      timedOut: false,
+      signalWakeups: 1,
+      verification: {
+        verified: true,
+      },
+    });
+  });
+
   it("browser.act 在 service 层也拒绝空 verification，且不会执行动作", async () => {
     let executeCount = 0;
     const service = new HighLevelBrowserApiService(
