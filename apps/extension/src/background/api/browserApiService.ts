@@ -128,6 +128,21 @@ function normalizedObserveOptions(
   };
 }
 
+function assertVerificationSpec(
+  spec: VerificationSpec,
+): void {
+  if (
+    !Array.isArray(spec.conditions) ||
+    spec.conditions.length < 1 ||
+    spec.conditions.length > 20
+  ) {
+    throw new BrowserRuntimeError(
+      "POLICY_BLOCKED",
+      "verification must contain between 1 and 20 conditions",
+    );
+  }
+}
+
 function boundedError(error: unknown): string {
   return (
     error instanceof Error ? error.message : "browser observation failed"
@@ -212,6 +227,8 @@ export class HighLevelBrowserApiService {
   }
 
   verify(input: BrowserVerifyInput): VerificationResult {
+    assertVerificationSpec(input.verification);
+
     const stored = this.states.get(
       input.tabId,
       input.observedRevision,
@@ -231,6 +248,9 @@ export class HighLevelBrowserApiService {
   }
 
   async wait(input: BrowserWaitInput): Promise<BrowserWaitResult> {
+    assertVerificationSpec(input.verification);
+    const observeOptions = normalizedObserveOptions(input.options);
+
     const requestedTimeout =
       input.timeoutMs ?? this.defaultWaitTimeoutMs;
     const timeoutMs = Math.max(
@@ -256,9 +276,7 @@ export class HighLevelBrowserApiService {
       try {
         const observation = await this.observe({
           tabId: input.tabId,
-          ...(input.options !== undefined
-            ? { options: input.options }
-            : {}),
+          options: observeOptions,
         });
         lastObservation = observation;
         lastObservationError = undefined;
@@ -309,6 +327,8 @@ export class HighLevelBrowserApiService {
   }
 
   async act(input: BrowserActInput) {
+    assertVerificationSpec(input.verification);
+
     if (input.action.kind !== "click") {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",

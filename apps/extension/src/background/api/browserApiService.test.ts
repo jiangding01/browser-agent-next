@@ -114,6 +114,37 @@ describe("HighLevelBrowserApiService", () => {
     expect(result).toMatchObject({ timedOut: false, attempts: 2, verification: { verified: true } });
   });
 
+  it("browser.act 在 service 层也拒绝空 verification，且不会执行动作", async () => {
+    let executeCount = 0;
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      {} as never,
+      {
+        async executeStrictClickAndVerify() {
+          executeCount += 1;
+          return {};
+        },
+      } as never,
+    );
+
+    await expect(service.act({
+      tabId: 7,
+      action: {
+        actionId: "a1",
+        kind: "click",
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        authorizationId: "auth",
+      },
+      verification: {
+        mode: "all",
+        conditions: [],
+      },
+    })).rejects.toThrow(/verification/);
+
+    expect(executeCount).toBe(0);
+  });
+
   it("browser.act 第一版只映射现有 strict click execute+verify", async () => {
     let forwarded: any;
     const service = new HighLevelBrowserApiService(
