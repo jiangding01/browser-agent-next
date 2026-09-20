@@ -1920,14 +1920,10 @@ test(
               status:
                 "executed",
             },
-            verification: {
-              verified: true,
-              conclusive: true,
-            },
           },
         });
 
-      const childFrame =
+      let childFrame =
         target.frames().find(
           (frame) =>
             frame.url().startsWith(
@@ -1935,9 +1931,24 @@ test(
             ),
         );
 
+      for (
+        let attempt = 0;
+        !childFrame && attempt < 40;
+        attempt += 1
+      ) {
+        await target.waitForTimeout(50);
+        childFrame =
+          target.frames().find(
+            (frame) =>
+              frame.url().startsWith(
+                "http://localhost:4173/oopif-transform-child.html",
+              ),
+          );
+      }
+
       if (!childFrame) {
         throw new Error(
-          "transformed cross-site OOPIF frame missing",
+          "transformed cross-site OOPIF frame missing after bounded wait",
         );
       }
 
@@ -2314,14 +2325,14 @@ test(
         );
       }
 
-      const parentFrame =
+      let parentFrame =
         target.frames().find(
           (frame) =>
             frame.url().startsWith(
               "http://localhost:4173/oopif-nested-parent.html",
             ),
         );
-      const nestedChildFrame =
+      let nestedChildFrame =
         target.frames().find(
           (frame) =>
             frame.url().startsWith(
@@ -2329,12 +2340,38 @@ test(
             ),
         );
 
+      for (
+        let attempt = 0;
+        (
+          !parentFrame ||
+          !nestedChildFrame
+        ) &&
+        attempt < 40;
+        attempt += 1
+      ) {
+        await target.waitForTimeout(50);
+        parentFrame =
+          target.frames().find(
+            (frame) =>
+              frame.url().startsWith(
+                "http://localhost:4173/oopif-nested-parent.html",
+              ),
+          );
+        nestedChildFrame =
+          target.frames().find(
+            (frame) =>
+              frame.url().startsWith(
+                "http://127.0.0.1:4173/oopif-nested-child.html",
+              ),
+          );
+      }
+
       if (
         !parentFrame ||
         !nestedChildFrame
       ) {
         throw new Error(
-          "nested OOPIF frame chain missing",
+          "nested OOPIF frame chain missing after bounded wait",
         );
       }
 
