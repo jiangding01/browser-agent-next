@@ -577,8 +577,8 @@ test(
             authorizationId: "auth-user-tab",
             tabId,
             observedRevision:
-              executableCurrent.revision.id,
-            ref: executableSave.ref,
+              current.revision.id,
+            ref: save.ref,
             ttlMs: 5_000,
           },
         );
@@ -621,8 +621,8 @@ test(
             authorizationId: "auth-1",
             tabId,
             observedRevision:
-              current.revision.id,
-            ref: save.ref,
+              executableCurrent.revision.id,
+            ref: executableSave.ref,
             ttlMs: 5_000,
           },
         );
