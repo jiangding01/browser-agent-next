@@ -25,7 +25,8 @@
 - [x] child-frame target fail closed
 - [ ] child-frame coordinate projection / actuation — PR #7 in progress
   - [x] session-aware child live identity revalidation
-  - [ ] top-level coordinate projection
+  - [x] top-level coordinate projection core
+  - [ ] projection → Strict prepare integration
   - [ ] child Strict Click dispatch
   - [ ] navigation/detach/projection fail-closed E2E
 

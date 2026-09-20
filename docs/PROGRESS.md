@@ -167,8 +167,9 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - ✅ 第一小步：Chrome debugger flat child-session transport；
 - ✅ 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
 - ✅ 第三小步：Strict resolver session-aware child live revalidation baseline；
-- 🚧 第四小步：child-frame coordinate projection；
-- ⏳ Real Chromium OOPIF exact-mapping / actuation E2E；
+- ✅ 第四小步：child-frame → top-level coordinate projection core；
+- 🚧 第五小步：将 projection 接入 Strict prepare / child dispatch；
+- ⏳ Real Chromium OOPIF actuation E2E；
 - ⏳ child-frame Strict Click dispatch；
 - ⏳ navigation / detach / stale projection fail-closed；
 - ⏳ Real Chromium OOPIF / child-frame actuation E2E。
@@ -261,3 +262,22 @@ E2E 要求：
 - backendDOMNodeId → stableId、DOM inspection、partial AX tree 都使用同一个 exact child session；
 - child live identity 即使全部通过，在 top-level coordinate projection 完成前仍返回 fail-closed，不生成 prepared dispatch target；
 - main-frame Strict Click 行为保持不变。
+
+
+### PR #7 第四小步：child-frame 顶层坐标投影核心
+
+新增独立 `ChildFrameCoordinateProjector`，暂不直接修改 dispatch：
+
+- 沿 retained observation 的 `parentFrameId` 从 target child 逐层走到 `web:0`；
+- 每层必须存在 lifecycle 保存的 exact `frameEpoch / cdpFrameId / cdpSessionId / documentEpoch`；
+- 每层实时从对应 exact isolated-world context 验证 `frameEpoch`，并读取 `innerWidth / innerHeight`；
+- frame owner 只通过父 CDP session 的 `DOM.getFrameOwner(childCdpFrameId)` 获取；
+- frame owner 几何只使用 `DOM.getBoxModel().model.content`；
+- 支持可证明的 2D affine content quad（平移 / 缩放 / 旋转 / skew）；
+- perspective / 非平行四边形 / 退化 quad 直接 fail closed；
+- child-local point 必须位于实时 child viewport 内；
+- 最终 projected point 必须位于实时 root viewport；
+- root 层额外用 `document.elementFromPoint()` 验证 projected point 仍命中最外层 frame owner；
+- 任一 document binding stale、session/isolated-world identity 缺失、owner/geometry/hit-test 失败都不返回 projected target。
+
+当前仍未将 projector 接入 Strict resolver 的成功分支，所以 child-frame actuation 尚未开放。

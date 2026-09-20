@@ -117,3 +117,8 @@
 102. Child-frame Strict live resolution 必须使用 observation 已证明的 exact frame binding；不得仅凭 web frameId、URL、frame 顺序或 cdpFrameId 猜测 child session。
 103. OOPIF child 的 backend-node linking、DOM inspection 与 AX revalidation 必须全部发送到同一个 exact cdpSessionId；任一步 session provenance 缺失或不一致都必须 fail closed。
 104. 在 top-level coordinate projection 与 root-level pre-dispatch validation 完成前，即使 child live identity 已全部匹配，也不得生成可 dispatch 的 Strict Click prepared target。
+
+105. Child-frame 坐标投影必须沿 retained frame parent chain 和 exact lifecycle CDP binding 逐层计算；URL、frame 顺序和几何相似度不能用于补齐 identity。
+106. 每一层投影必须先在 exact CDP session 的 isolated-world context 中重新证明 frameEpoch，并使用实时 child viewport 与父 session 的 frame-owner content quad。
+107. 只有可证明的 2D affine frame-owner content quad 可以参与自动投影；perspective、退化或不可解释 quad 必须 fail closed。
+108. 投影到 root 后必须重新验证 root viewport bounds，并通过 top-level hit-test 证明 projected point 仍命中最外层 frame owner；否则不得生成可执行 target。

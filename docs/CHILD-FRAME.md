@@ -258,3 +258,45 @@ coordinate projection unavailable
 - child session provenance 不可用；
 - backendDOMNodeId 不再解析为原 stableId；
 - live DOM/AX target 不再存在。
+
+
+## PR #7：child viewport → top-level viewport 投影核心
+
+投影不使用 URL、iframe 顺序或几何相似度做 identity。对每一层 parent/child：
+
+```text
+retained FrameState.parentFrameId
+  + exact lifecycle binding
+  + live isolated-world frameEpoch
+  ↓
+parent session: DOM.getFrameOwner(childCdpFrameId)
+  ↓
+parent session: DOM.getBoxModel(frameOwner)
+  ↓
+child live viewport → owner content quad affine projection
+  ↓
+repeat until web:0
+```
+
+### 支持范围
+
+当前只接受能证明为 2D affine 的 content quad：
+
+- translate
+- scale
+- rotate
+- skew
+
+如果四个 content-quad 顶点不能构成近似平行四边形，则视为 perspective / 3D 或不可安全解释的几何，直接拒绝。
+
+### root-level guard
+
+投影完成后还需要：
+
+1. projected point 位于实时 root viewport；
+2. 通过 root isolated-world context 将最外层 frame-owner backend node resolve 成 live element；
+3. `document.elementFromPoint(x, y)` 必须命中该 frame owner 或其后代。
+
+该 guard 用于阻止 overlay、布局漂移或 stale geometry 让投影点实际落到别的顶层元素。
+
+这一阶段只建立 projection core；在它接入 Strict prepare 并通过第二次 preflight / Real Chromium actuation E2E 之前，child click 仍保持不可 dispatch。
