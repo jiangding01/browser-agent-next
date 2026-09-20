@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { evaluateEffectPolicy, minimumAuthorizationAssurance } from "./effectPolicy.js";
 
 describe("minimumAuthorizationAssurance", () => {
-  it("unknown effect 保持 control-plane 基线", () => {
+  it("unknown effect 在 Agent-owned tab 保持 control-plane 基线", () => {
     expect(minimumAuthorizationAssurance("unknown", true)).toBe("control-plane");
+  });
+
+  it("unknown effect 在用户已有 tab 至少要求 operator-approved", () => {
+    expect(minimumAuthorizationAssurance("unknown", false)).toBe("operator-approved");
   });
   it("用户已有 tab 的 navigation 至少要求 operator-approved", () => {
     expect(minimumAuthorizationAssurance("navigation", false)).toBe("operator-approved");
@@ -40,11 +44,19 @@ describe("evaluateEffectPolicy", () => {
       tabOwnedBySession: true, originAllowed: true,
     }).verdict).toBe("escalate");
   });
-  it("unknown effect 的 control-plane grant 维持 Strict Click 基线", () => {
+  it("unknown effect 的 control-plane grant 只在 Agent-owned tab 维持 Strict Click 基线", () => {
     expect(evaluateEffectPolicy({
       effect: { class: "unknown", confidence: "unknown", evidence: [] },
       tabOwnedBySession: true, originAllowed: true, authorizationAssurance: "control-plane",
     }).verdict).toBe("allow");
+
+    expect(evaluateEffectPolicy({
+      effect: { class: "unknown", confidence: "unknown", evidence: [] },
+      tabOwnedBySession: false, originAllowed: true, authorizationAssurance: "control-plane",
+    })).toMatchObject({
+      verdict: "escalate",
+      requiredAssurance: "operator-approved",
+    });
   });
   it("disallowed origin 优先拒绝", () => {
     expect(evaluateEffectPolicy({

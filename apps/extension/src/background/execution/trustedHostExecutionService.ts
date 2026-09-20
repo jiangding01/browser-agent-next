@@ -5,6 +5,8 @@ import {
   type VerificationSpec,
 } from "@browser-agent-next/core";
 import {
+  authorizationAssuranceSatisfies,
+  minimumAuthorizationAssurance,
   type InMemoryAuthorizationStore,
   type MutableExactOriginAllowlist,
 } from "@browser-agent-next/policy";
@@ -157,6 +159,30 @@ export class TrustedHostExecutionService {
       throw new BrowserRuntimeError(
         "ORIGIN_NOT_ALLOWED",
         "cannot authorize strict click on an origin outside the auto-act allowlist",
+      );
+    }
+
+    const requiredAssurance =
+      minimumAuthorizationAssurance(
+        "unknown",
+        stored.observation.tab.ownedBySession,
+      );
+
+    if (
+      requiredAssurance !== undefined &&
+      !authorizationAssuranceSatisfies(
+        TRUSTED_HOST_ASSURANCE,
+        requiredAssurance,
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "trusted control-plane grant is insufficient for this tab; required assurance: " +
+          requiredAssurance,
+        {
+          requiredAssurance,
+          availableAssurance: TRUSTED_HOST_ASSURANCE,
+        },
       );
     }
 

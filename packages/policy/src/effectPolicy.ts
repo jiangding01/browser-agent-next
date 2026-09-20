@@ -38,7 +38,9 @@ export function minimumAuthorizationAssurance(
         : "operator-approved";
 
     case "unknown":
-      return "control-plane";
+      return tabOwnedBySession
+        ? "control-plane"
+        : "operator-approved";
 
     case "download":
     case "external-mutation":

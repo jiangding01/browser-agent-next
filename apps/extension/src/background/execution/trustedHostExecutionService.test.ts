@@ -90,6 +90,36 @@ describe("TrustedHostExecutionService", () => {
     });
   });
 
+  it("用户已有 tab 的 unknown click 不能由 control-plane grant 自行授权", () => {
+    const states = new TabStateStore();
+    states.put({
+      ...observation(),
+      tab: {
+        ...observation().tab,
+        ownedBySession: false,
+      },
+    });
+
+    const origins = new MutableExactOriginAllowlist();
+    origins.replace(["https://fixture.test"]);
+
+    const service = new TrustedHostExecutionService(
+      states,
+      new InMemoryAuthorizationStore(),
+      origins,
+      {} as never,
+      {} as never,
+    );
+
+    expect(() => service.issueStrictClickAuthorization({
+      authorizationId: "auth",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1_000,
+    })).toThrow(/required assurance: operator-approved/);
+  });
+
   it("未 allowlist 的 origin 无法被 trusted host grant 绕过", () => {
     const states = new TabStateStore();
     states.put(observation());
