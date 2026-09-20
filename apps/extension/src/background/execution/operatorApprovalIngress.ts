@@ -9,14 +9,12 @@ import type {
   OperatorApprovalStore,
 } from "./operatorApprovalStore.js";
 
-export interface
-OperatorApprovalMessageSender {
+export interface OperatorApprovalMessageSender {
   id?: string;
   url?: string;
 }
 
-export interface
-OperatorApprovalRuntimeApi {
+export interface OperatorApprovalRuntimeApi {
   id: string;
   getURL(path: string): string;
   onMessage: {
@@ -69,8 +67,7 @@ function errorResponse(
   };
 }
 
-export function
-registerOperatorApprovalUiIngress(
+export function registerOperatorApprovalUiIngress(
   runtime:
     OperatorApprovalRuntimeApi,
   approvals:
