@@ -116,3 +116,29 @@ issueEnterprisePolicyStrictClick()
 ```
 
 这样每条 ingress 只能调用对应的固定方法，不能从请求 JSON 或 transport payload 中选择/提升 assurance。
+
+
+### OperatorApprovalService
+
+operator-approved 入口的第二层是有界 pending approval 状态机：
+
+```text
+control-plane request
+    ↓
+OperatorApprovalService.requestStrictClickApproval()
+    ↓
+pending approval
+    ↓
+trusted UI approve / deny
+    ↓
+approve → issueOperatorApprovedStrictClick()
+```
+
+状态机约束：
+
+- 同一 authorizationId 同时最多存在一个 pending approval；
+- approval request 有独立 TTL；
+- approve/deny 只能决策一次；
+- tab navigation/removal 可取消 pending approval；
+- approve 时会重新调用共享 issuance core，因此 retained observation、ref、origin 与 minimum assurance 会再次校验；
+- pending UI view 只包含审批所需 tab/target 摘要，不包含字段 value 或其它敏感 observation 内容。

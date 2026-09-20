@@ -118,7 +118,11 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
   - `issueOperatorApprovedStrictClick()`
   - `issueEnterprisePolicyStrictClick()`
 - ✅ 现有 trusted-host 改为固定调用 control-plane 签发方法；
-- ⏳ trusted-ui operator-approved 独立 ingress；
+- ✅ OperatorApprovalService pending 状态机（request / approve / deny / expire / cancel）；
+- ✅ approve 固定调用 `issueOperatorApprovedStrictClick()`；
+- ✅ 同一 authorizationId 禁止并发 pending approval；
+- ✅ tab 生命周期变化可取消 pending approval；
+- ⏳ trusted-ui operator-approved transport / 审批页；
 - ⏳ enterprise-policy 独立 ingress；
 - ⏳ 两条 ingress 的生命周期 / replay / identity 约束；
 - ⏳ PR #6 对抗式 Review 与 Real Chromium 回归。
