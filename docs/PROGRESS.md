@@ -1,84 +1,54 @@
 # 实现进度
 
-最后更新：2026-09-19
+最后更新：2026-09-20
 
 ## 当前分支
 
 ```text
-feat/hybrid-perception-strict-executor
+feat/child-frame-exact-mapping
 ```
 
 ## 当前阶段
 
 ```text
-PR #1 Foundation + DOM Perception       ✅ 已合并
-Hybrid Perception                        ✅ main-frame exact correspondence
-Strict Prepare                           ✅ Real Chromium E2E
-Policy-gated Dispatch                    ✅
-Exact Origin Policy                      ✅
-Authorization Lifecycle Revocation       ✅
-Trusted Native Host Ingress              ✅
-Execute → Fresh Observe → Verify         ✅
-Adversarial Replacement Execution E2E    ✅ 新增
-PR #2 Final Invariants Review            ✅
+PR #1 Foundation + DOM Perception        ✅ 已合并
+PR #2 Hybrid + Strict Click              ✅ 已合并
+Child-frame Exact Mapping                🚧
+Child-frame Hybrid Perception            🚧
+Child-frame Strict Execution             ⏭ 后续独立阶段
+High-level Browser API                   ⏭
 ```
 
-## 本轮新增
+## 本轮开始实现
 
-- 强化真实 Chromium trusted-execution E2E；
-- 在 trusted grant 签发后，将目标替换成 role/name 完全相同的新 DOM node；
-- 使用旧 `observedRevision + ref + authorization` 执行时必须返回：
-  `TARGET_IDENTITY_MISMATCH`；
-- replacement 不得触发点击，也不得发生导航；
-- fresh observation 必须为 replacement 分配新 ref；
-- 只有针对新 revision/ref 重新签发授权后，Strict Click 才能真实 dispatch；
-- dispatch 后继续使用 fresh observation 独立 Verify URL。
+- 新增 webNavigation frame ↔ CDP Page.Frame exact correspondence；
+- 映射依据仅为 content isolated-world 的随机 `frameEpoch`；
+- 不使用 URL、frame 顺序、parent index 等弱信号；
+- AX collector 支持按 exact mapping 采集 main + child frame；
+- 任一 accessible frame 无法 exact mapping 时，AX coverage 明确降级为 partial；
+- DOM↔AX exact linking 从 main-frame-only 泛化为多 frame；
+- child-frame Strict Click 暂不开放，继续 fail closed。
 
-## 当前执行闭环
+## 当前安全边界
 
 ```text
-Trusted Host
-  ↓ exact-origin policy
-Issue one-time grant
-  ↓
-observedRevision + ref + click + unknown-effect
-  ↓
-Strict prepare
-  ↓
-consume exact-bound grant
-  ↓
-Strict prepare again
-  ↓
-CDP mouse dispatch
-  ↓
-fresh BrowserObservation
-  ↓
-deterministic Verification
+frameEpoch equality
+      ↓
+web frame ↔ CDP frame
+      ↓
+backendDOMNodeId
+      ↓
+stableId
+      ↓
+linked Persistent Ref
 ```
 
-任何 identity / document / semantic / actionability / hit-test 变化都会在 dispatch 前 fail closed。
-
-## 本轮安全加固
-
-- active authorization id 禁止被同名 grant 静默覆盖；
-- 过期 grant ID 可以重新使用；
-- trusted RPC token/state path 拒绝 symlink；
-- token file 校验当前用户 ownership；
-- Native Messaging 写失败立即返回失败，不再伪装成功等待 timeout。
+两个层级都必须 exact，对 URL/name/geometry 相似度零依赖。
 
 ## 下一步
 
-1. 对 PR #2 做最终 Invariants 对抗式 Review；
-2. 收口 PR #2 文档与安装说明；
-3. CI/E2E 全绿后判断是否可合并。
-
-## 合并状态
-
-PR #2 最终 Review 已完成；等待最新 HEAD CI/E2E 全绿后即可合并。
-
-## 信任边界修订
-
-- Native Host token 被明确定义为 control-plane authentication；
-- 它不自动等价于人工批准；
-- 如果 Coding Agent 本身拥有同 UID 任意文件读取 + localhost 网络权限，不能把 0600 token 当成对该 Agent 的 OS 级 hard boundary；
-- 高风险生产部署应使用 Agent 无法访问的 operator/enterprise authorization boundary。
+1. 把 multi-frame AX exact mapping 接入 Chrome observation service；
+2. 增加真实 Chromium child-frame Hybrid E2E；
+3. child reload 后验证旧 AX identity/ref 失效、新 identity 建立；
+4. 更新最终 coverage/invariants；
+5. 本 PR 先不扩展 child-frame click 坐标投影。

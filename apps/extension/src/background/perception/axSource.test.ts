@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collectMainAxSource } from "./axSource.js";
+import {
+  collectMainAxSource,
+  collectMappedAxSource,
+} from "./axSource.js";
 
 describe("collectMainAxSource", () => {
   it("把 backendDOMNodeId 作为 document-scoped AX strong identity", async () => {
@@ -60,43 +63,41 @@ describe("collectMainAxSource", () => {
       },
     });
   });
+});
 
-  it("不会把 ignored、无 backend node 或非交互 AX node 暴露为 actionable", async () => {
-    const result = await collectMainAxSource({
-      tabId: 1,
-      mainDocumentEpoch: "doc",
+describe("collectMappedAxSource", () => {
+  it("按 exact frame mapping 采集 main + child AX，并保留 web frame identity", async () => {
+    const result = await collectMappedAxSource({
+      tabId: 7,
+      mappings: [
+        {
+          webFrameId: "web:0",
+          cdpFrameId: "cdp-main",
+          frameEpoch: "epoch-main",
+          documentEpoch: "doc-main",
+        },
+        {
+          webFrameId: "web:2",
+          cdpFrameId: "cdp-child",
+          frameEpoch: "epoch-child",
+          documentEpoch: "doc-child",
+        },
+      ],
+      expectedFrameIds: ["web:0", "web:2"],
       transport: {
-        async send(_tabId: number, method: string) {
-          if (method === "Page.getFrameTree") {
-            return {
-              frameTree: {
-                frame: { id: "main", url: "https://example.test/" },
-              },
-            };
-          }
-
+        async send(_tabId: number, _method: string, params: { frameId?: string }) {
           return {
             nodes: [
               {
-                nodeId: "ignored",
-                ignored: true,
+                nodeId: "ax-" + params.frameId,
                 role: { value: "button" },
-                backendDOMNodeId: 1,
-              },
-              {
-                nodeId: "no-backend",
-                role: { value: "button" },
-              },
-              {
-                nodeId: "heading",
-                role: { value: "heading" },
-                backendDOMNodeId: 2,
-              },
-              {
-                nodeId: "field",
-                role: { value: "textbox" },
-                name: { value: "搜索" },
-                backendDOMNodeId: 3,
+                name: {
+                  value: params.frameId === "cdp-main"
+                    ? "Save"
+                    : "Child Action",
+                },
+                backendDOMNodeId:
+                  params.frameId === "cdp-main" ? 42 : 84,
               },
             ],
           };
@@ -104,51 +105,48 @@ describe("collectMainAxSource", () => {
       } as never,
     });
 
-    expect(result.elements).toHaveLength(1);
-    expect(result.elements[0]).toMatchObject({
-      kind: "field",
-      semantic: { role: "textbox", name: "搜索" },
-    });
+    expect(result.coverage.actionable.status).toBe("complete");
+    expect(result.elements).toEqual([
+      expect.objectContaining({
+        frameId: "web:0",
+        identity: expect.objectContaining({
+          cdpFrameId: "cdp-main",
+          documentEpoch: "doc-main",
+        }),
+      }),
+      expect.objectContaining({
+        frameId: "web:2",
+        identity: expect.objectContaining({
+          cdpFrameId: "cdp-child",
+          documentEpoch: "doc-child",
+        }),
+      }),
+    ]);
   });
 
-  it("达到 cap 时显式报告 truncated", async () => {
-    const result = await collectMainAxSource({
-      tabId: 1,
-      mainDocumentEpoch: "doc",
-      maxElements: 1,
+  it("任一 accessible frame 未建立 exact mapping 时 coverage=partial", async () => {
+    const result = await collectMappedAxSource({
+      tabId: 7,
+      mappings: [
+        {
+          webFrameId: "web:0",
+          cdpFrameId: "cdp-main",
+          frameEpoch: "epoch-main",
+          documentEpoch: "doc-main",
+        },
+      ],
+      expectedFrameIds: ["web:0", "web:2"],
       transport: {
-        async send(_tabId: number, method: string) {
-          if (method === "Page.getFrameTree") {
-            return {
-              frameTree: {
-                frame: { id: "main", url: "https://example.test/" },
-              },
-            };
-          }
-
-          return {
-            nodes: [
-              {
-                nodeId: "a",
-                role: { value: "button" },
-                backendDOMNodeId: 1,
-              },
-              {
-                nodeId: "b",
-                role: { value: "button" },
-                backendDOMNodeId: 2,
-              },
-            ],
-          };
+        async send() {
+          return { nodes: [] };
         },
       } as never,
     });
 
-    expect(result.coverage.actionable).toEqual({
-      status: "truncated",
-      returned: 1,
-      totalKnown: 2,
-      reason: "ax-output-cap",
+    expect(result.coverage.actionable).toMatchObject({
+      status: "partial",
+      reason: "one-or-more-frames-unmapped",
     });
+    expect(result.degradedFrames).toEqual(["web:2"]);
   });
 });
