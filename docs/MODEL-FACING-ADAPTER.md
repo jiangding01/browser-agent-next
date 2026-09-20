@@ -224,10 +224,34 @@ ModelFacingBrowserAdapter
 
 当前这一层只是 server/transport seam；真正可执行的本地 MCP 进程仍需要下一阶段的 model-facing Runtime client。
 
+## Trusted Runtime Client
+
+Model-facing adapter 到 trusted control plane 之间新增最小 `TrustedRuntimeHttpClient`：
+
+```text
+ModelFacingBrowserAdapter
+      ↓
+TrustedRuntimeHttpClient
+      ├─ browser.open
+      └─ browser.observe
+      ↓
+http://127.0.0.1:<port>/trusted
+      ↓
+Native Host
+      ↓
+Extension High-level Runtime
+```
+
+client 没有 public generic `callTrusted(type, payload)` API，因此 MCP 层无法借它调用 authorization issuance、policy mutation、execution internal RPC 或其它未来新增 trusted 方法。
+
+连接只允许显式 loopback host，并禁止 HTTP redirect，避免 trusted Bearer token 离开本机 trusted endpoint。token 默认从 native-host 已创建的 `~/.browser-agent-next/trusted-rpc.token` 只读获取；MCP 侧不会 mint token。
+
+响应必须满足 requestId 精确匹配、字节预算与最小结构验证。对于 `browser.open`，传输在请求发出后失败时无法证明 tab 是否已经创建，因此必须报告 `ACTION_OUTCOME_UNKNOWN`；`browser.observe` 没有副作用，同类失败使用 `STATE_INCOMPLETE`。
+
 ## 后续工作
 
 PR #5 接下来继续：
 
-1. 增加 model-facing adapter ↔ trusted Runtime client；
-2. 增加真实 stdio 子进程集成测试；
+1. 增加真实 stdio 子进程集成测试；
+2. 增加 MCP CLI 的受信配置入口；
 3. 设计 browser.act 的内部 scoped authorization broker，确认模型无法直接 mint grant 后再开放副作用工具。

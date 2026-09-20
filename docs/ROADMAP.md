@@ -52,7 +52,7 @@
 - [x] projected extract / verify / wait to prevent hidden-state side channels
 - [x] MCP tool schema/catalog
 - [x] MCP stdio transport/server implementation
-- [ ] minimal adapter → trusted Runtime client
+- [x] minimal adapter → trusted Runtime client (browser.open / browser.observe only)
 - [ ] MCP transport integration tests
 - [ ] safe scoped authorization broker before exposing browser.act
 

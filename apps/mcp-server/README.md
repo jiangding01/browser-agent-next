@@ -27,3 +27,14 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 - bounded tool result 与错误脱敏。
 
 当前还没有最终可执行 CLI，因为下一步需要实现只映射 `browser.open / browser.observe` 的 trusted Runtime client。
+
+第四阶段已增加最小 `TrustedRuntimeHttpClient`：
+
+- 只实现 `browser.open` / `browser.observe`；
+- 只允许 loopback endpoint，禁止 redirect；
+- 只读 native-host trusted token；
+- request/response 绑定 requestId；
+- bounded response body + observation 结构校验；
+- `browser.open` 的传输歧义按 `ACTION_OUTCOME_UNKNOWN` 处理。
+
+下一步是把这一 client 与 stdio server 通过受信配置入口组装成真正可执行的 MCP 进程，并增加子进程级集成测试。

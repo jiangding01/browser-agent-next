@@ -87,3 +87,10 @@
 81. MCP tool result 必须有显式字节数上限；超限结果 fail closed，不能无界写入模型上下文。
 82. MCP error 出境只能包含 bounded code/message；BrowserRuntimeError.details、stack 与未知异常原文不得返回模型。
 83. Stdio stdout 是 MCP protocol channel；实现不得向 stdout 写业务日志或调试文本。
+
+84. Model-facing trusted Runtime client 的公共能力只能是明确需要的高层 Runtime 方法；当前仅允许 browser.open / browser.observe，不得暴露 generic trusted RPC passthrough。
+85. Trusted Runtime HTTP client 只能连接显式 loopback endpoint，并且必须禁止 redirect；trusted Bearer token 不得因 URL/redirect/proxy-style 配置进入非 loopback 目标。
+86. MCP 侧只能读取 native-host 已存在的 trusted token，不能创建、轮换或修复 token；token 路径必须拒绝 symlink、错误 owner 和过宽权限。
+87. Trusted Runtime response 必须绑定精确 requestId，并受显式字节数与结构校验约束；不满足时不得进入 model-facing adapter。
+88. browser.open 在传输失败且无法证明是否已创建 Tab 时必须返回 ACTION_OUTCOME_UNKNOWN；上层不得自动重放 open。
+89. trusted-host 返回的未知 error code 不得直接升级为 RuntimeErrorCode；只有共享白名单中的 error code 才能保留语义。

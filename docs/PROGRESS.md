@@ -25,7 +25,7 @@ Cross-origin child-frame egress filtering ✅ baseline
 Projected extract / verify / wait         ✅ baseline
 MCP tool schema/catalog                    ✅
 MCP stdio transport                        ✅ server seam
-Model-facing Runtime client                ⏳
+Model-facing Runtime client                ✅ open/observe only
 Safe browser.act authorization broker      ⏳
 ```
 
@@ -64,6 +64,19 @@ Safe browser.act authorization broker      ⏳
 - BrowserRuntimeError 只返回 bounded code/message，不返回 details；未知异常统一为 INTERNAL_ERROR；
 - 当前已完成 transport/server seam，但可执行 CLI 还依赖下一步 trusted Runtime client。
 
+## Trusted Runtime client baseline
+
+- 新增 `TrustedRuntimeHttpClient`，公共 surface 只有 `open()` / `observe()`；
+- 不提供 generic trusted RPC type/payload passthrough；
+- endpoint 只能是显式 loopback（`127.0.0.1 / localhost / ::1`），HTTP redirect 直接禁止；
+- 默认只读 `~/.browser-agent-next/trusted-rpc.token`，MCP 进程不能创建或轮换 token；
+- token path 拒绝 symlink、非当前用户 owner 和过宽 POSIX 权限；
+- requestId 必须与 trusted response 精确匹配；
+- trusted response 有 2 MiB 默认字节上限（配置最大 4 MiB），并做结构校验；
+- `browser.open` 在未收到可信响应的传输失败上返回 `ACTION_OUTCOME_UNKNOWN`，禁止上层把它当成可安全重试；
+- `browser.observe` 同类失败返回 `STATE_INCOMPLETE`；
+- trusted host 的已知 Runtime error code 才允许保留语义，未知 code 不直接透传。
+
 ## 当前边界
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
@@ -74,8 +87,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 实现 MCP adapter → trusted Runtime 的最小 client，只映射允许的 Runtime 方法；
-2. 增加真实 stdio 子进程集成测试与失败路径测试；
+1. 增加真实 stdio 子进程集成测试与失败路径测试；
+2. 补齐 MCP CLI 的受信配置入口；
 3. 最后再设计 `browser.act` 的内部 scoped authorization broker。
 
 ## 文档
