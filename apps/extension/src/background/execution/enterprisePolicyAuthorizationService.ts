@@ -44,7 +44,7 @@ function policyError(
 
 function base64Bytes(
   value: string,
-): Uint8Array {
+): ArrayBuffer {
   let decoded: string;
 
   try {
@@ -69,12 +69,12 @@ function base64Bytes(
       decoded.charCodeAt(index);
   }
 
-  return bytes;
+  return bytes.buffer;
 }
 
 function base64UrlBytes(
   value: string,
-): Uint8Array {
+): ArrayBuffer {
   const normalized =
     value
       .replace(/-/g, "+")
