@@ -62,7 +62,7 @@ describe("InMemoryAuthorizationStore", () => {
     store.issue({
       id: "grant-1", tabId: 7, observedRevision: "rev-1", ref: "@e_1",
       actionKind: "click", effectClass: "unknown", assurance: "control-plane",
-      ttlMs: 5000, source: "trusted-ui",
+      ttlMs: 5000, source: "trusted-host",
     });
     expect(store.consume({
       id: "grant-1", tabId: 7, observedRevision: "rev-1", ref: "@e_1",

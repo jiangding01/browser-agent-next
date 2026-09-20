@@ -32,7 +32,8 @@ describe("registerObserveTabBackgroundListener", () => {
             title: "Fixture",
             url: "https://fixture.test/",
             origin: "https://fixture.test",
-            },
+            ownedBySession: false,
+          },
           revision: {
             id: "runtime:g1:t1",
             stateEpoch: "runtime",
@@ -95,7 +96,6 @@ describe("registerObserveTabBackgroundListener", () => {
           type: "perception.observe-tab",
           requestId: "req-1",
           tabId: 1,
-          ownedBySession: true,
         },
         { id: "extension-id" },
         sendResponse,

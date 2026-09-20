@@ -50,7 +50,7 @@ function authorizedStore(): InMemoryAuthorizationStore {
     effectClass: "unknown",
     assurance: "control-plane",
     ttlMs: 5000,
-    source: "trusted-ui",
+    source: "trusted-host",
   });
 
   return authorizations;
