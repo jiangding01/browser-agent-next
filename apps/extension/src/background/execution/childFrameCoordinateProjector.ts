@@ -363,11 +363,16 @@ export class ChildFrameCoordinateProjector
             },
           );
 
+        const ownerBackendNodeId =
+          owner.backendNodeId;
+
         if (
+          typeof ownerBackendNodeId !==
+            "number" ||
           !Number.isInteger(
-            owner.backendNodeId,
+            ownerBackendNodeId,
           ) ||
-          owner.backendNodeId! <= 0
+          ownerBackendNodeId <= 0
         ) {
           return {
             ok: false,
@@ -383,7 +388,7 @@ export class ChildFrameCoordinateProjector
             "DOM.getBoxModel",
             {
               backendNodeId:
-                owner.backendNodeId,
+                ownerBackendNodeId,
             },
           );
 
@@ -436,7 +441,7 @@ export class ChildFrameCoordinateProjector
             contextId:
               parentRuntime.contextId,
             backendNodeId:
-              owner.backendNodeId,
+              ownerBackendNodeId,
             point,
           });
 
@@ -450,7 +455,7 @@ export class ChildFrameCoordinateProjector
 
         if (parent.frameId === "web:0") {
           rootFrameOwnerBackendNodeId =
-            owner.backendNodeId;
+            ownerBackendNodeId;
         }
 
         current = parent;
