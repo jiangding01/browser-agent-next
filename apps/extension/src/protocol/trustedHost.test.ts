@@ -34,11 +34,26 @@ describe("isTrustedHostRequest", () => {
     })).toBe(false);
   });
 
-  it("接受 browser.verify / wait / act 的有界 schema", () => {
+  it("接受 browser.extract / verify / wait / act 的有界 schema", () => {
     const verification = {
       mode: "all",
       conditions: [{ type: "ref_exists", ref: "@e_1" }],
     };
+    expect(isTrustedHostRequest({
+      type: "browser.extract",
+      requestId: "x",
+      tabId: 7,
+      observedRevision: "rev-1",
+      refs: ["@e_1"],
+      maxItems: 10,
+    })).toBe(true);
+    expect(isTrustedHostRequest({
+      type: "browser.extract",
+      requestId: "x",
+      tabId: 7,
+      observedRevision: "rev-1",
+      refs: Array.from({ length: 101 }, (_, index) => "@e_" + index),
+    })).toBe(false);
     expect(isTrustedHostRequest({
       type: "browser.verify", requestId: "v", tabId: 7, observedRevision: "rev-1", verification,
     })).toBe(true);

@@ -40,7 +40,7 @@
 - [x] browser.wait bounded polling baseline
 - [x] browser.act → Strict Click
 - [ ] event-driven wait
-- [ ] browser.extract
+- [x] browser.extract retained-observation projection
 - [x] Tab Ownership Registry
 
 ## Phase 7 — Intelligence

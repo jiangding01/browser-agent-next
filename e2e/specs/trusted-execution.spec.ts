@@ -532,6 +532,36 @@ test(
         );
       }
 
+      const extractResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.extract",
+            requestId: "browser-extract-1",
+            tabId,
+            observedRevision:
+              current.revision.id,
+            refs: [save.ref],
+            maxItems: 10,
+          },
+        );
+
+      expect(extractResponse).toMatchObject({
+        ok: true,
+        result: {
+          revision: current.revision.id,
+          truncated: false,
+          totalMatched: 1,
+          items: [{
+            ref: save.ref,
+            semantic: {
+              name: "Save",
+            },
+          }],
+        },
+      });
+
       const verifyResponse =
         await trustedRequest(
           rpcPort,

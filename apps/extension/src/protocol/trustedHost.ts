@@ -48,6 +48,14 @@ export type TrustedHostRequest =
       options?: BrowserObserveOptions;
     }
   | {
+      type: "browser.extract";
+      requestId: string;
+      tabId: number;
+      observedRevision: string;
+      refs?: string[];
+      maxItems?: number;
+    }
+  | {
       type: "browser.verify";
       requestId: string;
       tabId: number;
@@ -239,6 +247,27 @@ export function isTrustedHostRequest(
       return tabId(request.tabId) &&
         (request.sinceRevision === undefined || nonEmptyString(request.sinceRevision)) &&
         isObserveOptions(request.options);
+
+    case "browser.extract":
+      return tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        (
+          request.refs === undefined ||
+          (
+            Array.isArray(request.refs) &&
+            request.refs.length > 0 &&
+            request.refs.length <= 100 &&
+            request.refs.every(
+              (ref) =>
+                nonEmptyString(ref) &&
+                ref.length <= 256,
+            )
+          )
+        ) &&
+        (
+          request.maxItems === undefined ||
+          boundedInteger(request.maxItems, 1, 100)
+        );
 
     case "browser.verify":
       return tabId(request.tabId) &&

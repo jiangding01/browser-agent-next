@@ -20,8 +20,8 @@ browser.observe                          ✅
 browser.verify                           ✅
 browser.wait baseline                    ✅
 browser.act / Strict Click               ✅
+browser.extract                          ✅ retained projection
 Real Chromium High-level API E2E         🚧 CI 验证中
-browser.extract                          ⏭
 event-driven wait                        ⏭
 ```
 
@@ -35,6 +35,7 @@ event-driven wait                        ⏭
 - Tab Ownership Registry 不提供 caller claim，未知 tab 与 MV3 restart 后均安全降级为 user-existing；
 - 高层 browser.observe 默认 Hybrid；
 - 高层 API 不接受 caller supplied ownedBySession，ownership 只来自 browser.open；
+- browser.extract 只投影指定 retained revision，refs/maxItems 有界且显式返回 missing/truncated；
 - browser.verify 只验证指定 retained revision；
 - browser.wait 只重复 fresh observation + verification，不执行动作；
 - browser.act 第一版只接 Strict Click；
@@ -52,5 +53,5 @@ event-driven wait                        ⏭
 
 1. 等待并处理最新 CI / Real Chromium E2E；
 2. 对 High-level API 做最终对抗式 Review；
-3. 决定 PR #4 是否同时加入 browser.extract，或拆到下一 PR；
+3. 对 browser.extract / ownership / assurance 做最终边界 Review；
 4. 收口后再通知合并。

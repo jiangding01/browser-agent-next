@@ -1,6 +1,8 @@
 import {
   BrowserRuntimeError,
   type BrowserActInput,
+  type BrowserExtractInput,
+  type BrowserExtractResult,
   type BrowserObservation,
   type BrowserOpenInput,
   type BrowserOpenResult,
@@ -288,6 +290,77 @@ export class HighLevelBrowserApiService {
           : {}),
       },
     });
+  }
+
+  extract(
+    input: BrowserExtractInput,
+  ): BrowserExtractResult {
+    const maxItems =
+      boundedPositiveInteger(
+        input.maxItems,
+        "maxItems",
+        100,
+      ) ?? 100;
+
+    if (
+      input.refs !== undefined &&
+      (
+        !Array.isArray(input.refs) ||
+        input.refs.length < 1 ||
+        input.refs.length > 100 ||
+        input.refs.some(
+          (ref) =>
+            typeof ref !== "string" ||
+            ref.length < 1 ||
+            ref.length > 256,
+        )
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "POLICY_BLOCKED",
+        "browser.extract refs must contain between 1 and 100 bounded refs",
+      );
+    }
+
+    const stored = this.states.get(
+      input.tabId,
+      input.observedRevision,
+    );
+
+    if (!stored) {
+      throw new BrowserRuntimeError(
+        "OBSERVATION_EXPIRED",
+        "browser.extract requires a retained observation",
+      );
+    }
+
+    const requested = input.refs
+      ? new Set(input.refs)
+      : undefined;
+
+    const matched = requested
+      ? stored.observation.elements.filter(
+          (element) => requested.has(element.ref),
+        )
+      : stored.observation.elements;
+
+    const foundRefs = new Set(
+      matched.map((element) => element.ref),
+    );
+
+    const missingRefs = input.refs
+      ? input.refs.filter((ref) => !foundRefs.has(ref))
+      : [];
+
+    return {
+      revision: stored.observation.revision.id,
+      items: matched.slice(0, maxItems),
+      missingRefs,
+      truncated: matched.length > maxItems,
+      totalMatched: matched.length,
+      actionableCoverage:
+        stored.observation.coverage.actionable.status,
+    };
   }
 
   verify(input: BrowserVerifyInput): VerificationResult {

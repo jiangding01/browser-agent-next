@@ -82,6 +82,18 @@ async function handleRequest(
         ...(request.sinceRevision !== undefined ? { sinceRevision: request.sinceRevision } : {}),
         ...(request.options !== undefined ? { options: request.options } : {}),
       });
+    case "browser.extract":
+      if (!browserApi) throw new Error("high-level browser API is unavailable");
+      return browserApi.extract({
+        tabId: request.tabId,
+        observedRevision: request.observedRevision,
+        ...(request.refs !== undefined
+          ? { refs: request.refs }
+          : {}),
+        ...(request.maxItems !== undefined
+          ? { maxItems: request.maxItems }
+          : {}),
+      });
     case "browser.verify":
       if (!browserApi) throw new Error("high-level browser API is unavailable");
       return browserApi.verify({

@@ -149,6 +149,46 @@ describe("HighLevelBrowserApiService", () => {
     })).rejects.toThrow(/pollIntervalMs/);
   });
 
+  it("browser.extract 只投影 retained observation，并显式报告截断与 missing refs", () => {
+    const states = new TabStateStore();
+    states.put(observation());
+    const service = new HighLevelBrowserApiService(
+      states,
+      {} as never,
+      {} as never,
+    );
+
+    expect(service.extract({
+      tabId: 7,
+      observedRevision: "rev-1",
+      refs: ["@e_1", "@missing"],
+      maxItems: 1,
+    })).toMatchObject({
+      revision: "rev-1",
+      items: [
+        {
+          ref: "@e_1",
+          semantic: {
+            name: "Save",
+          },
+        },
+      ],
+      missingRefs: ["@missing"],
+      truncated: false,
+      totalMatched: 1,
+      actionableCoverage: "complete",
+    });
+
+    expect(() => service.extract({
+      tabId: 7,
+      observedRevision: "rev-1",
+      refs: Array.from(
+        { length: 101 },
+        (_, index) => "@e_" + index,
+      ),
+    })).toThrow(/refs/);
+  });
+
   it("browser.verify 只验证指定 retained revision", () => {
     const states = new TabStateStore();
     states.put(observation());

@@ -65,3 +65,5 @@
 51. Agent-owned Tab 只能由 Runtime 真实创建动作 mint ownership；高层 API 不接受 caller supplied ownedBySession/claim，未知 Tab 与 MV3 restart 后均按 user-existing 处理。
 52. browser.open 只允许无 credentials 的绝对 http/https URL；javascript:/data:/file:/chrome: 等 scheme 必须 fail closed。
 \n
+53. browser.extract 只能读取 retained BrowserObservation；不得绕过 observation profile 直接执行 caller supplied selector/JS。missing ref 不能脱离原 observation coverage 被解释为页面真实不存在。
+\n

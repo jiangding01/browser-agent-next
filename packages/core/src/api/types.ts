@@ -1,6 +1,9 @@
 import type { BrowserActionKind } from "../actions/types.js";
 import type {
   BrowserObservation,
+  CoverageStatus,
+  ElementState,
+  Ref,
   RevisionId,
 } from "../state/types.js";
 import type {
@@ -33,6 +36,22 @@ export interface BrowserObserveInput {
   tabId: number;
   sinceRevision?: RevisionId;
   options?: BrowserObserveOptions;
+}
+
+export interface BrowserExtractInput {
+  tabId: number;
+  observedRevision: RevisionId;
+  refs?: Ref[];
+  maxItems?: number;
+}
+
+export interface BrowserExtractResult {
+  revision: RevisionId;
+  items: ElementState[];
+  missingRefs: Ref[];
+  truncated: boolean;
+  totalMatched: number;
+  actionableCoverage: CoverageStatus;
 }
 
 export interface BrowserVerifyInput {
