@@ -70,3 +70,5 @@
 54. authorization assurance label 不得因为“强度更高”而被重标成另一种证明类型；签发源与 assurance label 必须按受信入口精确绑定，Policy 的满足关系与 grant provenance 是两个独立概念。
 55. browser.open 返回的 requestedUrl 只证明请求目标，不证明导航完成或最终 URL；committed/final URL 必须来自后续 BrowserObservation。
 \n
+56. 普通 runtime perception ingress 不得接受 caller supplied ownedBySession；即使 sender.id 是当前 Extension，自身 extension context 也不能通过 observe request mint Agent-owned 语义。
+\n

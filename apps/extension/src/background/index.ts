@@ -197,6 +197,7 @@ bindAuthorizationLifecycle(
 registerObserveTabBackgroundListener(
   chrome.runtime,
   perceptionService,
+  tabOwnership,
 );
 
 // 普通 Extension runtime message 只暴露 prepare，不暴露真实 input dispatch。

@@ -65,3 +65,21 @@ Trusted grant 的存在只表示允许对该精确 target 尝试这个动作；�
 ## 下一阶段
 
 后续会增加更明确的 Authorization Assurance 层级，例如 control-plane、operator-approved、enterprise-policy，并让高风险 Effect Class 可以要求更高 assurance，而不是所有 grant 等价。
+
+## Tab Ownership
+
+Tab ownership 是 Policy 输入，因此属于安全属性。
+
+当前唯一可以 mint `ownedBySession=true` 的路径是：
+
+```text
+trusted browser.open
+→ chrome.tabs.create
+→ valid tabId
+→ TabOwnershipRegistry.markCreated
+```
+
+普通 `runtime.onMessage` 的 perception 请求不能携带 `ownedBySession`。即使请求来自 Extension 自己的页面/上下文，也不能通过该字段把用户已有 Tab 提升成 Agent-owned。
+
+MV3 service worker restart 后 registry 丢失，旧 Tab 会安全降级为 user-existing，而不是猜测恢复 ownership。
+\n

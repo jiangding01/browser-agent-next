@@ -73,7 +73,6 @@ async function observe(
           type: "perception.observe-tab",
           requestId,
           tabId,
-          ownedBySession: true,
           ...(sinceRevision !== undefined ? { sinceRevision } : {}),
           ...(options !== undefined ? { options } : {}),
         });
