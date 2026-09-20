@@ -72,3 +72,9 @@
 \n
 56. 普通 runtime perception ingress 不得接受 caller supplied ownedBySession；即使 sender.id 是当前 Extension，自身 extension context 也不能通过 observe request mint Agent-owned 语义。
 \n
+51. browser.open 是当前唯一可以 mint Agent-owned Tab 的高层 Runtime 入口；调用方不能通过 ownedBySession/claim(tabId) 把用户已有 Tab 升级为 Agent-owned。
+52. Authorization assurance 必须由受信签发入口决定；请求 JSON、模型输出、页面内容与 confidence 均不能自报或升级 assurance。
+53. trusted-host 只能签发 control-plane assurance；control-plane 不得被当作 operator-approved 的同义词。
+54. browser.wait 的 DOM/navigation signal 仅用于提前唤醒；每次 signal 后仍必须 fresh Observe + Verify，signal 本身永远不是完成证明。
+55. High-level browser.* runtime facade 不是最终 model-egress boundary；未来 MCP/LLM adapter 必须单独执行 model-egress/navigation policy，并且不得向模型暴露 policy mutation 或 authorization issuance 能力。
+56. model-egress policy 与 auto-act origin policy 必须保持独立；可读取/可出境不等价于可自动产生副作用。

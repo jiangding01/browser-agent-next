@@ -167,7 +167,11 @@ function timeoutVerification(
 }
 
 /**
- * Agent-facing high-level Browser API facade.
+ * High-level Browser Runtime facade.
+ *
+ * 注意：这个 service 本身处在 trusted control-plane transport 内，并不是最终
+ * LLM/MCP trust boundary。真正面向模型的 adapter 必须额外执行 model-egress
+ * policy，并且不能把 authorization issuance / policy mutation 能力暴露给模型。
  *
  * 重要：高层 API 不接收 caller supplied ownedBySession。
  *

@@ -42,6 +42,8 @@
 - [x] event-driven wait wake-up + bounded fallback
 - [x] browser.extract retained-observation projection
 - [x] Tab Ownership Registry
+- [x] event-assisted wait + bounded fallback
+- [x] PR #4 final adversarial review
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router
@@ -55,3 +57,10 @@
 - [ ] WebMCP discovery
 - [ ] capability normalization
 - [ ] policy-controlled invocation
+
+
+## Phase 6.5 — Model-facing adapter boundary
+- [ ] MCP server implementation
+- [ ] dedicated model-egress / navigation policy
+- [ ] explicit tool exposure allowlist
+- [ ] prohibit model access to policy mutation / authorization issuance

@@ -170,3 +170,49 @@ Stored Observation
 - operator-approved / enterprise-policy issuance ingress；
 - child-frame Strict Click；
 - OOPIF exact session mapping。
+
+
+## Transport 与 Model Boundary
+
+当前 `browser.*` 是 **High-level Browser Runtime facade**，通过 trusted Native Host control-plane transport 暴露。
+
+它还不是最终的 LLM/MCP 安全边界。
+
+这一区分非常重要：
+
+```text
+LLM / Agent
+    ↓
+Future MCP Adapter
+    ↓  model-egress policy / tool exposure policy
+browser.* runtime facade
+    ↓
+Trusted Native Host / Extension
+```
+
+未来真正面向模型的 MCP adapter 必须：
+
+1. 只暴露允许模型直接调用的 `browser.*` 工具；
+2. 不暴露 `policy.replace-autoact-origins`；
+3. 不暴露 operator / enterprise authorization minting；
+4. 在 BrowserObservation 或 extract 内容进入模型前执行独立的 model-egress policy；
+5. model-egress allowlist 与 auto-act origin allowlist 保持两个独立策略面；
+6. 对 secret / credential / proprietary data 做独立的数据出境控制。
+
+因此，当前 trusted RPC token 只证明 control-plane caller 身份，不能因为 `browser.*` 已经存在就宣称“任意 LLM 可以安全直接连接该端口”。
+
+### browser.open 与导航策略
+
+当前 `browser.open` 在 trusted control plane 内接受 credential-free http/https URL。
+
+它**不等价于最终模型导航策略**。
+
+未来 MCP/model adapter 必须在调用 `browser.open` 前执行自己的 navigation / egress policy。不能拿 auto-act allowlist 代替这一层，因为：
+
+```text
+允许模型读取某个 origin
+≠
+允许模型在该 origin 自动产生副作用
+```
+
+两者必须保持独立。

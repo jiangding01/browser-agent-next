@@ -92,3 +92,4 @@ pnpm e2e
 - [PR #3 最终审查](./docs/PR3-FINAL-REVIEW.md)
 - [Authorization Assurance](./docs/AUTHORIZATION-ASSURANCE.md)
 - [High-level Browser API](./docs/HIGH-LEVEL-API.md)
+- [PR #4 最终审查](./docs/PR4-FINAL-REVIEW.md)

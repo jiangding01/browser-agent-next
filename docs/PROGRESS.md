@@ -23,6 +23,7 @@ browser.act / Strict Click               ✅
 browser.extract                          ✅ retained projection
 Real Chromium High-level API E2E         ✅
 event-driven wait wake-up                ✅
+PR #4 Final Adversarial Review            ✅
 ```
 
 ## PR #4 当前完成内容
@@ -63,3 +64,15 @@ event-driven wait wake-up                ✅
 2. 等待最新 CI；
 3. 对 High-level API / ownership / assurance 做最终对抗式 Review；
 4. 收口 PR #4。
+
+## 最终边界澄清
+
+- `browser.*` 当前是 trusted control-plane 内的 High-level Runtime facade；
+- 它不是最终 LLM/MCP trust boundary；
+- Future MCP adapter 必须单独实施 model-egress/navigation policy；
+- MCP 不能向模型暴露 policy mutation / authorization issuance；
+- model-egress policy 与 auto-act policy 继续保持分离。
+
+## 合并状态
+
+PR #4 最终对抗式 Review 已完成。等待最新 HEAD CI / Real Chromium E2E 全绿后即可合并。
