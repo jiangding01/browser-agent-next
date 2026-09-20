@@ -5,6 +5,7 @@ import type {
   BrowserOpenResult,
   BrowserObserveInput,
   BrowserWaitResult,
+  VerificationResult,
 } from "@browser-agent-next/core";
 import {
   ModelOriginAccessPolicy,
