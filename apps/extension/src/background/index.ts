@@ -60,6 +60,10 @@ import {
 } from "./perception/domStableIdInspector.js";
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
 import { HighLevelBrowserApiService } from "./api/browserApiService.js";
+import {
+  BrowserChangeSignalHub,
+  registerBrowserChangeSignals,
+} from "./api/browserChangeSignalHub.js";
 
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
   runtime:
@@ -106,6 +110,7 @@ const states = new TabStateStore();
 const revisions = new TabRevisionRegistry(runtimeEpoch());
 const lifecycle = new DomLifecycleRegistry(refs, states);
 const tabOwnership = new TabOwnershipRegistry();
+const browserChangeSignals = new BrowserChangeSignalHub();
 
 const coordinator = new DomObservationCoordinator(
   refs,
@@ -183,10 +188,19 @@ const browserApiService =
     trustedHostService,
     tabOwnership,
     chrome.tabs,
+    {
+      changeSignals: browserChangeSignals,
+    },
   );
 
 bindChromeDomLifecycle(chrome, lifecycle);
+registerBrowserChangeSignals(
+  chrome.runtime,
+  chrome,
+  browserChangeSignals,
+);
 chrome.tabs.onRemoved.addListener((tabId) => {
+  browserChangeSignals.clearTab(tabId);
   tabOwnership.tabRemoved(tabId);
 });
 bindAuthorizationLifecycle(

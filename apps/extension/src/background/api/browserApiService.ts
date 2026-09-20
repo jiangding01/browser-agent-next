@@ -32,12 +32,22 @@ export interface BrowserTabCreateApi {
   }>;
 }
 
+export interface BrowserChangeSignalSource {
+  version(tabId: number): number;
+  waitForChange(
+    tabId: number,
+    afterVersion: number,
+    timeoutMs: number,
+  ): Promise<boolean>;
+}
+
 export interface BrowserApiServiceOptions {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   defaultWaitTimeoutMs?: number;
   maxWaitTimeoutMs?: number;
   defaultPollIntervalMs?: number;
+  changeSignals?: BrowserChangeSignalSource;
 }
 
 function boundedPositiveInteger(
@@ -170,6 +180,7 @@ export class HighLevelBrowserApiService {
   private readonly defaultWaitTimeoutMs: number;
   private readonly maxWaitTimeoutMs: number;
   private readonly defaultPollIntervalMs: number;
+  private readonly changeSignals?: BrowserChangeSignalSource;
 
   constructor(
     private readonly states: TabStateStore,
@@ -186,6 +197,7 @@ export class HighLevelBrowserApiService {
     this.defaultWaitTimeoutMs = options.defaultWaitTimeoutMs ?? 3_000;
     this.maxWaitTimeoutMs = options.maxWaitTimeoutMs ?? 30_000;
     this.defaultPollIntervalMs = options.defaultPollIntervalMs ?? 100;
+    this.changeSignals = options.changeSignals;
   }
 
   async open(
@@ -406,12 +418,17 @@ export class HighLevelBrowserApiService {
       ) ?? this.defaultPollIntervalMs;
     const deadline = this.now() + timeoutMs;
     let attempts = 0;
+    let signalWakeups = 0;
     let lastObservation: BrowserObservation | undefined;
     let lastVerification: VerificationResult | undefined;
     let lastObservationError: string | undefined;
 
     do {
       attempts += 1;
+
+      // 在 Observe 之前记录 cursor，避免观察窗口内发生 mutation 后丢唤醒。
+      const signalVersion =
+        this.changeSignals?.version(input.tabId);
 
       try {
         const observation = await this.observe({
@@ -431,6 +448,9 @@ export class HighLevelBrowserApiService {
             attempts,
             timedOut: false,
             observation,
+            ...(this.changeSignals !== undefined
+              ? { signalWakeups }
+              : {}),
           };
         }
       } catch (error) {
@@ -438,12 +458,26 @@ export class HighLevelBrowserApiService {
       }
 
       if (this.now() >= deadline) break;
-      await this.sleep(
-        Math.min(
-          pollIntervalMs,
-          Math.max(0, deadline - this.now()),
-        ),
+
+      const boundedWaitMs = Math.min(
+        pollIntervalMs,
+        Math.max(0, deadline - this.now()),
       );
+
+      if (
+        this.changeSignals !== undefined &&
+        signalVersion !== undefined
+      ) {
+        const changed =
+          await this.changeSignals.waitForChange(
+            input.tabId,
+            signalVersion,
+            boundedWaitMs,
+          );
+        if (changed) signalWakeups += 1;
+      } else {
+        await this.sleep(boundedWaitMs);
+      }
     } while (this.now() <= deadline);
 
     return {
@@ -462,6 +496,9 @@ export class HighLevelBrowserApiService {
         : {}),
       ...(lastObservationError !== undefined
         ? { lastObservationError }
+        : {}),
+      ...(this.changeSignals !== undefined
+        ? { signalWakeups }
         : {}),
     };
   }
