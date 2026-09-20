@@ -15,6 +15,7 @@ describe("bindAuthorizationLifecycle", () => {
       ref: "@e_1",
       actionKind: "click",
       effectClass: "unknown",
+      assurance: "control-plane",
       ttlMs: 1000,
       source: "trusted-host",
     });

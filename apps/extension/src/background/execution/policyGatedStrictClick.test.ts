@@ -46,6 +46,7 @@ function authorizedStore(): InMemoryAuthorizationStore {
     ref: "@e_1",
     actionKind: "click",
     effectClass: "unknown",
+    assurance: "control-plane",
     ttlMs: 5000,
     source: "trusted-ui",
   });
