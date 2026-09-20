@@ -13,9 +13,15 @@ interface PageFrameTree {
   childFrames?: PageFrameTree[];
 }
 
+interface CdpFrameCandidate {
+  cdpFrameId: string;
+  cdpSessionId?: string;
+}
+
 export interface ExactFrameMapping {
   webFrameId: string;
   cdpFrameId: string;
+  cdpSessionId?: string;
   frameEpoch: string;
   documentEpoch: string;
 }
@@ -42,24 +48,112 @@ function flattenFrameTree(tree: PageFrameTree): PageFrame[] {
   ];
 }
 
-/**
- * webNavigation.frameId 与 CDP Page.FrameId 属于不同命名空间。
- *
- * 本函数只使用 content isolated-world 随文档生成的 frameEpoch 做 exact
- * correspondence；URL、frame 顺序、parent index、role/name 均不参与映射。
- */
-export async function mapDomFramesToCdp(
+function candidateKey(candidate: CdpFrameCandidate): string {
+  return (
+    (candidate.cdpSessionId ?? "root") +
+    ":" +
+    candidate.cdpFrameId
+  );
+}
+
+async function discoverCdpFrameCandidates(
   input: MapDomFramesToCdpInput,
-): Promise<ExactFrameCorrespondence> {
-  const frameTree = await input.transport.send<{
+  warnings: string[],
+): Promise<CdpFrameCandidate[]> {
+  await input.transport.attach(input.tabId);
+  await input.transport.waitForChildSessionInitialization(
+    input.tabId,
+  );
+
+  const rootTree = await input.transport.send<{
     frameTree: PageFrameTree;
   }>(
     input.tabId,
     "Page.getFrameTree",
   );
 
-  const cdpFrames = flattenFrameTree(frameTree.frameTree);
+  const candidates: CdpFrameCandidate[] =
+    flattenFrameTree(rootTree.frameTree).map(
+      (frame) => ({
+        cdpFrameId: frame.id,
+      }),
+    );
+
+  const childSessions =
+    input.transport.childSessions(input.tabId);
+
+  const childTrees = await Promise.all(
+    childSessions.map(async (session) => {
+      try {
+        const tree = await input.transport.sendInSession<{
+          frameTree: PageFrameTree;
+        }>(
+          input.tabId,
+          session.sessionId,
+          "Page.getFrameTree",
+        );
+
+        return {
+          ok: true as const,
+          sessionId: session.sessionId,
+          frames: flattenFrameTree(tree.frameTree),
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          sessionId: session.sessionId,
+          warning:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : "child session frame tree unavailable",
+        };
+      }
+    }),
+  );
+
+  for (const child of childTrees) {
+    if (!child.ok) {
+      warnings.push(
+        "OOPIF child session frame tree 不可用，保持 unmapped: " +
+          child.sessionId.slice(0, 128) +
+          " (" +
+          child.warning +
+          ")",
+      );
+      continue;
+    }
+
+    for (const frame of child.frames) {
+      candidates.push({
+        cdpFrameId: frame.id,
+        cdpSessionId: child.sessionId,
+      });
+    }
+  }
+
+  const unique = new Map<string, CdpFrameCandidate>();
+  for (const candidate of candidates) {
+    unique.set(candidateKey(candidate), candidate);
+  }
+
+  return [...unique.values()];
+}
+
+/**
+ * webNavigation.frameId 与 CDP Page.FrameId 属于不同命名空间。
+ *
+ * 本函数只使用 content isolated-world 随文档生成的 frameEpoch 做 exact
+ * correspondence；URL、frame 顺序、parent index、role/name 均不参与映射。
+ *
+ * OOPIF 额外保留 flat debugger sessionId。相同 cdpFrameId 出现在不同
+ * protocol session 时仍视为不同候选，只有 frameEpoch exact proof 唯一时才映射。
+ */
+export async function mapDomFramesToCdp(
+  input: MapDomFramesToCdpInput,
+): Promise<ExactFrameCorrespondence> {
   const warnings: string[] = [];
+  const cdpFrames =
+    await discoverCdpFrameCandidates(input, warnings);
 
   const webFramesByEpoch = new Map<string, string[]>();
 
@@ -87,26 +181,32 @@ export async function mapDomFramesToCdp(
     ]),
   );
 
-  const mappingByWebFrame = new Map<string, ExactFrameMapping>();
+  const mappingByWebFrame =
+    new Map<string, ExactFrameMapping>();
   const mappedCdpFrames = new Set<string>();
-  const cdpEpochOwners = new Map<string, string[]>();
+  const cdpEpochOwners =
+    new Map<string, CdpFrameCandidate[]>();
 
   for (const cdpFrame of cdpFrames) {
     const frameEpoch =
       await input.resolver.frameEpochForCdpFrame({
         tabId: input.tabId,
-        cdpFrameId: cdpFrame.id,
+        cdpFrameId: cdpFrame.cdpFrameId,
+        ...(cdpFrame.cdpSessionId !== undefined
+          ? { cdpSessionId: cdpFrame.cdpSessionId }
+          : {}),
       });
 
     if (!frameEpoch) continue;
 
     const owners = cdpEpochOwners.get(frameEpoch);
-    if (owners) owners.push(cdpFrame.id);
-    else cdpEpochOwners.set(frameEpoch, [cdpFrame.id]);
+    if (owners) owners.push(cdpFrame);
+    else cdpEpochOwners.set(frameEpoch, [cdpFrame]);
   }
 
   for (const [frameEpoch, webFrameIds] of webFramesByEpoch) {
-    const cdpFrameIds = cdpEpochOwners.get(frameEpoch) ?? [];
+    const cdpCandidates =
+      cdpEpochOwners.get(frameEpoch) ?? [];
 
     if (webFrameIds.length !== 1) {
       warnings.push(
@@ -116,10 +216,10 @@ export async function mapDomFramesToCdp(
       continue;
     }
 
-    if (cdpFrameIds.length !== 1) {
-      if (cdpFrameIds.length > 1) {
+    if (cdpCandidates.length !== 1) {
+      if (cdpCandidates.length > 1) {
         warnings.push(
-          "frameEpoch 在 CDP frame 中非唯一，拒绝猜测映射: " +
+          "frameEpoch 在 CDP session/frame 中非唯一，拒绝猜测映射: " +
             frameEpoch,
         );
       }
@@ -127,8 +227,9 @@ export async function mapDomFramesToCdp(
     }
 
     const webFrameId = webFrameIds[0]!;
-    const cdpFrameId = cdpFrameIds[0]!;
-    const documentEpoch = documentEpochByWebFrame.get(webFrameId);
+    const cdpCandidate = cdpCandidates[0]!;
+    const documentEpoch =
+      documentEpochByWebFrame.get(webFrameId);
 
     if (!documentEpoch) {
       warnings.push(
@@ -140,11 +241,14 @@ export async function mapDomFramesToCdp(
 
     mappingByWebFrame.set(webFrameId, {
       webFrameId,
-      cdpFrameId,
+      cdpFrameId: cdpCandidate.cdpFrameId,
+      ...(cdpCandidate.cdpSessionId !== undefined
+        ? { cdpSessionId: cdpCandidate.cdpSessionId }
+        : {}),
       frameEpoch,
       documentEpoch,
     });
-    mappedCdpFrames.add(cdpFrameId);
+    mappedCdpFrames.add(candidateKey(cdpCandidate));
   }
 
   const expectedWebFrameIds = input.frames
@@ -158,9 +262,16 @@ export async function mapDomFramesToCdp(
     unmappedWebFrameIds: expectedWebFrameIds.filter(
       (frameId) => !mappingByWebFrame.has(frameId),
     ),
-    unmappedCdpFrameIds: cdpFrames
-      .map((frame) => frame.id)
-      .filter((frameId) => !mappedCdpFrames.has(frameId)),
+    unmappedCdpFrameIds: [
+      ...new Set(
+        cdpFrames
+          .filter(
+            (candidate) =>
+              !mappedCdpFrames.has(candidateKey(candidate)),
+          )
+          .map((candidate) => candidate.cdpFrameId),
+      ),
+    ],
     warnings,
   };
 }

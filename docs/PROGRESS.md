@@ -5,7 +5,7 @@
 ## 当前分支
 
 ```text
-feat/assurance-issuance-ingress
+feat/authorization-assurance-ingress
 ```
 
 ## 当前阶段
@@ -16,7 +16,8 @@ PR #2 Hybrid + Strict Click              ✅ 已合并
 PR #3 Child-frame Hybrid                 ✅ 已合并
 PR #4 Authorization + High-level API     ✅ 已合并
 PR #5 Model-facing Adapter Boundary      ✅ 已合并
-PR #6 Assurance Issuance Ingress         ✅ 实现完成，等待合并
+PR #6 Assurance Issuance Ingress         ✅ 已合并
+PR #7 OOPIF + Child-frame Actuation       ✅ 实现完成，等待最终合并
 
 Model tool exposure allowlist             ✅ baseline
 Model read / navigation origin policy     ✅ baseline
@@ -159,12 +160,60 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E ✅
 - Final Adversarial Review ✅
 
+## PR #7 当前进度
+
+- ✅ PR #7 已同步 PR #6 合并后的最新 main，冲突清零；
+- ✅ PR #7 重新定位为 OOPIF / child-frame actuation 阶段；
+- ✅ 第一小步：Chrome debugger flat child-session transport；
+- ✅ 第二小步：OOPIF frameEpoch exact session mapping + session-aware AX/linking；
+- ✅ 第三小步：Strict resolver session-aware child live revalidation baseline；
+- ✅ 第四小步：child-frame → top-level coordinate projection core；
+- ✅ 第五小步：projection 接入 Strict prepare；
+- ✅ prepared target 显式约束为 top-level viewport coordinate space；
+- ✅ 第六小步：Real Chromium OOPIF child Strict Click actuation E2E；
+- ✅ child-frame Strict Click dispatch 已完成真实 Chromium 闭环；
+- ✅ 第七小步：child reload / iframe detach stale target fail-closed E2E；
+- ✅ 第八小步：scroll + affine transform OOPIF 实际点击 / perspective fail-closed Real Chromium E2E；
+- ✅ 第九小步：nested projection 每一层 parent iframe owner hit-test fail-closed；
+- ✅ 第十小步：detached child session late-event resurrection 防护；
+- 🚧 第十一小步：nested OOPIF 中间 owner overlay fail-closed / 解除遮挡后真实点击 E2E 已实现，等待 CI；
+- 🚧 Real Chromium OOPIF / child-frame actuation 最终对抗式 Review 收口中。
+
+### PR #7 第一小步：flat child-session transport
+
+当前实现准备新增：
+
+- root debugger attach 后尝试 `Target.setAutoAttach({ flatten: true })`；
+- 只登记 `targetInfo.type === "iframe"` 的 child session；
+- 记录 `sessionId / targetId / parentSessionId`；
+- 每个 child session 递归启用 iframe auto-attach，覆盖 nested OOPIF；
+- Runtime execution context 按 root / child session 分桶；
+- 提供 session-aware context binding，但现有 root-only resolver 暂不改变；
+- child target detach 递归清理 session/context；
+- flat sessions 不可用时保留现有 root 能力，OOPIF 继续 fail closed。
+
+## PR #7 最终门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests ✅
+- Workspace build ✅
+- OOPIF flat-session exact mapping tests ✅
+- child same-session live identity tests ✅
+- nested / affine / perspective coordinate projection tests ✅
+- Real Chromium OOPIF Hybrid mapping ✅
+- Real Chromium child Strict Click dispatch ✅
+- reload / detach stale-target fail-closed ✅
+- transform / scroll / perspective adversarial E2E ✅
+- nested parent-owner occlusion fail-closed / recovery ✅
+- Final Adversarial Review ✅
+
 ## 下一步
 
-1. 合并 PR #6；
-2. 下一阶段优先处理 OOPIF / child-frame coordinate projection / actuation；
-3. model-facing `browser.act` 仍保持不可见，Phase 6.6 scoped authorization broker 独立推进；
-4. 之后再进入 Intelligence Layer（deterministic router / Jev / shadow / fast path）。
+1. 合并 PR #7；
+2. 下一阶段进入 Phase 6.6 scoped authorization broker；
+3. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
+4. Phase 6.6 完成后再进入 Intelligence Layer。
 
 ## 文档
 
@@ -186,3 +235,119 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 详见 `docs/PR5-FINAL-REVIEW.md`。
 - `docs/PR6-FINAL-REVIEW.md`：PR #6 最终对抗式审查与 merge gate。
+
+
+### PR #7 第二小步：session-aware exact mapping
+
+- `ExactFrameMapping` 新增可选 `cdpSessionId`；
+- root frame tree 与已登记 iframe child-session frame tree 组成 CDP candidate 集；
+- OOPIF mapping 仍只通过 `frameEpoch` exact equality，URL/顺序/名称不参与；
+- 同一 frameEpoch 跨多个 CDP session/frame 出现时 fail closed；
+- `Accessibility.getFullAXTree` 对 OOPIF 必须发送到 mapping 指定的 child session；
+- AX source 保存 `webFrameId → cdpSessionId` provenance；
+- backendDOMNodeId → stableId linking 使用同一 exact child session；
+- lifecycle binding 同时保留 frameEpoch / cdpFrameId / cdpSessionId / documentEpoch；
+- root-session 原有行为保持兼容。
+
+
+### PR #7 第三小步：Real Chromium OOPIF E2E
+
+新增跨站 fixture：
+
+```text
+main:  http://127.0.0.1:4173/oopif-main.html
+child: http://localhost:4173/oopif-child.html
+Chromium: --site-per-process
+```
+
+E2E 要求：
+
+- OOPIF child 元素最终具备 DOM + AX provenance；
+- actionable coverage 必须达到 complete；
+- OOPIF reload 后 child Persistent Ref 必须变化；
+- main frame Persistent Ref 必须保持；
+- 测试允许首次 attach/auto-attach 的短暂 partial observation，通过 bounded retry 等待 exact child session 建立。
+
+
+### PR #7 第三小步：Strict resolver session-aware child revalidation
+
+- `DomLifecycleRegistry` 新增只读 `bindingForFrame(tabId, frameId)`，返回 observation 已证明的 exact frame/session binding 副本；
+- `IsolatedWorldDomStableIdInspector` 支持显式 `cdpSessionId`，child DOM inspection 的 Runtime 命令只发送到对应 flat session；
+- Strict resolver 不再仅按 `web:0` 入口判断 child target；
+- resolver 会同时校验：
+  - retained observation 中的 target frame/documentEpoch；
+  - 当前 webNavigation catalog 的同 frame documentEpoch；
+  - lifecycle 记录的 frameEpoch / cdpFrameId / cdpSessionId / documentEpoch；
+  - retained DOM + AX strong identity；
+- backendDOMNodeId → stableId、DOM inspection、partial AX tree 都使用同一个 exact child session；
+- child live identity 即使全部通过，在 top-level coordinate projection 完成前仍返回 fail-closed，不生成 prepared dispatch target；
+- main-frame Strict Click 行为保持不变。
+
+
+### PR #7 第四小步：child-frame 顶层坐标投影核心
+
+新增独立 `ChildFrameCoordinateProjector`，暂不直接修改 dispatch：
+
+- 沿 retained observation 的 `parentFrameId` 从 target child 逐层走到 `web:0`；
+- 每层必须存在 lifecycle 保存的 exact `frameEpoch / cdpFrameId / cdpSessionId / documentEpoch`；
+- 每层实时从对应 exact isolated-world context 验证 `frameEpoch`，并读取 `innerWidth / innerHeight`；
+- frame owner 只通过父 CDP session 的 `DOM.getFrameOwner(childCdpFrameId)` 获取；
+- frame owner 几何只使用 `DOM.getBoxModel().model.content`；
+- 支持可证明的 2D affine content quad（平移 / 缩放 / 旋转 / skew）；
+- perspective / 非平行四边形 / 退化 quad 直接 fail closed；
+- child-local point 必须位于实时 child viewport 内；
+- 最终 projected point 必须位于实时 root viewport；
+- root 层额外用 `document.elementFromPoint()` 验证 projected point 仍命中最外层 frame owner；
+- 任一 document binding stale、session/isolated-world identity 缺失、owner/geometry/hit-test 失败都不返回 projected target。
+
+当前仍未将 projector 接入 Strict resolver 的成功分支，所以 child-frame actuation 尚未开放。
+
+
+### PR #7 第五小步：projection → Strict prepare
+
+- `ChromeStrictMainFrameClickResolver` 在 child DOM+AX live identity 复核通过后调用 `ChildFrameCoordinateProjector`；
+- projection 失败继续返回 identity mismatch，Strict coordinator 不会产出 prepared target；
+- projection 成功后 child target 首次可以产出 `identityMatches=true`；
+- child prepared point 使用投影后的 top-level viewport 坐标，不再携带 child-local point；
+- `PreparedStrictClickTarget` 新增固定 `coordinateSpace: "top-level-viewport"`；
+- main-frame prepared target 同样显式标记为 top-level viewport；
+- `ChromeStrictClickDispatcher` 在任何 `Input.dispatchMouseEvent` 前再次检查 coordinate space，非顶层坐标直接 fail closed；
+- trusted execution 原有“双 prepare”机制保持不变，因此真正 dispatch 前会重新完成 child identity + projection。
+
+
+### PR #7 第六小步：真实 OOPIF child Strict Click dispatch E2E
+
+新增 trusted-host Real Chromium 场景：
+
+```text
+browser.open(agent-owned OOPIF page)
+→ browser.observe(hybrid)
+→ child ref has DOM + AX provenance
+→ authorization.issue-strict-click
+→ browser.act
+→ second Strict prepare
+→ child local point projected to top-level viewport
+→ root Input.dispatchMouseEvent
+→ OOPIF child receives real click
+→ fresh Observe + Verify(text_present="OOPIF Clicked")
+```
+
+Fixture 中 OOPIF child button 只有收到真实 click 后才把文本改成 `OOPIF Clicked`，因此验证结果可以直接证明 root-session mouse dispatch 最终命中了 child target，而不是只证明 prepare 成功。
+
+该 E2E 已在 GitHub Actions Run #130 通过，真实证明 root-session Input.dispatchMouseEvent 可以命中 OOPIF child target。
+
+
+### PR #7 第七小步：reload / detach fail-closed E2E
+
+继续覆盖授权签发后的结构竞态：
+
+1. 对 OOPIF child ref 签发短期 grant 后立即 reload child document；
+2. 使用旧 observedRevision/ref/grant 调用 `browser.act`；
+3. 必须在 dispatch 前以 `TARGET_IDENTITY_MISMATCH` 拒绝；
+4. 重新 Observe 得到新 child ref 并重新授权；
+5. 移除顶层 iframe，使 OOPIF target/session detach；
+6. 再用旧 observation/ref/grant 调用 `browser.act`；
+7. 必须在 dispatch 前以 `DOCUMENT_CHANGED` 拒绝。
+
+这两条验证 Strict prepare 的 freshness 与 lifecycle grant revocation 是双保险：页面结构改变后既不能复用旧强身份，也不能靠尚未消费的 grant 继续执行。
+- `docs/PR7-FINAL-REVIEW.md`：PR #7 OOPIF / child-frame actuation 最终对抗式审查。

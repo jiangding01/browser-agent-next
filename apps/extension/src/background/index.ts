@@ -23,6 +23,9 @@ import {
   ChromeStrictClickDispatcher,
 } from "./execution/chromeStrictClickDispatcher.js";
 import {
+  ChildFrameCoordinateProjector,
+} from "./execution/childFrameCoordinateProjector.js";
+import {
   ChromeStrictExecutionService,
 } from "./execution/chromeStrictExecutionService.js";
 import {
@@ -160,6 +163,12 @@ const perceptionService = new ChromeDomObservationService(
   debuggerTransport,
 );
 
+const childCoordinateProjector =
+  new ChildFrameCoordinateProjector(
+    debuggerTransport,
+    lifecycle,
+  );
+
 const strictResolver =
   new ChromeStrictMainFrameClickResolver(
     refs,
@@ -167,6 +176,8 @@ const strictResolver =
     debuggerTransport,
     identityResolver,
     domInspector,
+    lifecycle,
+    childCoordinateProjector,
   );
 
 const strictCoordinator =

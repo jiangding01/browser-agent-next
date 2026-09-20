@@ -417,11 +417,24 @@ test("真实 Chromium 中 DOM↔AX exact correspondence 合并为单一 Persiste
       childAfterReload[0]!.ref,
     );
     expect(childStrict).toMatchObject({
-      ok: false,
-      error: {
-        code: "TARGET_IDENTITY_MISMATCH",
+      ok: true,
+      prepared: {
+        ref: childAfterReload[0]!.ref,
       },
     });
+
+    if (childStrict.ok) {
+      expect(
+        Number.isFinite(
+          childStrict.prepared.point.x,
+        ),
+      ).toBe(true);
+      expect(
+        Number.isFinite(
+          childStrict.prepared.point.y,
+        ),
+      ).toBe(true);
+    }
 
     await target.evaluate(() => {
       const current = document.querySelector("#main-action");
@@ -446,6 +459,145 @@ test("真实 Chromium 中 DOM↔AX exact correspondence 合并为单一 Persiste
       ax: true,
     });
     expect(replacedSave[0]?.ref).not.toBe(firstHybridRef);
+  } finally {
+    await context.close();
+  }
+});
+
+
+test("真实 Chromium OOPIF 使用 flat child session 完成 Hybrid exact mapping", async () => {
+  const extensionPath = path.resolve("apps/extension/dist");
+
+  const context = await chromium.launchPersistentContext("", {
+    channel: "chromium",
+    headless: true,
+    args: [
+      "--site-per-process",
+      "--disable-extensions-except=" + extensionPath,
+      "--load-extension=" + extensionPath,
+    ],
+  });
+
+  try {
+    const extensionId = await extensionIdOf(context);
+
+    const target = await context.newPage();
+    await target.goto(fixtureOrigin + "/oopif-main.html");
+    await target.waitForLoadState("load");
+
+    const oopif = target.frames().find(
+      (frame) =>
+        frame.url().startsWith(
+          "http://localhost:4173/oopif-child.html",
+        ),
+    );
+    if (!oopif) {
+      throw new Error("cross-site OOPIF frame missing");
+    }
+
+    const harness = await context.newPage();
+    await harness.goto(
+      "chrome-extension://" + extensionId + "/e2e-harness.html",
+    );
+
+    const tabId = await targetTabId(harness);
+
+    let hybrid: Observation | undefined;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const observed = await observe(
+        harness,
+        tabId,
+        hybrid?.revision.id,
+        { includeAx: true },
+      );
+
+      const child = observed.elements.find(
+        (element) =>
+          element.semantic.name === "OOPIF Child Action",
+      );
+
+      hybrid = observed;
+
+      if (
+        observed.coverage.actionable.status === "complete" &&
+        child?.provenance?.dom === true &&
+        child.provenance.ax === true
+      ) {
+        break;
+      }
+
+      await harness.waitForTimeout(100);
+    }
+
+    if (!hybrid) {
+      throw new Error("OOPIF hybrid observation unavailable");
+    }
+
+    expect(hybrid.coverage.actionable.status).toBe("complete");
+
+    const main = hybrid.elements.filter(
+      (element) => element.semantic.name === "OOPIF Main",
+    );
+    const child = hybrid.elements.filter(
+      (element) =>
+        element.semantic.name === "OOPIF Child Action",
+    );
+
+    expect(main).toHaveLength(1);
+    expect(main[0]?.provenance).toMatchObject({
+      dom: true,
+      ax: true,
+    });
+    expect(child).toHaveLength(1);
+    expect(child[0]?.provenance).toMatchObject({
+      dom: true,
+      ax: true,
+    });
+
+    const mainRef = main[0]!.ref;
+    const childRef = child[0]!.ref;
+
+    await oopif.goto(
+      "http://localhost:4173/oopif-child.html?reload=1",
+    );
+
+    let reloaded: Observation | undefined;
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const observed = await observe(
+        harness,
+        tabId,
+        reloaded?.revision.id ?? hybrid.revision.id,
+        { includeAx: true },
+      );
+      const nextChild = observed.elements.find(
+        (element) =>
+          element.semantic.name === "OOPIF Child Action",
+      );
+
+      reloaded = observed;
+
+      if (
+        observed.coverage.actionable.status === "complete" &&
+        nextChild?.provenance?.dom === true &&
+        nextChild.provenance.ax === true &&
+        nextChild.ref !== childRef
+      ) {
+        break;
+      }
+
+      await harness.waitForTimeout(100);
+    }
+
+    if (!reloaded) {
+      throw new Error("reloaded OOPIF observation unavailable");
+    }
+
+    expect(refByName(reloaded, "OOPIF Main")).toBe(mainRef);
+    expect(refByName(reloaded, "OOPIF Child Action")).not.toBe(
+      childRef,
+    );
   } finally {
     await context.close();
   }

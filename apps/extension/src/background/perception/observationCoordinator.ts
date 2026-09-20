@@ -27,6 +27,7 @@ export interface DomFrameLifecycleRecorder {
     frameBindingsByFrame?: Readonly<Record<string, {
       frameEpoch: string;
       cdpFrameId: string;
+      cdpSessionId?: string;
       documentEpoch: string;
     }>>,
     documentEpochByFrame?: Readonly<Record<string, string>>,
@@ -66,6 +67,7 @@ export interface ObserveTabInput {
     frameBindingsByFrame?: Readonly<Record<string, {
       frameEpoch: string;
       cdpFrameId: string;
+      cdpSessionId?: string;
       documentEpoch: string;
     }>>;
   }>;

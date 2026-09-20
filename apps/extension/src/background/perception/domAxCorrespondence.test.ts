@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  IsolatedWorldDomIdentityResolver,
   linkDomAxFrames,
   linkMainFrameDomAx,
 } from "./domAxCorrespondence.js";
@@ -60,6 +61,9 @@ function ax(): CollectedAxSource {
       "web:0": "cdp-main",
       "web:2": "cdp-child",
     },
+    cdpSessionIdByFrame: {
+      "web:2": "session-child",
+    },
     coverage: {
       actionable: { status: "complete", returned: 2, totalKnown: 2 },
       forms: { status: "complete", returned: 0, totalKnown: 0 },
@@ -107,10 +111,18 @@ describe("linkDomAxFrames", () => {
       dom: dom(),
       ax: ax(),
       resolver: {
-        async stableIdsForBackendNodes({ cdpFrameId }) {
-          return cdpFrameId === "cdp-main"
-            ? new Map([[42, "s1"]])
-            : new Map([[84, "s2"]]);
+        async stableIdsForBackendNodes({
+          cdpFrameId,
+          cdpSessionId,
+        }) {
+          if (cdpFrameId === "cdp-main") {
+            expect(cdpSessionId).toBeUndefined();
+            return new Map([[42, "s1"]]);
+          }
+
+          expect(cdpFrameId).toBe("cdp-child");
+          expect(cdpSessionId).toBe("session-child");
+          return new Map([[84, "s2"]]);
         },
       },
     });
@@ -140,5 +152,64 @@ describe("linkDomAxFrames", () => {
     expect(linked.linkedCount).toBe(0);
     expect(linked.dom.elements[0]?.mergeKey).toBeUndefined();
     expect(linked.ax.elements[0]?.mergeKey).toBeUndefined();
+  });
+});
+
+
+describe("IsolatedWorldDomIdentityResolver OOPIF session routing", () => {
+  it("frameEpoch evaluation 必须发送到 mapping 指定的 child session", async () => {
+    const childCalls: Array<{
+      sessionId: string;
+      method: string;
+    }> = [];
+
+    const resolver = new IsolatedWorldDomIdentityResolver({
+      async attach() {},
+      contextsForFrame() {
+        return [];
+      },
+      contextBindingsForFrame() {
+        return [{
+          sessionId: "session-child",
+          context: {
+            id: 22,
+            auxData: {
+              frameId: "cdp-child",
+              isDefault: false,
+            },
+          },
+        }];
+      },
+      async send() {
+        throw new Error(
+          "OOPIF command must not fall back to root session",
+        );
+      },
+      async sendInSession(
+        _tabId: number,
+        sessionId: string,
+        method: string,
+      ) {
+        childCalls.push({ sessionId, method });
+        return {
+          result: {
+            value: "epoch-child",
+          },
+        };
+      },
+    } as never);
+
+    await expect(
+      resolver.frameEpochForCdpFrame({
+        tabId: 7,
+        cdpFrameId: "cdp-child",
+        cdpSessionId: "session-child",
+      }),
+    ).resolves.toBe("epoch-child");
+
+    expect(childCalls).toEqual([{
+      sessionId: "session-child",
+      method: "Runtime.evaluate",
+    }]);
   });
 });

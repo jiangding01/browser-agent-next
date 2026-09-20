@@ -12,6 +12,7 @@ function prepared() {
     backendNodeId: 42,
     cdpFrameId: "cdp-main",
     frameEpoch: "frame-a",
+    coordinateSpace: "top-level-viewport" as const,
     point: { x: 20, y: 30 },
   };
 }
@@ -49,6 +50,29 @@ describe("ChromeStrictClickDispatcher", () => {
       ["Input.dispatchMouseEvent", "mousePressed"],
       ["Input.dispatchMouseEvent", "mouseReleased"],
     ]);
+  });
+
+  it("非 top-level viewport 坐标在任何 Input dispatch 前拒绝", async () => {
+    let sends = 0;
+    const dispatcher = new ChromeStrictClickDispatcher({
+      async send<T>(): Promise<T> {
+        sends += 1;
+        return undefined as T;
+      },
+    });
+
+    await expect(
+      dispatcher.dispatch({
+        ...prepared(),
+        coordinateSpace: "child-local" as never,
+      }),
+    ).rejects.toMatchObject({
+      name: "StrictClickDispatchError",
+      outcomeMayHaveChanged: false,
+      phase: "before-input",
+    } satisfies Partial<StrictClickDispatchError>);
+
+    expect(sends).toBe(0);
   });
 
   it("mousePressed 之前失败可以确认没有 click outcome", async () => {

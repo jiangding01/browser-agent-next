@@ -109,3 +109,19 @@
 99. Enterprise verification public key 只能来自管理员受管配置；control-plane/model/page 不能在 issuance request 中提供或替换 verification key。
 100. Enterprise assertion 必须 consume-once，且 replay state 必须跨 MV3 service-worker restart 持久化；replay persistence 不可用时必须 fail closed。未过期 replay marker 不得因容量限制被驱逐，ledger 满时必须拒绝新的 enterprise issuance。
 101. Enterprise grant TTL 不得超出 signed assertion 的剩余有效期；signature 验证通过后仍必须重新执行 retained observation / ref / origin / minimum assurance 校验。
+
+102. OOPIF child session 必须由 debugger flat-session 的 opaque sessionId/targetId 证明，禁止使用 URL、frame 顺序或名称推断 child target。
+103. Root-session execution context 与 child-session execution context 必须保持 session provenance；任何 child context 的 CDP command 不得退回 root session 发送。
+104. OOPIF auto-attach 不可用、child session 未登记或 session 已 detach 时必须保持 mapping/actuation fail closed，不能退化为 main-frame dispatch。
+105. Child-frame Strict live resolution 必须使用 observation 已证明的 exact frame binding；不得仅凭 web frameId、URL、frame 顺序或 cdpFrameId 猜测 child session。
+106. OOPIF child 的 backend-node linking、DOM inspection 与 AX revalidation 必须全部发送到同一个 exact cdpSessionId；任一步 session provenance 缺失或不一致都必须 fail closed。
+107. 在 top-level coordinate projection 与 root-level pre-dispatch validation 完成前，即使 child live identity 已全部匹配，也不得生成可 dispatch 的 Strict Click prepared target。
+108. Child-frame 坐标投影必须沿 retained frame parent chain 和 exact lifecycle CDP binding 逐层计算；URL、frame 顺序和几何相似度不能用于补齐 identity。
+109. 每一层投影必须先在 exact CDP session 的 isolated-world context 中重新证明 frameEpoch，并使用实时 child viewport 与父 session 的 frame-owner content quad。
+110. 只有可证明的 2D affine frame-owner content quad 可以参与自动投影；perspective、退化或不可解释 quad 必须 fail closed。
+111. 投影到 root 后必须重新验证 root viewport bounds，并通过 top-level hit-test 证明 projected point 仍命中最外层 frame owner；否则不得生成可执行 target。
+112. Prepared Strict Click 的 dispatch 坐标必须显式标记为 `top-level-viewport`；child-local 或未声明 coordinate space 的 target 不得进入 `Input.dispatchMouseEvent`。
+113. Child-frame resolver 只有在 same-session live identity 与 child→root projection 都成功后才能返回 `identityMatches=true`；projection 失败必须等价于 target 不可安全执行。
+114. Effect/authorization policy 通过后仍必须执行第二次 Strict prepare，因此 child-frame identity 与 top-level projection 必须在真正 dispatch 前重新计算，不能复用第一次 prepare 的几何结果。
+115. Nested child-frame 坐标投影的每一跳都必须在对应 parent execution context 中对 frame-owner 执行 live hit-test；只验证最外层 root iframe 不足以证明内层 iframe 未被 parent-document overlay 遮挡。
+116. Scroll、layout shift 或 2D transform 后的 frame-owner 坐标必须来自当前 prepare 的实时 `DOM.getBoxModel`；不得缓存或复用前一次 prepare 的投影坐标。

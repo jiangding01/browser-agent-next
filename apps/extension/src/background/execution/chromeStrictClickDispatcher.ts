@@ -51,9 +51,14 @@ export class ChromeStrictClickDispatcher {
   ): Promise<void> {
     const { x, y } = prepared.point;
 
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    if (
+      prepared.coordinateSpace !==
+        "top-level-viewport" ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
       throw new StrictClickDispatchError(
-        "strict click point is invalid",
+        "strict click point or coordinate space is invalid",
         {
           phase: "before-input",
           outcomeMayHaveChanged: false,

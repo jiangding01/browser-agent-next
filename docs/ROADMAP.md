@@ -8,7 +8,7 @@
 - [x] DOM baseline — PR #1
 - [x] Main-frame Hybrid — PR #2
 - [x] Child-frame Hybrid — PR #3
-- [ ] OOPIF/session exact mapping
+- [x] OOPIF/session exact mapping — PR #7
 
 ## Phase 2 — Persistent identity
 - [x] DOM lifecycle identity
@@ -23,7 +23,19 @@
 ## Phase 4 — Strict executor
 - [x] main-frame Strict Click closed loop
 - [x] child-frame target fail closed
-- [ ] child-frame coordinate projection / actuation
+- [x] child-frame coordinate projection / actuation — PR #7
+  - [x] session-aware child live identity revalidation
+  - [x] top-level coordinate projection core
+  - [x] projection → Strict prepare integration
+  - [x] dispatcher top-level coordinate-space guard
+  - [x] Real Chromium child Strict Click dispatch E2E
+  - [x] navigation/detach/projection fail-closed E2E
+  - [x] scroll + affine transform actuation / perspective fail-closed E2E
+  - [x] nested parent-owner occlusion fail-closed
+  - [x] detached child-session late-event hardening
+  - [x] 2D affine projection / live box-model refresh regression
+  - [x] PR #7 final adversarial review
+  - [x] Real Chromium nested parent-owner overlay fail-closed / recovery E2E
 
 ## Phase 5 — Effects and authorization
 - [x] control-plane authorization baseline

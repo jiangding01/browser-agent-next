@@ -410,4 +410,35 @@ describe("DomLifecycleRegistry authorization lifecycle", () => {
     expect(states.clearTab).toHaveBeenCalledWith(7);
     expect(authorizations.clearTab).toHaveBeenCalledWith(7);
   });
+
+  it("只读查询会返回 observation 记录的 exact frame/session binding 副本", () => {
+    const { lifecycle } = registry();
+
+    lifecycle.recordObserved(
+      7,
+      { "web:2": "epoch-child" },
+      {
+        "web:2": {
+          frameEpoch: "epoch-child",
+          cdpFrameId: "cdp-child",
+          cdpSessionId: "session-child",
+          documentEpoch: "chrome-document:child",
+        },
+      },
+    );
+
+    const first = lifecycle.bindingForFrame(7, "web:2");
+    expect(first).toEqual({
+      frameEpoch: "epoch-child",
+      cdpFrameId: "cdp-child",
+      cdpSessionId: "session-child",
+      documentEpoch: "chrome-document:child",
+    });
+
+    if (first) first.frameEpoch = "mutated";
+
+    expect(
+      lifecycle.bindingForFrame(7, "web:2")?.frameEpoch,
+    ).toBe("epoch-child");
+  });
 });
