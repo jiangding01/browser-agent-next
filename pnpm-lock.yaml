@@ -43,7 +43,17 @@ importers:
         specifier: 0.28.2
         version: 0.28.2
 
-  apps/mcp-server: {}
+  apps/mcp-server:
+    dependencies:
+      '@browser-agent-next/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@browser-agent-next/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
+      '@browser-agent-next/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
 
   apps/native-host:
     devDependencies:

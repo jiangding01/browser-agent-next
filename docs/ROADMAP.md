@@ -43,6 +43,19 @@
 - [x] browser.extract retained-observation projection
 - [x] PR #4 final adversarial review
 
+## Phase 6.5 — Model-facing adapter boundary
+- [x] transport-independent model-facing adapter core
+- [x] dedicated model read/egress + navigation origin policy
+- [x] explicit model tool exposure allowlist
+- [x] prohibit model access to policy mutation / authorization issuance / raw trusted RPC
+- [x] bounded model-visible revision store
+- [x] projected extract / verify / wait to prevent hidden-state side channels
+- [ ] MCP tool schema/catalog
+- [ ] MCP stdio transport/server implementation
+- [ ] minimal adapter → trusted Runtime client
+- [ ] MCP transport integration tests
+- [ ] safe scoped authorization broker before exposing browser.act
+
 ## Phase 7 — Intelligence
 - [ ] deterministic router
 - [ ] Jev CandidateBuilder
@@ -55,10 +68,3 @@
 - [ ] WebMCP discovery
 - [ ] capability normalization
 - [ ] policy-controlled invocation
-
-
-## Phase 6.5 — Model-facing adapter boundary
-- [ ] MCP server implementation
-- [ ] dedicated model-egress / navigation policy
-- [ ] explicit tool exposure allowlist
-- [ ] prohibit model access to policy mutation / authorization issuance

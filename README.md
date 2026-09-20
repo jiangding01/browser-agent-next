@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1、#2、#3、#4 已合并。PR #4 交付了 **Authorization Assurance + High-level Browser API**。
+PR #1、#2、#3、#4 已合并；PR #5 正在推进 **Model-facing Adapter Boundary**。
 
 已经完成：
 
@@ -29,9 +29,11 @@ PR #1、#2、#3、#4 已合并。PR #4 交付了 **Authorization Assurance + Hig
 - 可加载的 MV3 Extension；
 - 真实 Chromium lifecycle E2E；
 - 采集期间导航竞态防护；
-- complete observation 下 actionable ref 消失后的 tombstone。
+- complete observation 下 actionable ref 消失后的 tombstone；
 - Authorization Assurance、Tab Ownership Registry 与 `browser.*` 高层运行时 API；
-- `browser.wait` 的 event-assisted 唤醒与有界 timeout fallback。
+- `browser.wait` 的 event-assisted 唤醒与有界 timeout fallback；
+- model-facing tool allowlist 与独立 read/navigation origin policy baseline；
+- model-visible revision store 与 projected extract/verify/wait baseline。
 
 真实 Chromium 已验证：
 
@@ -49,14 +51,14 @@ main document reload
 → document epoch 变化 / refs 失效
 ```
 
-当前已完成：
+当前主链路：
 
 ```text
 DOM Perception
-→ main-frame Hybrid
-→ Strict Click closed loop
-→ child-frame exact CDP mapping
-→ child-frame Hybrid Perception
+→ main/child Hybrid
+→ Authorization Assurance
+→ High-level browser.* Runtime
+→ Model-facing Adapter Boundary (PR #5, in progress)
 ```
 
 child-frame 目前只开放 Perception/Identity；真实点击仍保持 fail closed，等待 top-level coordinate projection 与 projected hit-test。
@@ -95,3 +97,4 @@ pnpm e2e
 - [Authorization Assurance](./docs/AUTHORIZATION-ASSURANCE.md)
 - [High-level Browser API](./docs/HIGH-LEVEL-API.md)
 - [PR #4 最终审查](./docs/PR4-FINAL-REVIEW.md)
+- [Model-facing Adapter Boundary](./docs/MODEL-FACING-ADAPTER.md)
