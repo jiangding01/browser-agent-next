@@ -566,6 +566,50 @@ test(
         },
       });
 
+      const rejectedUserTabAuth =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId: "auth-user-tab-rejected",
+            authorizationId: "auth-user-tab",
+            tabId,
+            observedRevision:
+              executableCurrent.revision.id,
+            ref: executableSave.ref,
+            ttlMs: 5_000,
+          },
+        );
+
+      expect(rejectedUserTabAuth).toMatchObject({
+        ok: false,
+        error: {
+          code: "AUTHORIZATION_REQUIRED",
+        },
+      });
+
+      // 当前高层 browser.observe 不接受 caller supplied ownership，
+      // 因此按 user-existing tab 处理。成功执行路径继续使用内部测试
+      // harness 明确标记的 session-owned observation；未来由
+      // Tab Ownership Registry 替代该测试入口。
+      const executableCurrent =
+        await observe(harness, tabId);
+      const executableSave =
+        executableCurrent.elements.find(
+          (element) =>
+            element.semantic.name === "Save",
+        );
+
+      if (!executableSave) {
+        throw new Error(
+          "session-owned Save ref unavailable",
+        );
+      }
+
+      expect(executableSave.ref).toBe(save.ref);
+
       const authResponse =
         await trustedRequest(
           rpcPort,
@@ -619,8 +663,8 @@ test(
               kind: "click",
               authorizationId: "auth-1",
               observedRevision:
-                current.revision.id,
-              ref: save.ref,
+                executableCurrent.revision.id,
+              ref: executableSave.ref,
             },
             verification: {
               mode: "all",
@@ -680,6 +724,24 @@ test(
         save.ref,
       );
 
+      const executableRefreshed =
+        await observe(harness, tabId);
+      const executableReplacementSave =
+        executableRefreshed.elements.find(
+          (element) =>
+            element.semantic.name === "Save",
+        );
+
+      if (!executableReplacementSave) {
+        throw new Error(
+          "session-owned replacement Save ref unavailable",
+        );
+      }
+
+      expect(executableReplacementSave.ref).toBe(
+        replacementSave.ref,
+      );
+
       await target.evaluate(() => {
         const button = document.querySelector(
           "#main-action",
@@ -706,8 +768,8 @@ test(
             authorizationId: "auth-2",
             tabId,
             observedRevision:
-              refreshed.revision.id,
-            ref: replacementSave.ref,
+              executableRefreshed.revision.id,
+            ref: executableReplacementSave.ref,
             ttlMs: 5_000,
           },
         );
@@ -733,8 +795,8 @@ test(
               kind: "click",
               authorizationId: "auth-2",
               observedRevision:
-                refreshed.revision.id,
-              ref: replacementSave.ref,
+                executableRefreshed.revision.id,
+              ref: executableReplacementSave.ref,
             },
             verification: {
               mode: "all",
