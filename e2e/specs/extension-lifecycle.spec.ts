@@ -417,11 +417,24 @@ test("真实 Chromium 中 DOM↔AX exact correspondence 合并为单一 Persiste
       childAfterReload[0]!.ref,
     );
     expect(childStrict).toMatchObject({
-      ok: false,
-      error: {
-        code: "TARGET_IDENTITY_MISMATCH",
+      ok: true,
+      prepared: {
+        ref: childAfterReload[0]!.ref,
       },
     });
+
+    if (childStrict.ok) {
+      expect(
+        Number.isFinite(
+          childStrict.prepared.point.x,
+        ),
+      ).toBe(true);
+      expect(
+        Number.isFinite(
+          childStrict.prepared.point.y,
+        ),
+      ).toBe(true);
+    }
 
     await target.evaluate(() => {
       const current = document.querySelector("#main-action");
