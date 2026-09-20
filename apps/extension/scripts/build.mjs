@@ -65,4 +65,8 @@ await Promise.all([
     path.join(root, "operator-approval.css"),
     path.join(dist, "operator-approval.css"),
   ),
+  cp(
+    path.join(root, "enterprise-policy-schema.json"),
+    path.join(dist, "enterprise-policy-schema.json"),
+  ),
 ]);

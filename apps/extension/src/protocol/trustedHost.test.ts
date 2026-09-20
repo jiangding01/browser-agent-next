@@ -107,6 +107,49 @@ describe("isTrustedHostRequest", () => {
     })).toBe(false);
   });
 
+  it("enterprise policy request 必须携带完整签名 assertion，且不能夹带 provenance", () => {
+    const assertion = {
+      version: 1,
+      assertionId: "assertion-1",
+      keyId: "enterprise-key-1",
+      authorizationId: "auth-enterprise",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      origin: "https://fixture.test",
+      actionKind: "click",
+      effectClass: "unknown",
+      issuedAt: 1000,
+      expiresAt: 61000,
+      grantTtlMs: 30000,
+    };
+
+    expect(isTrustedHostRequest({
+      type: "authorization.issue-enterprise-policy",
+      requestId: "enterprise",
+      assertion,
+      signature: "A".repeat(86),
+    })).toBe(true);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.issue-enterprise-policy",
+      requestId: "enterprise",
+      assertion: {
+        ...assertion,
+        assurance: "enterprise-policy",
+      },
+      signature: "A".repeat(86),
+    })).toBe(false);
+
+    expect(isTrustedHostRequest({
+      type: "authorization.issue-enterprise-policy",
+      requestId: "enterprise",
+      assertion,
+      signature: "A".repeat(86),
+      source: "enterprise-policy",
+    })).toBe(false);
+  });
+
   it("browser.act 不接受调用方伪造 assurance", () => {
     const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
     expect(isTrustedHostRequest({

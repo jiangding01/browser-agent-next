@@ -8,7 +8,8 @@
     "tabs",
     "webNavigation",
     "debugger",
-    "nativeMessaging"
+    "nativeMessaging",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -33,5 +34,8 @@
   "action": {
     "default_title": "Browser Agent 审批",
     "default_popup": "operator-approval.html"
+  },
+  "storage": {
+    "managed_schema": "enterprise-policy-schema.json"
   }
 }

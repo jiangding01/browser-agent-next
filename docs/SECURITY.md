@@ -98,3 +98,22 @@ sender.url == chrome-extension://<id>/operator-approval.html
 control-plane/native-host 只能创建 pending request 和读取状态，不能调用 approve。批准按钮触发后，pending request 会被单次消费，并在真正签发前重新验证 retained observation、ref、origin 与 assurance requirement。
 
 这个边界表示“来自受信扩展审批 UI 的明确批准路径”，仍不应被描述成对拥有同 UID 任意桌面自动化、调试器或扩展代码修改能力的攻击者提供 OS 级硬隔离。更强部署仍应使用独立 OS 用户、宿主审批进程或企业策略服务。
+
+
+## Enterprise authorization proof boundary
+
+`enterprise-policy` assurance 只能由经过受管公钥验证的签名 assertion 进入。
+
+公钥来自 `chrome.storage.managed`，该区域由企业管理员下发且扩展侧只读；实现会进一步把 managed storage access level 限制为 `TRUSTED_CONTEXTS`。企业 assertion 使用 ECDSA P-256/SHA-256，并精确绑定 target/revision/origin/TTL 与 action/effect。
+
+control-plane/native-host 只是 relay，不能：
+
+- 自报 `source=enterprise-policy`；
+- 自报 `assurance=enterprise-policy`；
+- 提供任意验证公钥；
+- 修改已签名的 ref/revision/origin/TTL；
+- replay 已消费 assertion。
+
+assertion replay ledger 存在 `storage.local` 并同样限制到 trusted contexts，因此 MV3 service-worker restart 不会清掉 replay 记录。持久化失败时 enterprise issuance fail closed。
+
+这条边界的安全性依赖企业私钥在扩展之外安全保存。扩展只持有公开验证 key，不具备企业 assertion 的签名能力。

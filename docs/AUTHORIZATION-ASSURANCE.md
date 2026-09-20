@@ -152,3 +152,57 @@ control-plane 只拥有两种能力：
 pending approval 本身不会创建 grant。批准时会重新执行统一 issuer 的 retained observation / ref / origin / TTL / minimum assurance 校验，因此请求产生后如果发生 navigation、ref 失效或 policy 变化，批准会 fail closed。
 
 任意 committed navigation 或 tab removal 都会同时清理 active grant 和 pending approval。批准、拒绝、过期、失效后的 request id 都不能再次批准。
+
+
+## Enterprise-policy ingress
+
+enterprise-policy 不依赖第二个普通 Bearer token，也不允许 control-plane 自报高 assurance。
+
+当前采用管理员受管公钥 + 签名 assertion：
+
+```text
+Enterprise policy service / signer
+  ↓ ECDSA P-256 signed assertion
+control-plane relay
+  ↓
+trusted-host request
+  ↓
+chrome.storage.managed public key
+  ↓ signature + time + binding + replay verification
+persistent replay ledger
+  ↓
+issueEnterprisePolicy()
+  ↓
+AuthorizationGrant(
+  source=enterprise-policy,
+  assurance=enterprise-policy
+)
+```
+
+签名 payload 固定包含：
+
+- assertionId；
+- keyId；
+- authorizationId；
+- tabId；
+- observedRevision；
+- ref；
+- exact origin；
+- actionKind=click；
+- effectClass=unknown；
+- issuedAt / expiresAt；
+- grantTtlMs。
+
+因此 relay 不能修改目标、revision、origin、TTL 或 effect/action 语义而继续通过签名。
+
+管理员配置通过 Extension managed storage schema 下发：
+
+- `EnterpriseAuthorizationKeyId`；
+- `EnterpriseAuthorizationPublicKeySpkiBase64`；
+- `EnterpriseAuthorizationMaxAssertionLifetimeMs`。
+
+managed storage 与 replay 使用的 local storage 都会限制到 `TRUSTED_CONTEXTS`。replay ledger 持久化 assertionId + expiresAt，并在 worker 内串行执行 consume-once，避免并发请求和 MV3 service-worker 重启恢复 assertion 可重放性。
+
+签名验证成功后仍不会直接 mint grant：当前 retained observation 的 origin 必须与 signed origin 精确一致，之后统一 issuer 还会再次验证 retained ref、auto-act origin、TTL 与 minimum assurance。
+
+当前是单 P-256 key baseline；后续 key rotation 可以扩展为受管 key set，但不能把 key material 改为由 model/control-plane 请求动态提供。

@@ -69,6 +69,11 @@ async function handleRequest(
       return service.operatorApprovalStatus(
         request.approvalRequestId,
       );
+    case "authorization.issue-enterprise-policy":
+      return service.issueEnterprisePolicyAuthorization({
+        assertion: request.assertion,
+        signature: request.signature,
+      });
     case "execution.execute-strict-click":
       return service.executeStrictClickAndVerify({
         actionId: request.actionId,

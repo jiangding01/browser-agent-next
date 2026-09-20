@@ -117,7 +117,7 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 三条路径共享 retained observation / ref / origin / TTL / minimum assurance 校验；
 - 现有 trusted-host 只委托 control-plane issuance，外部协议行为保持不变；
 - operator-approved 独立人工审批 ingress 已完成 baseline；
-- enterprise-policy 独立证明 ingress 尚未开放。
+- enterprise-policy 独立签名证明 ingress 已完成 baseline。
 
 ## Operator-approved ingress baseline
 
@@ -132,11 +132,24 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - reject / expire / lifecycle invalidation 都不会产生 grant；
 - trusted-host 协议不存在 operator approve 消息类型。
 
+## Enterprise-policy ingress baseline
+
+- 企业验证公钥只从 `chrome.storage.managed` 读取，属于管理员受管只读策略；
+- managed storage 首次读取前限制为 `TRUSTED_CONTEXTS`；
+- 当前 baseline 使用 ECDSA P-256 + SHA-256；
+- signed assertion 精确绑定 assertionId / keyId / authorizationId / tab / revision / ref / origin / click / unknown effect / issuedAt / expiresAt / grant TTL；
+- assertion validity window 有界，grant 不允许活得比 assertion 更久；
+- control-plane 只能转发 assertion + signature，不能提供 source / assurance；
+- assertion signature 验证通过后仍重新匹配 retained observation origin，并通过统一 issuer 再校验 ref / auto-act origin / minimum assurance；
+- replay ledger 持久化到 `chrome.storage.local`，并限制为 `TRUSTED_CONTEXTS`，因此 MV3 service-worker 重启不会恢复 assertion 可重放性；
+- replay consume 在当前 worker 内串行，持久化失败时 fail closed；
+- 当前支持单个 managed P-256 key；key rotation / multi-key overlap 后续可按需要扩展。
+
 ## 下一步
 
-1. 实现 enterprise-policy 独立证明 ingress；
-2. 对 operator provenance / replay / navigation invalidation 增加最终对抗式复核；
-3. 完成 PR #6 文档与 E2E 收口；
+1. 对 operator / enterprise provenance、replay、navigation / restart 语义做最终对抗式 Review；
+2. 增加必要的 Real Chromium / extension packaging gate；
+3. 完成 PR #6 文档收口；
 4. `browser.act` 继续保持 model-facing 不可见，直到后续 scoped authorization broker 完成。
 
 ## 文档

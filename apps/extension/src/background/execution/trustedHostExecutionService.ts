@@ -24,6 +24,12 @@ import type {
 import type {
   OperatorApprovalStore,
 } from "./operatorApprovalStore.js";
+import type {
+  EnterprisePolicyAuthorizationService,
+} from "./enterprisePolicyAuthorizationService.js";
+import type {
+  EnterpriseAuthorizationEnvelope,
+} from "../../protocol/enterpriseAuthorization.js";
 
 export type TrustedAuthorizationInput =
   StrictClickAuthorizationInput;
@@ -52,6 +58,8 @@ export interface TrustedHostExecutionServiceOptions {
   pollIntervalMs?: number;
   maxVerifyTimeoutMs?: number;
   operatorApprovals?: OperatorApprovalStore;
+  enterprisePolicyAuthorization?:
+    EnterprisePolicyAuthorizationService;
 }
 
 function boundedError(error: unknown): string {
@@ -90,6 +98,8 @@ export class TrustedHostExecutionService {
   private readonly maxVerifyTimeoutMs: number;
   private readonly operatorApprovals:
     OperatorApprovalStore | undefined;
+  private readonly enterprisePolicyAuthorization:
+    EnterprisePolicyAuthorizationService | undefined;
 
   constructor(
     private readonly states: TabStateStore,
@@ -116,6 +126,8 @@ export class TrustedHostExecutionService {
       options.maxVerifyTimeoutMs ?? 5_000;
     this.operatorApprovals =
       options.operatorApprovals;
+    this.enterprisePolicyAuthorization =
+      options.enterprisePolicyAuthorization;
   }
 
   replaceAutoActOrigins(
@@ -157,6 +169,20 @@ export class TrustedHostExecutionService {
 
     return this.operatorApprovals
       .status(approvalRequestId);
+  }
+
+  async issueEnterprisePolicyAuthorization(
+    envelope: EnterpriseAuthorizationEnvelope,
+  ) {
+    if (!this.enterprisePolicyAuthorization) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "enterprise policy authorization ingress is unavailable",
+      );
+    }
+
+    return this.enterprisePolicyAuthorization
+      .issue(envelope);
   }
 
   async executeStrictClickAndVerify(

@@ -32,7 +32,7 @@
 - [x] trusted-host cannot self-upgrade assurance
 - [x] shared strict-click issuance core with source-bound provenance
 - [x] operator-approved issuance ingress
-- [ ] enterprise-policy issuance ingress
+- [x] enterprise-policy issuance ingress
 
 ## Phase 6 — High-level API
 - [x] browser.open + Tab Ownership Registry

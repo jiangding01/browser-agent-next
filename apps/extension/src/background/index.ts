@@ -49,6 +49,17 @@ import {
   type OperatorApprovalRuntimeApi,
 } from "./execution/operatorApprovalIngress.js";
 import {
+  ChromeManagedEnterpriseAuthorizationPolicyProvider,
+  type ManagedStorageArea,
+} from "./execution/enterpriseManagedPolicy.js";
+import {
+  ChromeStorageEnterpriseAssertionReplayStore,
+  type WritableStorageArea,
+} from "./execution/enterpriseAssertionReplayStore.js";
+import {
+  EnterprisePolicyAuthorizationService,
+} from "./execution/enterprisePolicyAuthorizationService.js";
+import {
   type ChromeLifecycleApi,
   bindChromeDomLifecycle,
 } from "./chrome/chromeLifecycleBinding.js";
@@ -95,6 +106,10 @@ interface ChromeBackgroundApi extends ChromeLifecycleApi {
   webNavigation:
     & ChromeLifecycleApi["webNavigation"]
     & ChromeWebNavigationApi;
+  storage: {
+    managed: ManagedStorageArea;
+    local: WritableStorageArea;
+  };
 }
 
 declare const chrome: ChromeBackgroundApi;
@@ -183,6 +198,24 @@ const operatorApprovals =
     authorizationIssuance,
   );
 
+const enterprisePolicies =
+  new ChromeManagedEnterpriseAuthorizationPolicyProvider(
+    chrome.storage.managed,
+  );
+
+const enterpriseReplay =
+  new ChromeStorageEnterpriseAssertionReplayStore(
+    chrome.storage.local,
+  );
+
+const enterprisePolicyAuthorization =
+  new EnterprisePolicyAuthorizationService(
+    states,
+    enterprisePolicies,
+    enterpriseReplay,
+    authorizationIssuance,
+  );
+
 const clickDispatcher =
   new ChromeStrictClickDispatcher(
     debuggerTransport,
@@ -205,6 +238,7 @@ const trustedHostService =
     perceptionService,
     {
       operatorApprovals,
+      enterprisePolicyAuthorization,
     },
   );
 

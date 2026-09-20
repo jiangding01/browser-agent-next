@@ -4,6 +4,10 @@ import type {
   VerificationSpec,
   VerifyCondition,
 } from "@browser-agent-next/core";
+import {
+  isEnterpriseAuthorizationEnvelope,
+  type EnterpriseAuthorizationAssertion,
+} from "./enterpriseAuthorization.js";
 
 export const TRUSTED_NATIVE_HOST_NAME =
   "com.browser_agent_next.host";
@@ -36,6 +40,12 @@ export type TrustedHostRequest =
       type: "authorization.operator-approval-status";
       requestId: string;
       approvalRequestId: string;
+    }
+  | {
+      type: "authorization.issue-enterprise-policy";
+      requestId: string;
+      assertion: EnterpriseAuthorizationAssertion;
+      signature: string;
     }
   | {
       type: "execution.execute-strict-click";
@@ -114,6 +124,15 @@ export type TrustedHostResponse =
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+): boolean {
+  const keys = new Set(allowed);
+  return Object.keys(value)
+    .every((key) => keys.has(key));
 }
 
 function tabId(value: unknown): value is number {
@@ -259,6 +278,21 @@ export function isTrustedHostRequest(
     case "authorization.operator-approval-status":
       return nonEmptyString(request.approvalRequestId) &&
         request.approvalRequestId.length <= 256;
+
+    case "authorization.issue-enterprise-policy":
+      return hasOnlyKeys(
+        request,
+        [
+          "type",
+          "requestId",
+          "assertion",
+          "signature",
+        ],
+      ) &&
+        isEnterpriseAuthorizationEnvelope({
+          assertion: request.assertion,
+          signature: request.signature,
+        });
 
     case "execution.execute-strict-click":
       return nonEmptyString(request.actionId) &&
