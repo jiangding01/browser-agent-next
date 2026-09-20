@@ -259,7 +259,9 @@ export async function linkDomAxFrames(
       (allowed?.has(candidate.frameId) ?? true),
   );
 
-  const maxLinks = input.maxLinks ?? 200;
+  // AX collection 已经有明确 maxElements 上限。默认 linking 必须覆盖全部
+  // 已收集 candidate，不能额外引入一个静默的第二重截断。
+  const maxLinks = input.maxLinks ?? input.ax.elements.length;
   const limited = axCandidates.slice(0, maxLinks);
   const byFrame = new Map<string, typeof limited>();
 

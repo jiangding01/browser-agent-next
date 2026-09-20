@@ -13,42 +13,46 @@ feat/child-frame-exact-mapping
 ```text
 PR #1 Foundation + DOM Perception        ✅ 已合并
 PR #2 Hybrid + Strict Click              ✅ 已合并
-Child-frame Exact Mapping                🚧
-Child-frame Hybrid Perception            🚧
-Child-frame Strict Execution             ⏭ 后续独立阶段
+Child-frame Exact Mapping                ✅
+Child-frame Hybrid Perception            ✅ 已接入 pipeline
+Child-frame Hybrid Real E2E              🚧 CI 验证中
+Child-frame Strict Execution             🚫 本 PR 明确不开放
 High-level Browser API                   ⏭
 ```
 
-## 本轮开始实现
+## 本轮完成
 
-- 新增 webNavigation frame ↔ CDP Page.Frame exact correspondence；
-- 映射依据仅为 content isolated-world 的随机 `frameEpoch`；
-- 不使用 URL、frame 顺序、parent index 等弱信号；
-- AX collector 支持按 exact mapping 采集 main + child frame；
-- 任一 accessible frame 无法 exact mapping 时，AX coverage 明确降级为 partial；
-- DOM↔AX exact linking 从 main-frame-only 泛化为多 frame；
-- child-frame Strict Click 暂不开放，继续 fail closed。
+- webNavigation frame ↔ CDP Page.Frame 使用随机 `frameEpoch` exact mapping；
+- 不依赖 URL、顺序、parent index 等弱关联；
+- Chrome Observation Service 改为先采集 DOM，再根据真实 frameEpoch 建立 CDP correspondence；
+- main + child frame AX 统一进入 canonical BrowserObservation；
+- DOM↔AX exact linking 泛化到多 frame；
+- 默认 linking 覆盖全部已收集 AX candidate，不再叠加隐式 200 条截断；
+- E2E 增加 child Hybrid provenance；
+- child reload 后：main ref 保持，child linked ref 必须变化；
+- child target 即使已具有 DOM+AX linked identity，Strict Prepare 仍继续 fail closed。
 
 ## 当前安全边界
 
 ```text
-frameEpoch equality
-      ↓
-web frame ↔ CDP frame
-      ↓
-backendDOMNodeId
-      ↓
-stableId
-      ↓
-linked Persistent Ref
+DOM frameEpoch
+   ↓ exact
+CDP FrameId
+   ↓
+AX backendDOMNodeId
+   ↓ exact
+DOM stableId
+   ↓
+Persistent Ref
 ```
 
-两个层级都必须 exact，对 URL/name/geometry 相似度零依赖。
+Perception 已扩展到 child frame，但 Actuation 没有同步放宽。
+
+原因：child-local DOM point 不能直接作为 top-level `Input.dispatchMouseEvent` 坐标。必须另行实现 frame viewport coordinate projection 与 top-level hit-test。
 
 ## 下一步
 
-1. 把 multi-frame AX exact mapping 接入 Chrome observation service；
-2. 增加真实 Chromium child-frame Hybrid E2E；
-3. child reload 后验证旧 AX identity/ref 失效、新 identity 建立；
-4. 更新最终 coverage/invariants；
-5. 本 PR 先不扩展 child-frame click 坐标投影。
+1. 等待/修复最新 CI；
+2. 对 child-frame coverage 与 lifecycle 做对抗式 Review；
+3. 如真实 Chromium E2E 全绿，收口 PR #3；
+4. 下一 PR 再设计 child-frame coordinate projection 或先进入高层 Browser API。

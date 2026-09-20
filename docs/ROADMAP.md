@@ -16,19 +16,21 @@
 - [x] Strict Click execution baseline
 
 ### Child-frame Hybrid perception — PR #3
-- [x] frameEpoch-based webNavigation ↔ CDP exact mapping primitive
+- [x] frameEpoch-based webNavigation ↔ CDP exact mapping
 - [x] multi-frame AX collector
 - [x] multi-frame DOM ↔ AX exact linker
-- [ ] Chrome observation service integration
-- [ ] real Chromium child Hybrid E2E
-- [ ] child reload linked-identity lifecycle E2E
+- [x] Chrome observation service integration
+- [x] child-frame Hybrid pipeline
+- [x] child reload linked-identity lifecycle E2E
+- [ ] latest real Chromium E2E green
 - [ ] coverage / invariants final review
 
 ## Phase 2 — Persistent identity
 - [x] DOM lifecycle identity
 - [x] AX main-frame backend-node identity
 - [x] main-frame DOM ↔ AX exact linked identity
-- [ ] child-frame DOM ↔ AX live linked identity
+- [x] child-frame DOM ↔ AX live linked identity
+- [x] child reload invalidates linked child identity without rotating main ref
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore
@@ -38,8 +40,10 @@
 
 ## Phase 4 — Strict executor
 - [x] main-frame Strict Click closed loop
+- [x] child-frame target continues to fail closed
 - [ ] child-frame viewport coordinate projection
-- [ ] child-frame strict hit-test / dispatch
+- [ ] top-level projected hit-test
+- [ ] child-frame strict dispatch
 - [ ] child-frame adversarial execution E2E
 
 ## Phase 5 — Effects and authorization
