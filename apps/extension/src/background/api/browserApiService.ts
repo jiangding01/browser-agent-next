@@ -61,14 +61,14 @@ function normalizedObserveOptions(
     ...(boundedPositiveInteger(
       options?.maxElements,
       "maxElements",
-      2_000,
+      500,
     ) !== undefined
       ? { maxElements: options!.maxElements }
       : {}),
     ...(boundedPositiveInteger(
       options?.maxAxElements,
       "maxAxElements",
-      2_000,
+      500,
     ) !== undefined
       ? { maxAxElements: options!.maxAxElements }
       : {}),
@@ -97,6 +97,26 @@ function assertVerificationSpec(
       "verification must contain between 1 and 20 conditions",
     );
   }
+}
+
+function boundedFiniteNumber(
+  value: number | undefined,
+  name: string,
+  min: number,
+  max: number,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Number.isFinite(value) ||
+    value < min ||
+    value > max
+  ) {
+    throw new BrowserRuntimeError(
+      "POLICY_BLOCKED",
+      name + " must be between " + min + " and " + max,
+    );
+  }
+  return value;
 }
 
 function boundedError(error: unknown): string {
@@ -208,18 +228,21 @@ export class HighLevelBrowserApiService {
     const observeOptions = normalizedObserveOptions(input.options);
 
     const requestedTimeout =
-      input.timeoutMs ?? this.defaultWaitTimeoutMs;
-    const timeoutMs = Math.max(
-      0,
-      Math.min(requestedTimeout, this.maxWaitTimeoutMs),
-    );
-    const pollIntervalMs = Math.max(
-      50,
-      Math.min(
-        input.pollIntervalMs ?? this.defaultPollIntervalMs,
+      boundedFiniteNumber(
+        input.timeoutMs,
+        "timeoutMs",
+        0,
+        this.maxWaitTimeoutMs,
+      ) ?? this.defaultWaitTimeoutMs;
+    const timeoutMs = requestedTimeout;
+
+    const pollIntervalMs =
+      boundedFiniteNumber(
+        input.pollIntervalMs,
+        "pollIntervalMs",
+        50,
         1_000,
-      ),
-    );
+      ) ?? this.defaultPollIntervalMs;
     const deadline = this.now() + timeoutMs;
     let attempts = 0;
     let lastObservation: BrowserObservation | undefined;
@@ -284,6 +307,12 @@ export class HighLevelBrowserApiService {
 
   async act(input: BrowserActInput) {
     assertVerificationSpec(input.verification);
+    const verifyTimeoutMs = boundedFiniteNumber(
+      input.verifyTimeoutMs,
+      "verifyTimeoutMs",
+      0,
+      5_000,
+    );
 
     if (input.action.kind !== "click") {
       throw new BrowserRuntimeError(
@@ -306,8 +335,8 @@ export class HighLevelBrowserApiService {
       observedRevision: input.action.observedRevision,
       ref: input.action.ref,
       verification: input.verification,
-      ...(input.verifyTimeoutMs !== undefined
-        ? { verifyTimeoutMs: input.verifyTimeoutMs }
+      ...(verifyTimeoutMs !== undefined
+        ? { verifyTimeoutMs }
         : {}),
     });
   }

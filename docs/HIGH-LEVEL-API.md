@@ -38,6 +38,8 @@ ownedBySession = false
 
 这是安全默认，避免 Agent 自己声称“这个 Tab 是我创建的”从而降低 Policy 门槛。因此当前由高层 browser.observe 得到的 user-existing observation，generic unknown click 不能只靠 control-plane grant 执行；需要后续 operator-approved issuance 或可信 Tab Ownership Registry。
 
+单次高层 observation 当前最多请求 500 个 DOM/AX candidate。更大的页面通过 coverage=truncated 明确暴露不完整性，而不是冒险让 Native Messaging 返回超大状态。后续如需更大 action space，应优先增加 scoped/paged observation。
+
 ## browser.verify
 
 `browser.verify` 只针对指定 retained revision 做 deterministic verification。

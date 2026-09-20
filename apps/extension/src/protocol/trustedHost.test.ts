@@ -9,7 +9,7 @@ describe("isTrustedHostRequest", () => {
     })).toBe(true);
     expect(isTrustedHostRequest({
       type: "browser.observe", requestId: "req", tabId: 7,
-      options: { maxElements: 5001 },
+      options: { maxElements: 501 },
     })).toBe(false);
   });
 

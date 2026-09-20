@@ -129,8 +129,8 @@ function isObserveOptions(
   const options = value as Record<string, unknown>;
   return (
     (options.profile === undefined || options.profile === "dom" || options.profile === "hybrid") &&
-    (options.maxElements === undefined || boundedInteger(options.maxElements, 1, 2000)) &&
-    (options.maxAxElements === undefined || boundedInteger(options.maxAxElements, 1, 2000)) &&
+    (options.maxElements === undefined || boundedInteger(options.maxElements, 1, 500)) &&
+    (options.maxAxElements === undefined || boundedInteger(options.maxAxElements, 1, 500)) &&
     (options.includeValues === undefined || typeof options.includeValues === "boolean") &&
     (options.includeOpenShadowRoots === undefined || typeof options.includeOpenShadowRoots === "boolean")
   );

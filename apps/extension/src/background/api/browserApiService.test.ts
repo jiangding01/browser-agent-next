@@ -59,8 +59,34 @@ describe("HighLevelBrowserApiService", () => {
 
     await expect(service.observe({
       tabId: 7,
-      options: { maxElements: 2001 },
+      options: { maxElements: 501 },
     })).rejects.toThrow(/maxElements/);
+  });
+
+  it("browser.wait 在 service 层拒绝 NaN/越界 timeout 与 poll interval", async () => {
+    const service = new HighLevelBrowserApiService(
+      new TabStateStore(),
+      { async observe() { return observation(); } } as never,
+      {} as never,
+    );
+
+    await expect(service.wait({
+      tabId: 7,
+      timeoutMs: Number.NaN,
+      verification: {
+        mode: "all",
+        conditions: [{ type: "ref_exists", ref: "@e_1" }],
+      },
+    })).rejects.toThrow(/timeoutMs/);
+
+    await expect(service.wait({
+      tabId: 7,
+      pollIntervalMs: 1,
+      verification: {
+        mode: "all",
+        conditions: [{ type: "ref_exists", ref: "@e_1" }],
+      },
+    })).rejects.toThrow(/pollIntervalMs/);
   });
 
   it("browser.verify 只验证指定 retained revision", () => {
