@@ -1,7 +1,12 @@
 import {
   BrowserRuntimeError,
-  type BrowserActionKind,
+  type BrowserActInput,
   type BrowserObservation,
+  type BrowserObserveInput,
+  type BrowserObserveOptions,
+  type BrowserVerifyInput,
+  type BrowserWaitInput,
+  type BrowserWaitResult,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
@@ -11,55 +16,6 @@ import {
 } from "@browser-agent-next/runtime";
 import type { ChromeDomObservationService } from "../chrome/chromeObservationService.js";
 import type { TrustedHostExecutionService } from "../execution/trustedHostExecutionService.js";
-
-export interface BrowserObserveOptions {
-  profile?: "dom" | "hybrid";
-  maxElements?: number;
-  maxAxElements?: number;
-  includeValues?: boolean;
-  includeOpenShadowRoots?: boolean;
-}
-
-export interface BrowserObserveInput {
-  tabId: number;
-  sinceRevision?: string;
-  options?: BrowserObserveOptions;
-}
-
-export interface BrowserVerifyInput {
-  tabId: number;
-  observedRevision: string;
-  verification: VerificationSpec;
-}
-
-export interface BrowserWaitInput {
-  tabId: number;
-  verification: VerificationSpec;
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-  options?: BrowserObserveOptions;
-}
-
-export interface BrowserWaitResult {
-  verification: VerificationResult;
-  attempts: number;
-  timedOut: boolean;
-  observation?: BrowserObservation;
-  lastObservationError?: string;
-}
-
-export interface BrowserActInput {
-  tabId: number;
-  action: {
-    actionId: string;
-    kind: BrowserActionKind;
-    observedRevision: string;
-    ref?: string;
-    authorizationId?: string;
-  };
-  verification: VerificationSpec;
-  verifyTimeoutMs?: number;
-}
 
 export interface BrowserApiServiceOptions {
   now?: () => number;

@@ -1,18 +1,12 @@
 import type {
+  BrowserActInput,
+  BrowserObserveOptions,
   VerificationSpec,
   VerifyCondition,
 } from "@browser-agent-next/core";
 
 export const TRUSTED_NATIVE_HOST_NAME =
   "com.browser_agent_next.host";
-
-export interface BrowserApiObserveOptions {
-  profile?: "dom" | "hybrid";
-  maxElements?: number;
-  maxAxElements?: number;
-  includeValues?: boolean;
-  includeOpenShadowRoots?: boolean;
-}
 
 export type TrustedHostRequest =
   | {
@@ -45,7 +39,7 @@ export type TrustedHostRequest =
       requestId: string;
       tabId: number;
       sinceRevision?: string;
-      options?: BrowserApiObserveOptions;
+      options?: BrowserObserveOptions;
     }
   | {
       type: "browser.verify";
@@ -61,19 +55,13 @@ export type TrustedHostRequest =
       verification: VerificationSpec;
       timeoutMs?: number;
       pollIntervalMs?: number;
-      options?: BrowserApiObserveOptions;
+      options?: BrowserObserveOptions;
     }
   | {
       type: "browser.act";
       requestId: string;
       tabId: number;
-      action: {
-        actionId: string;
-        kind: "click";
-        observedRevision: string;
-        ref: string;
-        authorizationId: string;
-      };
+      action: BrowserActInput["action"];
       verification: VerificationSpec;
       verifyTimeoutMs?: number;
     };
@@ -135,7 +123,7 @@ function optionalFiniteNumber(
 
 function isObserveOptions(
   value: unknown,
-): value is BrowserApiObserveOptions {
+): value is BrowserObserveOptions {
   if (value === undefined) return true;
   if (typeof value !== "object" || value === null) return false;
   const options = value as Record<string, unknown>;
