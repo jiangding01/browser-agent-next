@@ -73,3 +73,30 @@
 69. 普通 perception ingress 的 requestId、sinceRevision、candidate count 与选项类型必须经过有界校验，拒绝无界输入和未知类型。
 70. AX lifecycle binding 必须同时保留 frameEpoch、CDP frame id 与 documentEpoch；迟到的 navigation event 若对应当前已观察文档，不得清理新文档的 refs 或 state。
 71. Native Messaging Port 断连或回包失败后必须停用 ingress；异步请求完成时不得继续回传、重连或重放动作。
+
+72. Model-facing tool catalog 必须是独立显式 allowlist；trusted-host 内部 RPC、新增控制面方法不能因为名称存在就自动成为模型工具。
+73. Model read/egress origin policy、model navigation origin policy、Runtime auto-act origin policy 是三个独立 policy plane，任何一个 allow 都不能推导另外两个 allow。
+74. `sinceRevision`、model-facing `browser.extract` 与 `browser.verify` 只能引用已经成功通过 model-egress projection 的 model-visible revision；adapter restart 后不得猜测恢复内部 revision 可见性。
+75. 未被 model read policy 允许的 child frame 内容不得进入模型；发生 frame egress filtering 时 coverage 必须降级，模型“没看到”不能被解释为页面不存在。
+76. credential/value 默认不进入模型；模型请求 `includeValues=true` 不能越过 trusted model-egress policy，verification evidence 也不得把被 redaction 的 observed value 二次带回模型。
+77. Model-facing `extract/verify/wait` 必须基于 projected model-visible observation；不得通过直接调用 trusted Runtime 的完整 retained state / verification 形成 hidden-state boolean side channel。
+78. `browser.act` 在模型边界完成 scoped authorization broker 前必须保持不可见；模型不能直接提供或 mint authorizationId/assurance 来绕过该边界。
+
+79. Model-facing MCP stdio 必须使用 connection factory 创建独立 adapter/invoker；model-visible revision store 不得跨 MCP connection 共享。
+80. MCP tools/call 的名称必须再次经过当前 catalog allowlist 校验；未列出的工具不得进入 model-facing adapter dispatch。
+81. MCP tool result 必须有显式字节数上限；超限结果 fail closed，不能无界写入模型上下文。
+82. MCP error 出境只能包含 bounded code/message；BrowserRuntimeError.details、stack 与未知异常原文不得返回模型。
+83. Stdio stdout 是 MCP protocol channel；实现不得向 stdout 写业务日志或调试文本。
+
+84. Model-facing trusted Runtime client 的公共能力只能是明确需要的高层 Runtime 方法；当前仅允许 browser.open / browser.observe，不得暴露 generic trusted RPC passthrough。
+85. Trusted Runtime HTTP client 只能连接显式 loopback endpoint，并且必须禁止 redirect；trusted Bearer token 不得因 URL/redirect/proxy-style 配置进入非 loopback 目标。
+86. MCP 侧只能读取 native-host 已存在的 trusted token，不能创建、轮换或修复 token；token 路径必须拒绝 symlink、错误 owner 和过宽权限。
+87. Trusted Runtime response 必须绑定精确 requestId，并受显式字节数与结构校验约束；不满足时不得进入 model-facing adapter。
+88. browser.open 在传输失败且无法证明是否已创建 Tab 时必须返回 ACTION_OUTCOME_UNKNOWN；上层不得自动重放 open。
+89. trusted-host 返回的未知 error code 不得直接升级为 RuntimeErrorCode；只有共享白名单中的 error code 才能保留语义。
+
+90. MCP operator 配置只能来自进程启动控制面，不得由 model tool arguments 修改；read/navigation origin 默认必须是空集合。
+91. MCP CLI 不得提供 trusted token value 的环境变量入口；只允许读取受保护 token file，并且必须在 stdio protocol wire 启动前完成校验。
+92. MCP CLI 的 origin 配置必须复用 exact-origin policy；path/query/fragment/credentials 不能被静默 canonicalize 成更宽 origin。
+93. MCP CLI 的 `includeValues` 默认必须为 false；只有显式 operator 配置可以开启，模型自己的 includeValues 请求不能越过该开关。
+94. MCP CLI 启动失败只能写 stderr；任何 startup/config/debug 文本都不得污染 stdout MCP wire。

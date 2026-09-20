@@ -2,5 +2,21 @@
   "name": "@browser-agent-next/mcp-server",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "bin": {
+    "browser-agent-next-mcp": "dist/cli.js"
+  },
+  "exports": { ".": "./dist/index.js" },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@browser-agent-next/core": "workspace:*",
+    "@browser-agent-next/policy": "workspace:*",
+    "@browser-agent-next/runtime": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0"
+  }
 }
