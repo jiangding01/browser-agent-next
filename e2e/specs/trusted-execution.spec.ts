@@ -450,8 +450,32 @@ test(
 
       const tabId =
         await targetTabId(harness);
-      const current =
-        await observe(harness, tabId);
+
+      const currentResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.observe",
+            requestId: "browser-observe-1",
+            tabId,
+            options: {
+              profile: "hybrid",
+            },
+          },
+        );
+
+      expect(currentResponse).toMatchObject({
+        ok: true,
+        result: {
+          tab: {
+            tabId,
+            ownedBySession: false,
+          },
+        },
+      });
+
+      const current = currentResponse.result;
 
       const save = current.elements.find(
         (element) =>
@@ -463,6 +487,65 @@ test(
           "Save ref unavailable",
         );
       }
+
+      const verifyResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.verify",
+            requestId: "browser-verify-1",
+            tabId,
+            observedRevision:
+              current.revision.id,
+            verification: {
+              mode: "all",
+              conditions: [{
+                type: "ref_exists",
+                ref: save.ref,
+              }],
+            },
+          },
+        );
+
+      expect(verifyResponse).toMatchObject({
+        ok: true,
+        result: {
+          verified: true,
+          conclusive: true,
+          revision: current.revision.id,
+        },
+      });
+
+      const waitResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.wait",
+            requestId: "browser-wait-1",
+            tabId,
+            timeoutMs: 1_000,
+            pollIntervalMs: 100,
+            verification: {
+              mode: "all",
+              conditions: [{
+                type: "ref_exists",
+                ref: save.ref,
+              }],
+            },
+          },
+        );
+
+      expect(waitResponse).toMatchObject({
+        ok: true,
+        result: {
+          timedOut: false,
+          verification: {
+            verified: true,
+          },
+        },
+      });
 
       const policyResponse =
         await trustedRequest(
@@ -528,15 +611,17 @@ test(
           rpcPort,
           token,
           {
-            type:
-              "execution.execute-strict-click",
-            requestId: "execute-replacement",
-            actionId: "action-replacement",
-            authorizationId: "auth-1",
+            type: "browser.act",
+            requestId: "browser-act-replacement",
             tabId,
-            observedRevision:
-              current.revision.id,
-            ref: save.ref,
+            action: {
+              actionId: "action-replacement",
+              kind: "click",
+              authorizationId: "auth-1",
+              observedRevision:
+                current.revision.id,
+              ref: save.ref,
+            },
             verification: {
               mode: "all",
               conditions: [{
@@ -559,8 +644,26 @@ test(
 
       await expect(target).toHaveURL(mainUrl);
 
+      const refreshedResponse =
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type: "browser.observe",
+            requestId: "browser-observe-2",
+            tabId,
+            options: {
+              profile: "hybrid",
+            },
+          },
+        );
+
+      expect(refreshedResponse).toMatchObject({
+        ok: true,
+      });
+
       const refreshed =
-        await observe(harness, tabId);
+        refreshedResponse.result;
       const replacementSave =
         refreshed.elements.find(
           (element) =>
@@ -622,15 +725,17 @@ test(
           rpcPort,
           token,
           {
-            type:
-              "execution.execute-strict-click",
-            requestId: "execute-2",
-            actionId: "action-2",
-            authorizationId: "auth-2",
+            type: "browser.act",
+            requestId: "browser-act-2",
             tabId,
-            observedRevision:
-              refreshed.revision.id,
-            ref: replacementSave.ref,
+            action: {
+              actionId: "action-2",
+              kind: "click",
+              authorizationId: "auth-2",
+              observedRevision:
+                refreshed.revision.id,
+              ref: replacementSave.ref,
+            },
             verification: {
               mode: "all",
               conditions: [{
