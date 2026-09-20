@@ -92,3 +92,27 @@ Assurance 只能由受信签发边界产生。
         ≠
 该 assurance 是否满足某个最低策略门槛
 ```
+
+
+## PR #6：独立签发 ingress
+
+PR #6 开始把 assurance label 从“Store 已支持”推进到“存在真实独立签发入口”。
+
+第一步先引入共享的 `AuthorizationIssuanceService`。所有签发入口共享以下校验：
+
+- retained observation 必须仍存在；
+- ref 必须属于该 observation；
+- origin 必须在 Runtime auto-act allowlist；
+- TTL 必须有界；
+- 当前 tab/effect 所要求的 minimum assurance 必须被满足；
+- grant 最终仍由 `AuthorizationStore` 执行 source ↔ assurance exact binding。
+
+共享 service **不提供** `issue(input, source, assurance)` 这种通用 API，而是只暴露固定方法：
+
+```text
+issueControlPlaneStrictClick()
+issueOperatorApprovedStrictClick()
+issueEnterprisePolicyStrictClick()
+```
+
+这样每条 ingress 只能调用对应的固定方法，不能从请求 JSON 或 transport payload 中选择/提升 assurance。

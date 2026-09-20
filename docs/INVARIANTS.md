@@ -100,3 +100,6 @@
 92. MCP CLI 的 origin 配置必须复用 exact-origin policy；path/query/fragment/credentials 不能被静默 canonicalize 成更宽 origin。
 93. MCP CLI 的 `includeValues` 默认必须为 false；只有显式 operator 配置可以开启，模型自己的 includeValues 请求不能越过该开关。
 94. MCP CLI 启动失败只能写 stderr；任何 startup/config/debug 文本都不得污染 stdout MCP wire。
+
+95. Authorization issuance 的共享核心不得向 ingress 暴露可选 source/assurance 参数；control-plane、operator-approved、enterprise-policy 必须通过固定的专用签发方法进入共享校验。
+96. 不同 assurance ingress 可以共享 retained observation / ref / origin / TTL / minimum-assurance 校验，但证明“谁在签发”的 transport/identity 边界必须彼此独立。

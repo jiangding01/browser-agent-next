@@ -4,11 +4,8 @@ import {
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
-import {
-  authorizationAssuranceSatisfies,
-  minimumAuthorizationAssurance,
-  type InMemoryAuthorizationStore,
-  type MutableExactOriginAllowlist,
+import type {
+  MutableExactOriginAllowlist,
 } from "@browser-agent-next/policy";
 import {
   verifyObservation,
@@ -17,6 +14,9 @@ import {
 import type {
   ChromeDomObservationService,
 } from "../chrome/chromeObservationService.js";
+import type {
+  AuthorizationIssuanceService,
+} from "./authorizationIssuanceService.js";
 import type {
   ExecuteStrictClickResult,
   PolicyGatedStrictClickExecutor,
@@ -40,9 +40,6 @@ export interface TrustedExecuteAndVerifyInput {
   verifyTimeoutMs?: number;
 }
 
-const TRUSTED_HOST_ASSURANCE: AuthorizationAssurance =
-  "control-plane";
-
 export interface TrustedExecuteAndVerifyResult {
   execution: ExecuteStrictClickResult;
   verification: VerificationResult;
@@ -56,7 +53,6 @@ export interface TrustedHostExecutionServiceOptions {
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   maxVerifyTimeoutMs?: number;
-  maxAuthorizationTtlMs?: number;
 }
 
 function boundedError(error: unknown): string {
@@ -93,11 +89,10 @@ export class TrustedHostExecutionService {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pollIntervalMs: number;
   private readonly maxVerifyTimeoutMs: number;
-  private readonly maxAuthorizationTtlMs: number;
 
   constructor(
     private readonly states: TabStateStore,
-    private readonly authorizations: InMemoryAuthorizationStore,
+    private readonly authorizationIssuance: AuthorizationIssuanceService,
     private readonly origins: MutableExactOriginAllowlist,
     private readonly executor: PolicyGatedStrictClickExecutor,
     private readonly observations: ChromeDomObservationService,
@@ -109,8 +104,6 @@ export class TrustedHostExecutionService {
     );
     this.pollIntervalMs = options.pollIntervalMs ?? 100;
     this.maxVerifyTimeoutMs = options.maxVerifyTimeoutMs ?? 5_000;
-    this.maxAuthorizationTtlMs =
-      options.maxAuthorizationTtlMs ?? 60_000;
   }
 
   replaceAutoActOrigins(origins: readonly string[]): string[] {
@@ -125,86 +118,8 @@ export class TrustedHostExecutionService {
     origin: string;
     assurance: AuthorizationAssurance;
   } {
-    if (
-      !Number.isFinite(input.ttlMs) ||
-      input.ttlMs <= 0 ||
-      input.ttlMs > this.maxAuthorizationTtlMs
-    ) {
-      throw new BrowserRuntimeError(
-        "AUTHORIZATION_REQUIRED",
-        "trusted authorization ttl is outside the allowed range",
-      );
-    }
-
-    const stored = this.states.get(
-      input.tabId,
-      input.observedRevision,
-    );
-
-    if (!stored) {
-      throw new BrowserRuntimeError(
-        "OBSERVATION_EXPIRED",
-        "cannot authorize an observation that is no longer retained",
-      );
-    }
-
-    if (!stored.byRef.has(input.ref)) {
-      throw new BrowserRuntimeError(
-        "REF_NOT_IN_OBSERVATION",
-        "cannot authorize a ref outside the retained observation",
-      );
-    }
-
-    if (!this.origins.isAllowed(stored.observation.tab.origin)) {
-      throw new BrowserRuntimeError(
-        "ORIGIN_NOT_ALLOWED",
-        "cannot authorize strict click on an origin outside the auto-act allowlist",
-      );
-    }
-
-    const requiredAssurance =
-      minimumAuthorizationAssurance(
-        "unknown",
-        stored.observation.tab.ownedBySession,
-      );
-
-    if (
-      requiredAssurance !== undefined &&
-      !authorizationAssuranceSatisfies(
-        TRUSTED_HOST_ASSURANCE,
-        requiredAssurance,
-      )
-    ) {
-      throw new BrowserRuntimeError(
-        "AUTHORIZATION_REQUIRED",
-        "trusted control-plane grant is insufficient for this tab; required assurance: " +
-          requiredAssurance,
-        {
-          requiredAssurance,
-          availableAssurance: TRUSTED_HOST_ASSURANCE,
-        },
-      );
-    }
-
-    const grant = this.authorizations.issue({
-      id: input.authorizationId,
-      tabId: input.tabId,
-      observedRevision: input.observedRevision,
-      ref: input.ref,
-      actionKind: "click",
-      effectClass: "unknown",
-      assurance: TRUSTED_HOST_ASSURANCE,
-      ttlMs: input.ttlMs,
-      singleUse: true,
-      source: "trusted-host",
-    });
-
-    return {
-      id: grant.id,
-      expiresAt: grant.expiresAt,
-      origin: stored.observation.tab.origin,
-      assurance: grant.assurance,
-    };
+    return this.authorizationIssuance
+      .issueControlPlaneStrictClick(input);
   }
 
   async executeStrictClickAndVerify(

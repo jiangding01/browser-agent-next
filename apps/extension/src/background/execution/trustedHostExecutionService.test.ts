@@ -5,6 +5,9 @@ import {
 } from "@browser-agent-next/policy";
 import { TabStateStore } from "@browser-agent-next/runtime";
 import type { BrowserObservation } from "@browser-agent-next/core";
+import {
+  AuthorizationIssuanceService,
+} from "./authorizationIssuanceService.js";
 import { TrustedHostExecutionService } from "./trustedHostExecutionService.js";
 
 function observation(): BrowserObservation {
@@ -70,7 +73,11 @@ describe("TrustedHostExecutionService", () => {
 
     const service = new TrustedHostExecutionService(
       states,
-      authorizations,
+      new AuthorizationIssuanceService(
+        states,
+        authorizations,
+        origins,
+      ),
       origins,
       { execute: async () => { throw new Error("not used"); } } as never,
       { observe: async () => { throw new Error("not used"); } } as never,
@@ -105,7 +112,11 @@ describe("TrustedHostExecutionService", () => {
 
     const service = new TrustedHostExecutionService(
       states,
-      new InMemoryAuthorizationStore(),
+      new AuthorizationIssuanceService(
+        states,
+        new InMemoryAuthorizationStore(),
+        origins,
+      ),
       origins,
       {} as never,
       {} as never,
@@ -126,7 +137,11 @@ describe("TrustedHostExecutionService", () => {
 
     const service = new TrustedHostExecutionService(
       states,
-      new InMemoryAuthorizationStore(),
+      new AuthorizationIssuanceService(
+        states,
+        new InMemoryAuthorizationStore(),
+        new MutableExactOriginAllowlist(),
+      ),
       new MutableExactOriginAllowlist(),
       {} as never,
       {} as never,
@@ -154,7 +169,11 @@ describe("TrustedHostExecutionService", () => {
 
     const service = new TrustedHostExecutionService(
       states,
-      new InMemoryAuthorizationStore(),
+      new AuthorizationIssuanceService(
+        states,
+        new InMemoryAuthorizationStore(),
+        origins,
+      ),
       origins,
       {
         async execute() {

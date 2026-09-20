@@ -32,6 +32,9 @@ import {
   PolicyGatedStrictClickExecutor,
 } from "./execution/policyGatedStrictClick.js";
 import {
+  AuthorizationIssuanceService,
+} from "./execution/authorizationIssuanceService.js";
+import {
   TrustedHostExecutionService,
 } from "./execution/trustedHostExecutionService.js";
 import {
@@ -159,6 +162,13 @@ const authorizations =
 const autoActOrigins =
   new MutableExactOriginAllowlist();
 
+const authorizationIssuance =
+  new AuthorizationIssuanceService(
+    states,
+    authorizations,
+    autoActOrigins,
+  );
+
 const clickDispatcher =
   new ChromeStrictClickDispatcher(
     debuggerTransport,
@@ -175,7 +185,7 @@ const policyGatedClick =
 const trustedHostService =
   new TrustedHostExecutionService(
     states,
-    authorizations,
+    authorizationIssuance,
     autoActOrigins,
     policyGatedClick,
     perceptionService,
