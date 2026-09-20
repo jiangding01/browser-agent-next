@@ -100,8 +100,6 @@ export class IsolatedWorldDomStableIdInspector
 
     if (bindings.length === 0) return undefined;
 
-    if (contexts.length === 0) return undefined;
-
     const objectGroup = nextObjectGroup(input.tabId);
 
     try {
