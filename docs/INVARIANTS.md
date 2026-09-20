@@ -94,3 +94,9 @@
 87. Trusted Runtime response 必须绑定精确 requestId，并受显式字节数与结构校验约束；不满足时不得进入 model-facing adapter。
 88. browser.open 在传输失败且无法证明是否已创建 Tab 时必须返回 ACTION_OUTCOME_UNKNOWN；上层不得自动重放 open。
 89. trusted-host 返回的未知 error code 不得直接升级为 RuntimeErrorCode；只有共享白名单中的 error code 才能保留语义。
+
+90. MCP operator 配置只能来自进程启动控制面，不得由 model tool arguments 修改；read/navigation origin 默认必须是空集合。
+91. MCP CLI 不得提供 trusted token value 的环境变量入口；只允许读取受保护 token file，并且必须在 stdio protocol wire 启动前完成校验。
+92. MCP CLI 的 origin 配置必须复用 exact-origin policy；path/query/fragment/credentials 不能被静默 canonicalize 成更宽 origin。
+93. MCP CLI 的 `includeValues` 默认必须为 false；只有显式 operator 配置可以开启，模型自己的 includeValues 请求不能越过该开关。
+94. MCP CLI 启动失败只能写 stderr；任何 startup/config/debug 文本都不得污染 stdout MCP wire。

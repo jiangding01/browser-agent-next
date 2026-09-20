@@ -248,10 +248,49 @@ client 没有 public generic `callTrusted(type, payload)` API，因此 MCP 层�
 
 响应必须满足 requestId 精确匹配、字节预算与最小结构验证。对于 `browser.open`，传输在请求发出后失败时无法证明 tab 是否已经创建，因此必须报告 `ACTION_OUTCOME_UNKNOWN`；`browser.observe` 没有副作用，同类失败使用 `STATE_INCOMPLETE`。
 
+## MCP CLI / Operator Configuration
+
+`@browser-agent-next/mcp-server` 提供 `browser-agent-next-mcp` 可执行入口。
+
+配置只从进程启动环境读取，属于 operator/control-plane 配置，不允许模型通过 tool arguments 修改。默认值刻意 fail closed：
+
+```text
+MODEL_READ_ORIGINS        = []
+MODEL_NAVIGATION_ORIGINS  = []
+MODEL_INCLUDE_VALUES      = false
+MODEL_MAX_ELEMENTS        = 100
+MODEL_VISIBLE_REVISIONS   = 64
+RPC_HOST                  = 127.0.0.1
+RPC_PORT                  = 17366
+```
+
+常用环境变量：
+
+```text
+BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS
+BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS
+BROWSER_AGENT_NEXT_MODEL_TOOLS
+BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES
+BROWSER_AGENT_NEXT_MODEL_MAX_OBSERVATION_ELEMENTS
+BROWSER_AGENT_NEXT_MODEL_MAX_VISIBLE_REVISIONS
+BROWSER_AGENT_NEXT_RPC_HOST
+BROWSER_AGENT_NEXT_RPC_PORT
+BROWSER_AGENT_NEXT_RPC_TOKEN_PATH
+BROWSER_AGENT_NEXT_RPC_TIMEOUT_MS
+BROWSER_AGENT_NEXT_RPC_MAX_RESPONSE_BYTES
+BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES
+```
+
+origin 配置仍必须是纯 http/https exact origin。RPC host 只能是 `127.0.0.1 / localhost / ::1`。
+
+没有提供“trusted token value”环境变量。CLI 在 stdio server 启动前从 native-host token file 只读获取 token，并沿用 symlink / owner / permission 校验；因此配置错误不会等到首个 tool call 才出现，也不会向 stdout 写任何错误文本。
+
+`serveStdio(factory)` 每次构造连接实例时都会重新创建 `ModelFacingBrowserAdapter`，所以 projected revision state 仍然是 connection-local。
+
 ## 后续工作
 
 PR #5 接下来继续：
 
-1. 增加真实 stdio 子进程集成测试；
-2. 增加 MCP CLI 的受信配置入口；
-3. 设计 browser.act 的内部 scoped authorization broker，确认模型无法直接 mint grant 后再开放副作用工具。
+1. 增加真实 stdio 子进程集成测试与失败路径测试；
+2. 完成 PR #5 最终对抗式 Review；
+3. `browser.act` 继续保持 model-facing 不可见；scoped authorization broker 作为后续独立安全阶段处理。

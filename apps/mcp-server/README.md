@@ -38,3 +38,34 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 - `browser.open` 的传输歧义按 `ACTION_OUTCOME_UNKNOWN` 处理。
 
 下一步是把这一 client 与 stdio server 通过受信配置入口组装成真正可执行的 MCP 进程，并增加子进程级集成测试。
+
+## 运行 CLI
+
+构建后可执行：
+
+```bash
+pnpm --filter @browser-agent-next/mcp-server build
+
+BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS=https://example.com \
+BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS=https://example.com \
+node apps/mcp-server/dist/cli.js
+```
+
+也可以使用 package bin：`browser-agent-next-mcp`。
+
+默认 read/navigation origins 都为空，因此不配置 origin 时会 fail closed。values 默认不出境。
+
+可选配置包括：
+
+- `BROWSER_AGENT_NEXT_MODEL_TOOLS`
+- `BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES`
+- `BROWSER_AGENT_NEXT_MODEL_MAX_OBSERVATION_ELEMENTS`
+- `BROWSER_AGENT_NEXT_MODEL_MAX_VISIBLE_REVISIONS`
+- `BROWSER_AGENT_NEXT_RPC_HOST`
+- `BROWSER_AGENT_NEXT_RPC_PORT`
+- `BROWSER_AGENT_NEXT_RPC_TOKEN_PATH`
+- `BROWSER_AGENT_NEXT_RPC_TIMEOUT_MS`
+- `BROWSER_AGENT_NEXT_RPC_MAX_RESPONSE_BYTES`
+- `BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES`
+
+trusted token 本身不接受环境变量明文配置；CLI 只读取 native-host token file。

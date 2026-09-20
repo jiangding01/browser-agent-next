@@ -53,6 +53,7 @@
 - [x] MCP tool schema/catalog
 - [x] MCP stdio transport/server implementation
 - [x] minimal adapter → trusted Runtime client (browser.open / browser.observe only)
+- [x] operator config + executable MCP CLI (fail-closed defaults)
 - [ ] MCP transport integration tests
 - [ ] safe scoped authorization broker before exposing browser.act
 

@@ -26,6 +26,7 @@ Projected extract / verify / wait         ✅ baseline
 MCP tool schema/catalog                    ✅
 MCP stdio transport                        ✅ server seam
 Model-facing Runtime client                ✅ open/observe only
+MCP executable CLI + operator config       ✅ fail-closed baseline
 Safe browser.act authorization broker      ⏳
 ```
 
@@ -77,6 +78,19 @@ Safe browser.act authorization broker      ⏳
 - `browser.observe` 同类失败返回 `STATE_INCOMPLETE`；
 - trusted host 的已知 Runtime error code 才允许保留语义，未知 code 不直接透传。
 
+## MCP CLI baseline
+
+- package 暴露 `browser-agent-next-mcp` 可执行入口；
+- operator 配置只从进程启动环境读取，不从 MCP tool arguments 读取；
+- read/navigation origin 默认都是空集合，未配置时数据出境和导航都 fail closed；
+- tools 默认是当前 5 个 model-safe tools，但仍受 origin policy 与 adapter policy 双重约束；
+- `includeValues` 默认 false；
+- origin 继续使用 exact-origin 解析，path/query/fragment/credentials 配置直接拒绝；
+- RPC host 在启动阶段就限制为 loopback；
+- 不支持通过环境变量直接传 trusted token，只允许 token file path；
+- trusted token 在 stdio wire 启动前读取并验证，启动错误只写 stderr；
+- 每次 MCP connection factory 仍创建新的 adapter/model-visible revision store。
+
 ## 当前边界
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
@@ -88,8 +102,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 ## 下一步
 
 1. 增加真实 stdio 子进程集成测试与失败路径测试；
-2. 补齐 MCP CLI 的受信配置入口；
-3. 最后再设计 `browser.act` 的内部 scoped authorization broker。
+2. 完成 PR #5 最终对抗式 Review 与文档收口；
+3. `browser.act` 继续保持 model-facing 不可见，scoped authorization broker 留待后续独立阶段。
 
 ## 文档
 
