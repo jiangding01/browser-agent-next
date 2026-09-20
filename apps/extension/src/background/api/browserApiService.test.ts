@@ -222,9 +222,11 @@ describe("HighLevelBrowserApiService", () => {
           throw new Error("must not execute");
         },
       } as never,
+      undefined,
+      undefined,
       {
         now: () => now,
-        sleep: async (ms) => { now += ms; },
+        sleep: async (ms: number) => { now += ms; },
         defaultPollIntervalMs: 50,
       },
     );
