@@ -247,8 +247,10 @@ describe("connectTrustedNativeIngress", () => {
       signature: "A".repeat(86),
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise<void>(
+      (resolve) =>
+        setTimeout(resolve, 0),
+    );
 
     expect(received).toEqual([{
       assertion,
