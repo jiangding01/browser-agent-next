@@ -22,8 +22,9 @@
 - [x] Chrome observation service integration
 - [x] child-frame Hybrid pipeline
 - [x] child reload linked-identity lifecycle E2E
-- [ ] latest real Chromium E2E green
-- [ ] coverage / invariants final review
+- [x] frameEpoch collision fail-closed test
+- [x] real Chromium E2E green
+- [x] coverage / invariants final review
 
 ## Phase 2 — Persistent identity
 - [x] DOM lifecycle identity
@@ -31,6 +32,7 @@
 - [x] main-frame DOM ↔ AX exact linked identity
 - [x] child-frame DOM ↔ AX live linked identity
 - [x] child reload invalidates linked child identity without rotating main ref
+- [ ] OOPIF/session exact mapping
 
 ## Phase 3 — Revision and delta
 - [x] bounded TabStateStore

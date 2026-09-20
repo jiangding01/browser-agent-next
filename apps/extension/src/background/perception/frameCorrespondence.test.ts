@@ -121,4 +121,58 @@ describe("mapDomFramesToCdp", () => {
       "web:2",
     ]);
   });
+  it("frameEpoch 冲突时 fail closed，不按 URL 或顺序消歧", async () => {
+    const conflictedDom = dom();
+    conflictedDom.frameEpochByFrame = {
+      "web:0": "same-epoch",
+      "web:2": "same-epoch",
+    };
+
+    const correspondence = await mapDomFramesToCdp({
+      tabId: 7,
+      frames: [
+        {
+          frameId: "web:0",
+          url: "https://a.test/",
+          documentEpoch: "doc-main",
+          accessible: true,
+        },
+        {
+          frameId: "web:2",
+          url: "https://b.test/",
+          documentEpoch: "doc-child",
+          accessible: true,
+        },
+      ],
+      dom: conflictedDom,
+      transport: {
+        async send() {
+          return {
+            frameTree: {
+              frame: { id: "cdp-main" },
+              childFrames: [
+                { frame: { id: "cdp-child" } },
+              ],
+            },
+          };
+        },
+      } as never,
+      resolver: {
+        async frameEpochForCdpFrame() {
+          return "same-epoch";
+        },
+      },
+    });
+
+    expect(correspondence.mappings).toEqual([]);
+    expect(correspondence.unmappedWebFrameIds.sort()).toEqual([
+      "web:0",
+      "web:2",
+    ]);
+    expect(
+      correspondence.warnings.some((warning) =>
+        warning.includes("非唯一"),
+      ),
+    ).toBe(true);
+  });
 });

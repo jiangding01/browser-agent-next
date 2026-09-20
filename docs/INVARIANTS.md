@@ -48,3 +48,8 @@
 44. auto-act allowlist 的配置值必须是纯 origin；包含 path/query/fragment/credentials 的 URL 必须拒绝，不能静默扩大为整个 origin。
 45. Native Messaging 一旦发生可能产生半帧的同步写异常，当前 transport 必须 fail closed；不能继续向同一长度流发送后续 frame。
 46. Trusted Native Host token 仅证明 control-plane caller 能访问该 token；如果同一 Coding Agent 拥有同 UID 任意 filesystem/network 能力，不得把该 token 宣称为对该 Agent 的 OS 级 hard authorization。
+47. webNavigation frame 与 CDP Frame 的对应关系必须由 browser-level strong evidence 建立；URL、frame 顺序、parent index、role/name/geometry 均不能作为 identity mapping 依据。
+48. 任一 declared accessible frame 无法建立 exact CDP mapping 时，AX coverage 必须降级为 partial；不能因为其它 frame 成功而报告 complete。
+49. child-frame Hybrid identity 的建立不自动授予 child-frame actuation 能力；在 top-level coordinate projection 与最终 hit-test 完成前，child-frame Strict Click 必须继续 fail closed。
+50. cross-process/OOPIF 若当前 chrome.debugger root session 无法取得对应 execution context/session，则视为 unmapped/degraded frame，而不是通过 URL 或拓扑猜测补齐。
+
