@@ -14,4 +14,6 @@ PR #5 正在把这里从空壳收敛成真正的 **Model-facing Adapter Boundary
 - 跨 origin child frame 如果不在 model read allowlist，会被过滤并把 coverage 降级为 partial；
 - `browser.act` 当前故意不属于 model-facing tool catalog，等待后续安全的内部 authorization broker 与 side-effect policy 完成后再开放。
 
-下一步会在这个 adapter core 上增加 MCP tool schema/transport，而不是反过来让 MCP transport 决定安全边界。
+第二阶段已增加显式 MCP tool catalog 与 JSON Schema。Schema 的核心 bounds 直接来自 runtime validator 使用的 `MODEL_INPUT_LIMITS`，catalog 仍需经过 `ModelToolExposurePolicy` 过滤。
+
+下一步增加真实 MCP stdio transport；transport 只能消费既有 catalog/adapter，不得重新定义安全边界。

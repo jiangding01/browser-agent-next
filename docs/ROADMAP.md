@@ -50,7 +50,7 @@
 - [x] prohibit model access to policy mutation / authorization issuance / raw trusted RPC
 - [x] bounded model-visible revision store
 - [x] projected extract / verify / wait to prevent hidden-state side channels
-- [ ] MCP tool schema/catalog
+- [x] MCP tool schema/catalog
 - [ ] MCP stdio transport/server implementation
 - [ ] minimal adapter → trusted Runtime client
 - [ ] MCP transport integration tests

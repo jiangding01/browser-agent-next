@@ -181,6 +181,24 @@ Bounded Poll / Retry
 
 后续如果要恢复 event-assisted wake-up，应只把无页面内容的 change signal 作为 pacing hint 提供给 model adapter；最终 correctness 仍必须基于 projected Fresh Observe + Verify。
 
+## MCP Tool Catalog
+
+当前 catalog 为五个 model-facing tool 提供显式 JSON Schema：
+
+```text
+browser.open
+browser.observe
+browser.extract
+browser.verify
+browser.wait
+```
+
+Schema 与 runtime validator 共用 `MODEL_INPUT_LIMITS`，包括 element count、refs、verification conditions、timeout 与 polling interval 上限。所有可识别 object 默认 `additionalProperties: false`，避免 MCP client 通过额外字段注入内部语义。
+
+`field_value.equals` 的 JSON Schema 对字符串长度、数组/对象规模和递归深度做有界约束；runtime validator 仍保留额外的全局 100-node budget，作为 schema 之外的第二道资源边界。
+
+Tool definitions 会被深度冻结，并且 `createModelFacingMcpToolCatalog()` 仍需通过 `ModelToolExposurePolicy` 过滤。未来新增 trusted RPC 不会自动注册为 MCP tool。
+
 ## 后续工作
 
 PR #5 接下来继续：

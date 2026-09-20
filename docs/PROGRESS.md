@@ -23,7 +23,7 @@ Model-visible revision store              ✅ bounded
 Egress projection / value redaction       ✅ baseline
 Cross-origin child-frame egress filtering ✅ baseline
 Projected extract / verify / wait         ✅ baseline
-MCP tool schema/catalog                    ⏳
+MCP tool schema/catalog                    ✅
 MCP stdio transport                        ⏳
 Model-facing Runtime client                ⏳
 Safe browser.act authorization broker      ⏳
@@ -44,6 +44,15 @@ Safe browser.act authorization broker      ⏳
 - model input 使用 exact key + bounded collection/string/timeout 校验；
 - verification evidence 的 `observed` 字段不返回模型。
 
+## 本轮新增
+
+- MCP tool catalog 只包含 `browser.open / observe / extract / verify / wait`；
+- 每个 tool 都有显式 JSON Schema，顶层和嵌套 object 默认 `additionalProperties: false`；
+- schema 数量、字符串、timeout、polling 上限直接引用 `MODEL_INPUT_LIMITS`，避免和 runtime validator 漂移；
+- `field_value.equals` 使用有界 JSON Schema；runtime validator 继续额外执行全局节点 budget；
+- catalog definitions 深度冻结，transport 层不能在运行时修改安全契约；
+- catalog 最终仍由 `ModelToolExposurePolicy` 过滤，不存在扫描内部 RPC 自动注册的路径。
+
 ## 当前边界
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
@@ -54,11 +63,10 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 下一步
 
-1. 建立 MCP tool schema/catalog，并让 schema 与 adapter validator 共用同一 bounds；
-2. 实现真实 MCP stdio transport；
-3. 实现 MCP adapter → trusted Runtime 的最小 client，只映射允许的 Runtime 方法；
-4. 增加 MCP transport 集成测试与失败路径测试；
-5. 最后再设计 `browser.act` 的内部 scoped authorization broker。
+1. 实现真实 MCP stdio transport；
+2. 实现 MCP adapter → trusted Runtime 的最小 client，只映射允许的 Runtime 方法；
+3. 增加 MCP transport 集成测试与失败路径测试；
+4. 最后再设计 `browser.act` 的内部 scoped authorization broker。
 
 ## 文档
 
