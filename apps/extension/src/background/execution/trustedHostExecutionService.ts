@@ -1,6 +1,5 @@
 import {
   BrowserRuntimeError,
-  type AuthorizationAssurance,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
@@ -15,20 +14,25 @@ import type {
   ChromeDomObservationService,
 } from "../chrome/chromeObservationService.js";
 import type {
-  AuthorizationIssuanceService,
-} from "./authorizationIssuanceService.js";
-import type {
   ExecuteStrictClickResult,
   PolicyGatedStrictClickExecutor,
 } from "./policyGatedStrictClick.js";
+import type {
+  StrictClickAuthorizationInput,
+  StrictClickAuthorizationIssuanceService,
+} from "./authorizationIssuanceService.js";
+import type {
+  OperatorApprovalStore,
+} from "./operatorApprovalStore.js";
+import type {
+  EnterprisePolicyAuthorizationService,
+} from "./enterprisePolicyAuthorizationService.js";
+import type {
+  EnterpriseAuthorizationEnvelope,
+} from "../../protocol/enterpriseAuthorization.js";
 
-export interface TrustedAuthorizationInput {
-  authorizationId: string;
-  tabId: number;
-  observedRevision: string;
-  ref: string;
-  ttlMs: number;
-}
+export type TrustedAuthorizationInput =
+  StrictClickAuthorizationInput;
 
 export interface TrustedExecuteAndVerifyInput {
   actionId: string;
@@ -53,6 +57,9 @@ export interface TrustedHostExecutionServiceOptions {
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   maxVerifyTimeoutMs?: number;
+  operatorApprovals?: OperatorApprovalStore;
+  enterprisePolicyAuthorization?:
+    EnterprisePolicyAuthorizationService;
 }
 
 function boundedError(error: unknown): string {
@@ -89,37 +96,93 @@ export class TrustedHostExecutionService {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pollIntervalMs: number;
   private readonly maxVerifyTimeoutMs: number;
+  private readonly operatorApprovals:
+    OperatorApprovalStore | undefined;
+  private readonly enterprisePolicyAuthorization:
+    EnterprisePolicyAuthorizationService | undefined;
 
   constructor(
     private readonly states: TabStateStore,
-    private readonly authorizationIssuance: AuthorizationIssuanceService,
-    private readonly origins: MutableExactOriginAllowlist,
-    private readonly executor: PolicyGatedStrictClickExecutor,
-    private readonly observations: ChromeDomObservationService,
-    options: TrustedHostExecutionServiceOptions = {},
+    private readonly origins:
+      MutableExactOriginAllowlist,
+    private readonly authorizationIssuance:
+      StrictClickAuthorizationIssuanceService,
+    private readonly executor:
+      PolicyGatedStrictClickExecutor,
+    private readonly observations:
+      ChromeDomObservationService,
+    options:
+      TrustedHostExecutionServiceOptions = {},
   ) {
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? ((ms) =>
-      new Promise((resolve) => setTimeout(resolve, ms))
+      new Promise(
+        (resolve) => setTimeout(resolve, ms),
+      )
     );
-    this.pollIntervalMs = options.pollIntervalMs ?? 100;
-    this.maxVerifyTimeoutMs = options.maxVerifyTimeoutMs ?? 5_000;
+    this.pollIntervalMs =
+      options.pollIntervalMs ?? 100;
+    this.maxVerifyTimeoutMs =
+      options.maxVerifyTimeoutMs ?? 5_000;
+    this.operatorApprovals =
+      options.operatorApprovals;
+    this.enterprisePolicyAuthorization =
+      options.enterprisePolicyAuthorization;
   }
 
-  replaceAutoActOrigins(origins: readonly string[]): string[] {
+  replaceAutoActOrigins(
+    origins: readonly string[],
+  ): string[] {
     return this.origins.replace(origins);
   }
 
   issueStrictClickAuthorization(
     input: TrustedAuthorizationInput,
-  ): {
-    id: string;
-    expiresAt: number;
-    origin: string;
-    assurance: AuthorizationAssurance;
-  } {
+  ) {
     return this.authorizationIssuance
-      .issueControlPlaneStrictClick(input);
+      .issueControlPlane(input);
+  }
+
+  requestOperatorApproval(
+    input: TrustedAuthorizationInput,
+  ) {
+    if (!this.operatorApprovals) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "operator approval ingress is unavailable",
+      );
+    }
+
+    return this.operatorApprovals
+      .request(input);
+  }
+
+  operatorApprovalStatus(
+    approvalRequestId: string,
+  ) {
+    if (!this.operatorApprovals) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "operator approval ingress is unavailable",
+      );
+    }
+
+    return this.operatorApprovals
+      .status(approvalRequestId);
+  }
+
+  async issueEnterprisePolicyAuthorization(
+    envelope: EnterpriseAuthorizationEnvelope,
+  ) {
+    if (!this.enterprisePolicyAuthorization) {
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "enterprise policy authorization ingress is unavailable",
+      );
+    }
+
+    return this.enterprisePolicyAuthorization
+      .issue(envelope);
   }
 
   async executeStrictClickAndVerify(
@@ -137,76 +200,105 @@ export class TrustedHostExecutionService {
       );
     }
 
-    const execution = await this.executor.execute({
-      tabId: input.tabId,
-      actionId: input.actionId,
-      observedRevision: input.observedRevision,
-      ref: input.ref,
-      authorizationId: input.authorizationId,
-    });
+    const execution =
+      await this.executor.execute({
+        tabId: input.tabId,
+        actionId: input.actionId,
+        observedRevision:
+          input.observedRevision,
+        ref: input.ref,
+        authorizationId:
+          input.authorizationId,
+      });
 
-    const requestedTimeout = input.verifyTimeoutMs ?? 1_500;
+    const requestedTimeout =
+      input.verifyTimeoutMs ?? 1_500;
     const timeoutMs = Math.max(
       0,
-      Math.min(requestedTimeout, this.maxVerifyTimeoutMs),
+      Math.min(
+        requestedTimeout,
+        this.maxVerifyTimeoutMs,
+      ),
     );
-    const deadline = this.now() + timeoutMs;
+    const deadline =
+      this.now() + timeoutMs;
 
     let attempts = 0;
-    let lastObservationError: string | undefined;
+    let lastObservationError:
+      string | undefined;
 
     do {
       attempts += 1;
 
       try {
-        const fresh = await this.observations.observe({
-          tabId: input.tabId,
-          ownedBySession:
-            baseline.observation.tab.ownedBySession,
-          options: {
-            includeAx: true,
-          },
-        });
+        const fresh =
+          await this.observations.observe({
+            tabId: input.tabId,
+            ownedBySession:
+              baseline.observation.tab
+                .ownedBySession,
+            options: {
+              includeAx: true,
+            },
+          });
 
-        const verification = verifyObservation(
-          fresh,
-          input.verification,
-        );
+        const verification =
+          verifyObservation(
+            fresh,
+            input.verification,
+          );
 
-        if (verification.conclusive || this.now() >= deadline) {
+        if (
+          verification.conclusive ||
+          this.now() >= deadline
+        ) {
           return {
             execution,
             verification,
-            verificationAttempts: attempts,
-            freshRevision: fresh.revision.id,
+            verificationAttempts:
+              attempts,
+            freshRevision:
+              fresh.revision.id,
           };
         }
       } catch (error) {
         // 这里只重试 observation/verification，绝不重放 click。
-        lastObservationError = boundedError(error);
+        lastObservationError =
+          boundedError(error);
       }
 
-      if (this.now() >= deadline) break;
+      if (this.now() >= deadline) {
+        break;
+      }
+
       await this.sleep(
         Math.min(
           this.pollIntervalMs,
-          Math.max(0, deadline - this.now()),
+          Math.max(
+            0,
+            deadline - this.now(),
+          ),
         ),
       );
     } while (this.now() <= deadline);
 
     return {
       execution,
-      verification: inconclusiveVerification(
-        input.verification,
-        lastObservationError
-          ? "post-action observation remained unavailable: " +
-            lastObservationError
-          : "verification remained inconclusive before timeout",
-      ),
+      verification:
+        inconclusiveVerification(
+          input.verification,
+          lastObservationError
+            ? "post-action observation remained unavailable: " +
+              lastObservationError
+            : "verification remained inconclusive before timeout",
+        ),
       verificationAttempts: attempts,
-      ...(lastObservationError !== undefined
-        ? { postActionObservationError: lastObservationError }
+      ...(lastObservationError !==
+      undefined
+        ? {
+            postActionObservationError:
+              lastObservationError,
+          }
         : {}),
     };
   }

@@ -23,6 +23,7 @@ describe("bindAuthorizationLifecycle", () => {
     let committed:
       | ((details: { tabId: number; frameId: number }) => void)
       | undefined;
+    const clearedPending: number[] = [];
 
     bindAuthorizationLifecycle(
       {
@@ -42,9 +43,15 @@ describe("bindAuthorizationLifecycle", () => {
         },
       },
       store,
+      {
+        clearTab(tabId) {
+          clearedPending.push(tabId);
+        },
+      },
     );
 
     committed?.({ tabId: 7, frameId: 2 });
     expect(store.size()).toBe(0);
+    expect(clearedPending).toEqual([7]);
   });
 });

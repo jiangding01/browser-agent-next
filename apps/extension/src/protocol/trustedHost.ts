@@ -4,6 +4,10 @@ import type {
   VerificationSpec,
   VerifyCondition,
 } from "@browser-agent-next/core";
+import {
+  isEnterpriseAuthorizationEnvelope,
+  type EnterpriseAuthorizationAssertion,
+} from "./enterpriseAuthorization.js";
 
 export const TRUSTED_NATIVE_HOST_NAME =
   "com.browser_agent_next.host";
@@ -22,6 +26,26 @@ export type TrustedHostRequest =
       observedRevision: string;
       ref: string;
       ttlMs: number;
+    }
+  | {
+      type: "authorization.request-operator-approval";
+      requestId: string;
+      authorizationId: string;
+      tabId: number;
+      observedRevision: string;
+      ref: string;
+      ttlMs: number;
+    }
+  | {
+      type: "authorization.operator-approval-status";
+      requestId: string;
+      approvalRequestId: string;
+    }
+  | {
+      type: "authorization.issue-enterprise-policy";
+      requestId: string;
+      assertion: EnterpriseAuthorizationAssertion;
+      signature: string;
     }
   | {
       type: "execution.execute-strict-click";
@@ -100,6 +124,15 @@ export type TrustedHostResponse =
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+): boolean {
+  const keys = new Set(allowed);
+  return Object.keys(value)
+    .every((key) => keys.has(key));
 }
 
 function tabId(value: unknown): value is number {
@@ -228,6 +261,38 @@ export function isTrustedHostRequest(
         nonEmptyString(request.ref) &&
         optionalFiniteNumber(request.ttlMs, 1, 60_000) &&
         request.ttlMs !== undefined;
+
+    case "authorization.request-operator-approval":
+      return request.assurance === undefined &&
+        request.source === undefined &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256 &&
+        tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        request.observedRevision.length <= 256 &&
+        nonEmptyString(request.ref) &&
+        request.ref.length <= 256 &&
+        optionalFiniteNumber(request.ttlMs, 1, 60_000) &&
+        request.ttlMs !== undefined;
+
+    case "authorization.operator-approval-status":
+      return nonEmptyString(request.approvalRequestId) &&
+        request.approvalRequestId.length <= 256;
+
+    case "authorization.issue-enterprise-policy":
+      return hasOnlyKeys(
+        request,
+        [
+          "type",
+          "requestId",
+          "assertion",
+          "signature",
+        ],
+      ) &&
+        isEnterpriseAuthorizationEnvelope({
+          assertion: request.assertion,
+          signature: request.signature,
+        });
 
     case "execution.execute-strict-click":
       return nonEmptyString(request.actionId) &&

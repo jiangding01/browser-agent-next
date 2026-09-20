@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+  <title>Browser Agent 审批</title>
+  <link
+    rel="stylesheet"
+    href="operator-approval.css"
+  >
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>待人工批准</h1>
+        <p>
+          仅批准你当前明确确认的一次浏览器动作。
+        </p>
+      </div>
+      <button
+        id="refresh"
+        type="button"
+        class="secondary"
+      >
+        刷新
+      </button>
+    </header>
+
+    <p id="empty-state">
+      当前没有待审批动作。
+    </p>
+
+    <section
+      id="approval-list"
+      aria-live="polite"
+    ></section>
+  </main>
+
+  <script
+    type="module"
+    src="operator-approval/index.js"
+  ></script>
+</body>
+</html>

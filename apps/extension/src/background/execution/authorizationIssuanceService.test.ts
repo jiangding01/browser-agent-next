@@ -10,7 +10,7 @@ import {
   TabStateStore,
 } from "@browser-agent-next/runtime";
 import {
-  AuthorizationIssuanceService,
+  StrictClickAuthorizationIssuanceService,
 } from "./authorizationIssuanceService.js";
 
 function observation(
@@ -90,12 +90,11 @@ function observation(
   };
 }
 
-function createService(
+function setup(
   ownedBySession: boolean,
 ) {
   const states = new TabStateStore();
   states.put(observation(ownedBySession));
-
   const authorizations =
     new InMemoryAuthorizationStore({
       now: () => 100,
@@ -103,14 +102,17 @@ function createService(
   const origins =
     new MutableExactOriginAllowlist();
   origins.replace(["https://fixture.test"]);
-
-  return {
-    authorizations,
-    service: new AuthorizationIssuanceService(
+  const service =
+    new StrictClickAuthorizationIssuanceService(
       states,
       authorizations,
       origins,
-    ),
+    );
+
+  return {
+    authorizations,
+    origins,
+    service,
   };
 }
 
@@ -122,79 +124,155 @@ const input = {
   ttlMs: 1_000,
 };
 
-describe("AuthorizationIssuanceService", () => {
-  it("control-plane 只能覆盖 Agent-owned unknown click", () => {
-    const { service } = createService(true);
+describe(
+  "StrictClickAuthorizationIssuanceService",
+  () => {
+    it(
+      "control-plane 只能满足 Agent-owned unknown click",
+      () => {
+        const owned = setup(true);
 
-    expect(
-      service.issueControlPlaneStrictClick(input),
-    ).toEqual({
-      id: "auth-1",
-      expiresAt: 1_100,
-      origin: "https://fixture.test",
-      assurance: "control-plane",
-    });
-  });
+        expect(
+          owned.service.issueControlPlane(input),
+        ).toEqual({
+          id: "auth-1",
+          expiresAt: 1_100,
+          origin: "https://fixture.test",
+          assurance: "control-plane",
+        });
 
-  it("用户已有 Tab 的 unknown click 需要 operator-approved 或更高 assurance", () => {
-    const { service } = createService(false);
+        const existing = setup(false);
+        expect(
+          () =>
+            existing.service.issueControlPlane(
+              input,
+            ),
+        ).toThrow(
+          /required assurance: operator-approved/,
+        );
+      },
+    );
 
-    expect(() =>
-      service.issueControlPlaneStrictClick(input),
-    ).toThrow(/required assurance: operator-approved/);
+    it(
+      "operator-approved 固定签发 trusted-ui provenance",
+      () => {
+        const {
+          authorizations,
+          service,
+        } = setup(false);
 
-    expect(
-      service.issueOperatorApprovedStrictClick(input),
-    ).toMatchObject({
-      assurance: "operator-approved",
-    });
-  });
+        expect(
+          service.issueOperatorApproved(input),
+        ).toEqual({
+          id: "auth-1",
+          expiresAt: 1_100,
+          origin: "https://fixture.test",
+          assurance: "operator-approved",
+        });
 
-  it("enterprise-policy 可以满足 operator-approved 最低门槛但保留自身标签", () => {
-    const { service } = createService(false);
+        const consumed =
+          authorizations.consume({
+            id: "auth-1",
+            tabId: 7,
+            observedRevision: "rev-1",
+            ref: "@e_1",
+            actionKind: "click",
+            effectClass: "unknown",
+            minimumAssurance:
+              "operator-approved",
+          });
 
-    expect(
-      service.issueEnterprisePolicyStrictClick(input),
-    ).toMatchObject({
-      assurance: "enterprise-policy",
-    });
-  });
+        expect(consumed.ok).toBe(true);
+        if (!consumed.ok) {
+          throw new Error(
+            "grant not consumable",
+          );
+        }
+        expect(
+          consumed.grant.source,
+        ).toBe("trusted-ui");
+      },
+    );
 
-  it("专用签发 API 不向 ingress 暴露 source/assurance 参数", () => {
-    const { service } = createService(false);
+    it(
+      "enterprise-policy 固定签发 enterprise-policy provenance",
+      () => {
+        const {
+          authorizations,
+          service,
+        } = setup(false);
 
-    expect(
-      service.issueOperatorApprovedStrictClick.length,
-    ).toBe(1);
-    expect(
-      service.issueEnterprisePolicyStrictClick.length,
-    ).toBe(1);
-  });
+        expect(
+          service.issueEnterprisePolicy(input),
+        ).toEqual({
+          id: "auth-1",
+          expiresAt: 1_100,
+          origin: "https://fixture.test",
+          assurance: "enterprise-policy",
+        });
 
-  it("TTL、retained revision/ref 与 auto-act origin 仍由共享核心统一校验", () => {
-    const states = new TabStateStore();
-    states.put(observation(true));
+        const consumed =
+          authorizations.consume({
+            id: "auth-1",
+            tabId: 7,
+            observedRevision: "rev-1",
+            ref: "@e_1",
+            actionKind: "click",
+            effectClass: "unknown",
+            minimumAssurance:
+              "operator-approved",
+          });
 
-    const service =
-      new AuthorizationIssuanceService(
-        states,
-        new InMemoryAuthorizationStore(),
-        new MutableExactOriginAllowlist(),
-        { maxAuthorizationTtlMs: 500 },
-      );
+        expect(consumed.ok).toBe(true);
+        if (!consumed.ok) {
+          throw new Error(
+            "grant not consumable",
+          );
+        }
+        expect(
+          consumed.grant.source,
+        ).toBe("enterprise-policy");
+      },
+    );
 
-    expect(() =>
-      service.issueControlPlaneStrictClick({
-        ...input,
-        ttlMs: 501,
-      }),
-    ).toThrow(/ttl is outside/);
+    it(
+      "所有来源共享 retained target、origin 与 TTL fail-closed 校验",
+      () => {
+        const blocked = setup(false);
+        blocked.origins.clear();
 
-    expect(() =>
-      service.issueControlPlaneStrictClick({
-        ...input,
-        ttlMs: 500,
-      }),
-    ).toThrow(/outside the auto-act allowlist/);
-  });
-});
+        expect(
+          () =>
+            blocked.service
+              .issueOperatorApproved(input),
+        ).toThrow(
+          /outside the auto-act allowlist/,
+        );
+
+        const valid = setup(false);
+
+        expect(
+          () =>
+            valid.service
+              .issueOperatorApproved({
+                ...input,
+                ref: "@missing",
+              }),
+        ).toThrow(
+          /outside the retained observation/,
+        );
+
+        expect(
+          () =>
+            valid.service
+              .issueEnterprisePolicy({
+                ...input,
+                ttlMs: 60_001,
+              }),
+        ).toThrow(
+          /ttl is outside the allowed range/,
+        );
+      },
+    );
+  },
+);

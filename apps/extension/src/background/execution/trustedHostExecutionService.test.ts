@@ -5,10 +5,10 @@ import {
 } from "@browser-agent-next/policy";
 import { TabStateStore } from "@browser-agent-next/runtime";
 import type { BrowserObservation } from "@browser-agent-next/core";
-import {
-  AuthorizationIssuanceService,
-} from "./authorizationIssuanceService.js";
 import { TrustedHostExecutionService } from "./trustedHostExecutionService.js";
+import {
+  StrictClickAuthorizationIssuanceService,
+} from "./authorizationIssuanceService.js";
 
 function observation(): BrowserObservation {
   return {
@@ -73,12 +73,12 @@ describe("TrustedHostExecutionService", () => {
 
     const service = new TrustedHostExecutionService(
       states,
-      new AuthorizationIssuanceService(
+      origins,
+      new StrictClickAuthorizationIssuanceService(
         states,
         authorizations,
         origins,
       ),
-      origins,
       { execute: async () => { throw new Error("not used"); } } as never,
       { observe: async () => { throw new Error("not used"); } } as never,
     );
@@ -110,14 +110,17 @@ describe("TrustedHostExecutionService", () => {
     const origins = new MutableExactOriginAllowlist();
     origins.replace(["https://fixture.test"]);
 
+    const authorizations =
+      new InMemoryAuthorizationStore();
+
     const service = new TrustedHostExecutionService(
       states,
-      new AuthorizationIssuanceService(
+      origins,
+      new StrictClickAuthorizationIssuanceService(
         states,
-        new InMemoryAuthorizationStore(),
+        authorizations,
         origins,
       ),
-      origins,
       {} as never,
       {} as never,
     );
@@ -135,14 +138,19 @@ describe("TrustedHostExecutionService", () => {
     const states = new TabStateStore();
     states.put(observation());
 
+    const origins =
+      new MutableExactOriginAllowlist();
+    const authorizations =
+      new InMemoryAuthorizationStore();
+
     const service = new TrustedHostExecutionService(
       states,
-      new AuthorizationIssuanceService(
+      origins,
+      new StrictClickAuthorizationIssuanceService(
         states,
-        new InMemoryAuthorizationStore(),
-        new MutableExactOriginAllowlist(),
+        authorizations,
+        origins,
       ),
-      new MutableExactOriginAllowlist(),
       {} as never,
       {} as never,
     );
@@ -167,14 +175,17 @@ describe("TrustedHostExecutionService", () => {
     let observeCount = 0;
     let now = 0;
 
+    const authorizations =
+      new InMemoryAuthorizationStore();
+
     const service = new TrustedHostExecutionService(
       states,
-      new AuthorizationIssuanceService(
+      origins,
+      new StrictClickAuthorizationIssuanceService(
         states,
-        new InMemoryAuthorizationStore(),
+        authorizations,
         origins,
       ),
-      origins,
       {
         async execute() {
           executeCount += 1;

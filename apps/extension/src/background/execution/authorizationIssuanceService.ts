@@ -21,90 +21,77 @@ export interface StrictClickAuthorizationInput {
   ttlMs: number;
 }
 
-export interface IssuedStrictClickAuthorization {
+export interface StrictClickAuthorizationResult {
   id: string;
   expiresAt: number;
   origin: string;
   assurance: AuthorizationAssurance;
 }
 
-export interface AuthorizationIssuanceServiceOptions {
+export interface StrictClickAuthorizationIssuanceOptions {
   maxAuthorizationTtlMs?: number;
 }
 
-interface AuthorizationIssuerIdentity {
-  source: AuthorizationGrant["source"];
-  assurance: AuthorizationAssurance;
-}
+const SOURCE_PROOF: Record<
+  AuthorizationGrant["source"],
+  AuthorizationAssurance
+> = {
+  "trusted-host": "control-plane",
+  "trusted-ui": "operator-approved",
+  "enterprise-policy": "enterprise-policy",
+};
 
 /**
- * 统一的受信授权签发核心。
+ * Strict Click 的统一受信签发核心。
  *
- * 外部 ingress 只能调用固定 assurance 的专用方法，不能把 source/assurance
- * 当作普通参数传入。真正的共享校验留在 private issueStrictClick() 内。
+ * 外部调用方不能传 assurance/source；每个 public 方法把 provenance 固定在
+ * 代码路径上，再统一执行 retained observation、ref、origin、最低 assurance
+ * 和 TTL 校验。
  */
-export class AuthorizationIssuanceService {
+export class StrictClickAuthorizationIssuanceService {
   private readonly maxAuthorizationTtlMs: number;
 
   constructor(
     private readonly states: TabStateStore,
     private readonly authorizations: InMemoryAuthorizationStore,
     private readonly origins: MutableExactOriginAllowlist,
-    options: AuthorizationIssuanceServiceOptions = {},
+    options: StrictClickAuthorizationIssuanceOptions = {},
   ) {
     this.maxAuthorizationTtlMs =
       options.maxAuthorizationTtlMs ?? 60_000;
 
     if (
-      !Number.isFinite(this.maxAuthorizationTtlMs) ||
-      this.maxAuthorizationTtlMs <= 0
+      !Number.isInteger(this.maxAuthorizationTtlMs) ||
+      this.maxAuthorizationTtlMs < 1
     ) {
       throw new Error(
-        "maxAuthorizationTtlMs must be > 0",
+        "maxAuthorizationTtlMs must be a positive integer",
       );
     }
   }
 
-  issueControlPlaneStrictClick(
+  issueControlPlane(
     input: StrictClickAuthorizationInput,
-  ): IssuedStrictClickAuthorization {
-    return this.issueStrictClick(
-      input,
-      {
-        source: "trusted-host",
-        assurance: "control-plane",
-      },
-    );
+  ): StrictClickAuthorizationResult {
+    return this.issue("trusted-host", input);
   }
 
-  issueOperatorApprovedStrictClick(
+  issueOperatorApproved(
     input: StrictClickAuthorizationInput,
-  ): IssuedStrictClickAuthorization {
-    return this.issueStrictClick(
-      input,
-      {
-        source: "trusted-ui",
-        assurance: "operator-approved",
-      },
-    );
+  ): StrictClickAuthorizationResult {
+    return this.issue("trusted-ui", input);
   }
 
-  issueEnterprisePolicyStrictClick(
+  issueEnterprisePolicy(
     input: StrictClickAuthorizationInput,
-  ): IssuedStrictClickAuthorization {
-    return this.issueStrictClick(
-      input,
-      {
-        source: "enterprise-policy",
-        assurance: "enterprise-policy",
-      },
-    );
+  ): StrictClickAuthorizationResult {
+    return this.issue("enterprise-policy", input);
   }
 
-  private issueStrictClick(
+  private issue(
+    source: AuthorizationGrant["source"],
     input: StrictClickAuthorizationInput,
-    issuer: AuthorizationIssuerIdentity,
-  ): IssuedStrictClickAuthorization {
+  ): StrictClickAuthorizationResult {
     if (
       !Number.isFinite(input.ttlMs) ||
       input.ttlMs <= 0 ||
@@ -112,7 +99,7 @@ export class AuthorizationIssuanceService {
     ) {
       throw new BrowserRuntimeError(
         "AUTHORIZATION_REQUIRED",
-        "trusted authorization ttl is outside the allowed range",
+        "authorization ttl is outside the allowed range",
       );
     }
 
@@ -135,17 +122,14 @@ export class AuthorizationIssuanceService {
       );
     }
 
-    if (
-      !this.origins.isAllowed(
-        stored.observation.tab.origin,
-      )
-    ) {
+    if (!this.origins.isAllowed(stored.observation.tab.origin)) {
       throw new BrowserRuntimeError(
         "ORIGIN_NOT_ALLOWED",
         "cannot authorize strict click on an origin outside the auto-act allowlist",
       );
     }
 
+    const assurance = SOURCE_PROOF[source];
     const requiredAssurance =
       minimumAuthorizationAssurance(
         "unknown",
@@ -155,18 +139,19 @@ export class AuthorizationIssuanceService {
     if (
       requiredAssurance !== undefined &&
       !authorizationAssuranceSatisfies(
-        issuer.assurance,
+        assurance,
         requiredAssurance,
       )
     ) {
       throw new BrowserRuntimeError(
         "AUTHORIZATION_REQUIRED",
-        "authorization issuer assurance is insufficient for this tab; required assurance: " +
+        source +
+          " grant is insufficient for this tab; required assurance: " +
           requiredAssurance,
         {
           requiredAssurance,
-          availableAssurance: issuer.assurance,
-          source: issuer.source,
+          availableAssurance: assurance,
+          source,
         },
       );
     }
@@ -178,10 +163,10 @@ export class AuthorizationIssuanceService {
       ref: input.ref,
       actionKind: "click",
       effectClass: "unknown",
-      assurance: issuer.assurance,
+      assurance,
       ttlMs: input.ttlMs,
       singleUse: true,
-      source: issuer.source,
+      source,
     });
 
     return {
