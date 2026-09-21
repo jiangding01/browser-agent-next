@@ -144,6 +144,21 @@ export class PolicyGatedStrictClickExecutor {
       action,
     );
 
+    if (
+      auth?.ok === true &&
+      auth.grant.expiresAt <= Date.now()
+    ) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "strict click authorization expired before dispatch",
+        {
+          effect,
+          requiredAssurance,
+          authorizationReason: "expired",
+        },
+      );
+    }
+
     try {
       await this.dispatcher.dispatch(
         preparedForCommit.prepared,

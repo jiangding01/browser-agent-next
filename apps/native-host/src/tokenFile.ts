@@ -29,6 +29,12 @@ function assertSecureDirectory(path: string): void {
       "trusted RPC state directory must be owned by the current user",
     );
   }
+
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
+    throw new Error(
+      "trusted RPC state directory permissions are too broad",
+    );
+  }
 }
 
 function assertSecureTokenFile(path: string): void {
@@ -46,6 +52,12 @@ function assertSecureTokenFile(path: string): void {
   ) {
     throw new Error(
       "trusted RPC token file must be owned by the current user",
+    );
+  }
+
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
+    throw new Error(
+      "trusted RPC token file permissions are too broad",
     );
   }
 }

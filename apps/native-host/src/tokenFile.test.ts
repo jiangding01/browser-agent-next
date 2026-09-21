@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -52,14 +53,42 @@ describe("ensureTrustedToken", () => {
     );
     dirs.push(dir);
 
-    writeFileSync(
-      join(dir, "trusted-rpc.token"),
-      "bad-token",
-      "utf8",
-    );
+    const path = join(dir, "trusted-rpc.token");
+    writeFileSync(path, "bad-token", "utf8");
+    if (process.platform !== "win32") chmodSync(path, 0o600);
 
     expect(() => ensureTrustedToken(dir)).toThrow(
       /malformed/,
+    );
+  });
+
+  it("已有 state directory 权限过宽时 fail closed", () => {
+    if (process.platform === "win32") return;
+
+    const dir = mkdtempSync(
+      join(tmpdir(), "browser-agent-next-token-"),
+    );
+    dirs.push(dir);
+    chmodSync(dir, 0o755);
+
+    expect(() => ensureTrustedToken(dir)).toThrow(
+      /state directory permissions are too broad/,
+    );
+  });
+
+  it("已有 token 权限过宽时 fail closed", () => {
+    if (process.platform === "win32") return;
+
+    const dir = mkdtempSync(
+      join(tmpdir(), "browser-agent-next-token-"),
+    );
+    dirs.push(dir);
+    const path = join(dir, "trusted-rpc.token");
+    writeFileSync(path, "a".repeat(64), "utf8");
+    chmodSync(path, 0o644);
+
+    expect(() => ensureTrustedToken(dir)).toThrow(
+      /token file permissions are too broad/,
     );
   });
 

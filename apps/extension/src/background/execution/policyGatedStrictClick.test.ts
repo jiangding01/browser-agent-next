@@ -37,9 +37,7 @@ function prepared(
 }
 
 function authorizedStore(): InMemoryAuthorizationStore {
-  const authorizations = new InMemoryAuthorizationStore({
-    now: () => 1000,
-  });
+  const authorizations = new InMemoryAuthorizationStore();
 
   authorizations.issue({
     id: "grant-1",
@@ -109,6 +107,53 @@ describe("PolicyGatedStrictClickExecutor", () => {
 
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("第二次 prepare 期间授权过期时不 dispatch", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+
+    try {
+      const authorizations = new InMemoryAuthorizationStore();
+      authorizations.issue({
+        id: "grant-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        actionKind: "click",
+        effectClass: "unknown",
+        assurance: "control-plane",
+        ttlMs: 10,
+        source: "trusted-host",
+      });
+      const prepare = vi.fn(async () => {
+        if (prepare.mock.calls.length === 2) {
+          vi.setSystemTime(1010);
+        }
+        return prepared() as never;
+      });
+      const dispatch = vi.fn(async () => undefined);
+      const executor = new PolicyGatedStrictClickExecutor(
+        { prepare } as never,
+        { dispatch } as never,
+        authorizations,
+        { isAllowed: () => true },
+      );
+
+      await expect(executor.execute({
+        tabId: 7,
+        actionId: "a1",
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        authorizationId: "grant-1",
+      })).rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+      } satisfies Partial<BrowserRuntimeError>);
+
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("用户已有 Tab 的 unknown click 不接受 control-plane grant", async () => {
