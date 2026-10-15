@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MODEL_FACING_DEFAULT_TOOL_NAMES,
+  MODEL_FACING_TOOL_NAMES,
   ModelOriginAccessPolicy,
   ModelToolExposurePolicy,
 } from "./modelAccessPolicy.js";
@@ -23,13 +25,53 @@ describe("ModelToolExposurePolicy", () => {
     expect(policy.tier("browser.verify")).toBe("read");
   });
 
+  it("browser.act 属于 side-effect tier，仅显式传入时才暴露", () => {
+    expect(MODEL_FACING_TOOL_NAMES).toContain("browser.act");
+
+    const explicit = new ModelToolExposurePolicy([
+      "browser.observe",
+      "browser.act",
+    ]);
+    expect(explicit.isExposed("browser.act")).toBe(true);
+    expect(explicit.tier("browser.act")).toBe("side-effect");
+    expect(explicit.values()).toEqual([
+      "browser.observe",
+      "browser.act",
+    ]);
+
+    const readOnly = new ModelToolExposurePolicy([
+      "browser.observe",
+    ]);
+    expect(readOnly.isExposed("browser.act")).toBe(false);
+  });
+
+  it("默认工具集合排除 side-effect tier 且保持目录顺序", () => {
+    expect(MODEL_FACING_DEFAULT_TOOL_NAMES).toEqual([
+      "browser.open",
+      "browser.observe",
+      "browser.extract",
+      "browser.verify",
+      "browser.wait",
+    ]);
+    expect(MODEL_FACING_DEFAULT_TOOL_NAMES).not.toContain(
+      "browser.act",
+    );
+
+    const policy = new ModelToolExposurePolicy(
+      MODEL_FACING_DEFAULT_TOOL_NAMES,
+    );
+    for (const tool of MODEL_FACING_DEFAULT_TOOL_NAMES) {
+      expect(policy.tier(tool)).not.toBe("side-effect");
+    }
+  });
+
   it("拒绝 authorization/policy/raw control-plane 名称", () => {
     for (const name of [
       "authorization.issue-strict-click",
       "policy.replace-autoact-origins",
       "execution.execute-strict-click",
       "cdp.send",
-      "browser.act",
+      "browser.click",
     ]) {
       expect(
         () => new ModelToolExposurePolicy([name]),

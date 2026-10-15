@@ -7,6 +7,9 @@ import {
   ModelToolExposurePolicy,
 } from "@browser-agent-next/policy";
 import {
+  createModelActBroker,
+} from "./modelActBroker.js";
+import {
   ModelFacingBrowserAdapter,
 } from "./modelFacingAdapter.js";
 import {
@@ -39,6 +42,20 @@ export function createModelFacingInvoker(
         config.rpcMaxResponseBytes,
     });
 
+  // 每个连接独立 broker：预算、(tab, revision, ref) 账本与降级状态天然 per-connection。
+  // 同一个 trusted client 实例同时作为 ModelBrowserRuntimeClient 与
+  // TrustedActBrokerRuntimeClient；未暴露 browser.act 时不创建 broker。
+  const actBroker =
+    config.tools.includes("browser.act")
+      ? createModelActBroker(runtime, {
+          actOrigins: config.actOrigins,
+          budget: config.actBudget,
+          approvalMode: config.actApproval,
+          approvalTimeoutMs:
+            config.approvalTimeoutMs,
+        })
+      : undefined;
+
   return new ModelFacingBrowserAdapter(
     runtime,
     {
@@ -61,6 +78,9 @@ export function createModelFacingInvoker(
         maxVisibleRevisions:
           config.maxVisibleRevisions,
       },
+      ...(actBroker !== undefined
+        ? { actBroker }
+        : {}),
     },
   );
 }

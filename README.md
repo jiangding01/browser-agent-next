@@ -41,7 +41,8 @@ PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已合并，Stric
 - child-frame session-aware Strict live revalidation；
 - child-frame → top-level viewport 坐标投影；
 - Real Chromium OOPIF / nested child-frame Strict Click 执行闭环（含 `mouseMoved` 时序修复）；
-- native host 启动时从 `~/.browser-agent-next/autoact-origins.json` 下发 auto-act origin allowlist（Phase 6.6 PR-0，fail closed）。
+- native host 启动时从 `~/.browser-agent-next/autoact-origins.json` 下发 auto-act origin allowlist（Phase 6.6 PR-0，fail closed）；
+- model-facing `browser.act` 与 scoped Act broker（Phase 6.6a：side-effect tier 默认不暴露、独立 act origin plane、预算与单次执行、operator approval 默认、本地重验证）。
 
 真实 Chromium 已验证：
 

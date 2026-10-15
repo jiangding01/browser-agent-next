@@ -74,10 +74,15 @@
 
 ## Phase 6.6 — Model-facing side-effect authorization
 - [x] PR-0：native host 从 `autoact-origins.json` 下发扩展 auto-act origin allowlist（fail closed）
-- [ ] safe scoped authorization broker
-- [ ] browser.act model-facing policy
-- [ ] operator-approved user confirmation integration
-- [ ] side-effect MCP integration tests
+- [x] safe scoped authorization broker（6.6a）
+- [x] browser.act model-facing policy（6.6a：side-effect tier、act origin plane ⊆ read、per-connection 预算与单次执行账本）
+- [x] operator-approved user confirmation integration（6.6a baseline：broker 创建 pending request 并轮询状态）
+- [ ] side-effect MCP integration tests（6.6c：stdio wire 集成测试与最终对抗式审查）
+- [ ] 6.6b 扩展侧 approval UX
+  - [ ] 扩展 badge
+  - [ ] progress notification
+  - [ ] popup 显示 TTL 倒计时，并标注页面文本不可信
+  - [ ] approval 超时后取消 pending approval request
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router

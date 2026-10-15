@@ -294,6 +294,34 @@ const DEFINITIONS: readonly ModelFacingMcpTool[] = [
       ["tabId", "verification"],
     ),
   },
+  {
+    name: "browser.act",
+    title: "Click an observed element",
+    description:
+      "Side-effect tool, not exposed unless explicitly configured. Click a ref from a revision already exposed to this model connection; authorization is obtained by the MCP-side broker (operator approval by default), never supplied by the model. The result carries only status, effectClass \"unknown\" and a verification recomputed locally on fresh model-visible (policy-projected) observations within verifyTimeoutMs.",
+    inputSchema: objectSchema(
+      {
+        tabId: TAB_ID_SCHEMA,
+        observedRevision: REF_SCHEMA,
+        ref: REF_SCHEMA,
+        kind: { const: "click" },
+        verification: VERIFICATION_SCHEMA,
+        verifyTimeoutMs: {
+          type: "number",
+          minimum: 0,
+          maximum:
+            MODEL_INPUT_LIMITS.maxActVerifyTimeoutMs,
+        },
+      },
+      [
+        "tabId",
+        "observedRevision",
+        "ref",
+        "kind",
+        "verification",
+      ],
+    ),
+  },
 ];
 
 function deepFreeze<T>(value: T): T {

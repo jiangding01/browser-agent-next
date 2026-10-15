@@ -18,6 +18,7 @@ export const MODEL_INPUT_LIMITS = {
   minPollMs: 50,
   maxPollMs: 1_000,
   maxObserveElements: 500,
+  maxActVerifyTimeoutMs: 5_000,
 } as const;
 
 export interface ModelExtractInput {
@@ -25,6 +26,22 @@ export interface ModelExtractInput {
   observedRevision: string;
   refs?: string[];
   maxItems?: number;
+}
+
+/**
+ * model-facing browser.act 入参。
+ *
+ * 只描述“想点哪个已出境 ref、如何验证”；authorizationId / actionId /
+ * assurance / source 等授权与执行身份字段只能由 MCP 进程内的 broker 生成，
+ * 模型传入即拒绝。
+ */
+export interface ModelActInput {
+  tabId: number;
+  observedRevision: string;
+  ref: string;
+  kind: "click";
+  verification: VerificationSpec;
+  verifyTimeoutMs?: number;
 }
 
 function objectRecord(
@@ -435,6 +452,55 @@ export function parseModelWaitInput(
       : {}),
     ...(input.options !== undefined
       ? { options: input.options }
+      : {}),
+  };
+}
+
+export function parseModelActInput(
+  value: unknown,
+): ModelActInput {
+  const input = objectRecord(value);
+  if (
+    !input ||
+    !hasOnlyKeys(
+      input,
+      [
+        "tabId",
+        "observedRevision",
+        "ref",
+        "kind",
+        "verification",
+        "verifyTimeoutMs",
+      ],
+    ) ||
+    !tabId(input.tabId) ||
+    !boundedString(
+      input.observedRevision,
+      MODEL_INPUT_LIMITS.maxRefLength,
+    ) ||
+    !boundedString(
+      input.ref,
+      MODEL_INPUT_LIMITS.maxRefLength,
+    ) ||
+    input.kind !== "click" ||
+    !isModelVerificationSpec(input.verification) ||
+    !optionalFiniteNumber(
+      input.verifyTimeoutMs,
+      0,
+      MODEL_INPUT_LIMITS.maxActVerifyTimeoutMs,
+    )
+  ) {
+    throw invalidInput("browser.act");
+  }
+
+  return {
+    tabId: input.tabId,
+    observedRevision: input.observedRevision,
+    ref: input.ref,
+    kind: "click",
+    verification: input.verification,
+    ...(input.verifyTimeoutMs !== undefined
+      ? { verifyTimeoutMs: input.verifyTimeoutMs as number }
       : {}),
   };
 }

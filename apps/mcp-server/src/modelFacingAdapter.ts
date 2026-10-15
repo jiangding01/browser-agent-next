@@ -17,6 +17,10 @@ import {
   ModelToolExposurePolicy,
 } from "@browser-agent-next/policy";
 import { verifyObservation } from "@browser-agent-next/runtime";
+import type {
+  ModelActBroker,
+  ModelActExecution,
+} from "./modelActBroker.js";
 import {
   ModelEgressProjector,
   ModelVisibleObservationStore,
@@ -25,11 +29,13 @@ import {
 } from "./modelEgress.js";
 import {
   MODEL_INPUT_LIMITS,
+  parseModelActInput,
   parseModelExtractInput,
   parseModelObserveInput,
   parseModelOpenInput,
   parseModelVerifyInput,
   parseModelWaitInput,
+  type ModelActInput,
   type ModelExtractInput,
 } from "./modelToolInput.js";
 
@@ -42,16 +48,43 @@ export interface ModelFacingAdapterOptions {
   tools: ModelToolExposurePolicy;
   origins: ModelOriginAccessPolicy;
   egress?: ModelEgressOptions;
+  /**
+   * 仅当 operator 显式暴露 browser.act 时由组装层注入；
+   * 未注入时 browser.act 一律 POLICY_BLOCKED。
+   */
+  actBroker?: ModelActBroker;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
+
+/**
+ * 模型可见的 browser.act 结果。
+ *
+ * verification / verificationAttempts 由 adapter 在动作后、已投影且已进入本连接
+ * 出境 store 的 observation 上本地计算；扩展侧 verification 从不出境。
+ */
+export interface ModelActResult extends ModelActExecution {
+  verification: VerificationResult;
+  verificationAttempts: number;
+}
+
+const DEFAULT_WAIT_TIMEOUT_MS = 3_000;
+const DEFAULT_WAIT_POLL_INTERVAL_MS = 100;
+/**
+ * browser.act 未指定 verifyTimeoutMs 时的本地验证窗口。
+ *
+ * 取扩展侧 browser.act 原有默认值 1.5s：小于 wait 默认 3s，
+ * 让副作用调用的尾延迟保持有界，需要更长等待时由模型显式传入或另行 wait。
+ */
+export const MODEL_ACT_DEFAULT_VERIFY_TIMEOUT_MS = 1_500;
 
 type ModelToolResult =
   | BrowserOpenResult
   | BrowserObservation
   | BrowserExtractResult
   | VerificationResult
-  | BrowserWaitResult;
+  | BrowserWaitResult
+  | ModelActResult;
 
 /**
  * 面向模型的 adapter。
@@ -59,7 +92,9 @@ type ModelToolResult =
  * 它故意只依赖 trusted runtime 的 browser.open/browser.observe 两个最小原语：
  * extract/verify/wait 都在已经通过 model-egress policy 的 observation 上本地执行，
  * 避免模型通过隐藏 frame、未出境 revision 或 verification boolean 形成旁路读取。
- * authorization issuance、auto-act policy mutation、raw trusted RPC 从类型和工具目录上都不可达。
+ * authorization issuance、auto-act policy mutation、raw trusted RPC 从类型和工具目录上都不可达；
+ * browser.act 只能把已出境 revision 中已投影的 ref 交给 MCP 进程内的 act broker，
+ * 授权 id 与授权路径由 broker 决定，模型不可提供。
  */
 export class ModelFacingBrowserAdapter {
   private readonly includeValues: boolean;
@@ -123,6 +158,8 @@ export class ModelFacingBrowserAdapter {
         return this.verify(parseModelVerifyInput(input));
       case "browser.wait":
         return this.wait(parseModelWaitInput(input));
+      case "browser.act":
+        return this.act(input);
     }
   }
 
@@ -229,11 +266,28 @@ export class ModelFacingBrowserAdapter {
     );
   }
 
-  private async wait(
+  private wait(
     input: BrowserWaitInput,
   ): Promise<BrowserWaitResult> {
-    const timeoutMs = input.timeoutMs ?? 3_000;
-    const pollIntervalMs = input.pollIntervalMs ?? 100;
+    return this.pollVerification(input, true);
+  }
+
+  /**
+   * wait 与 act 后验证共用的本地轮询。
+   *
+   * 每次都经 observe() 取得已投影并写入出境 store 的 observation，再本地验证。
+   * rethrowPolicyErrors 为 false 时（act 后验证），egress/policy 失败也只记为
+   * observation 不可用，因为动作已经执行，不能把整个 act 报错。
+   */
+  private async pollVerification(
+    input: BrowserWaitInput,
+    rethrowPolicyErrors: boolean,
+  ): Promise<BrowserWaitResult> {
+    const timeoutMs =
+      input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+    const pollIntervalMs =
+      input.pollIntervalMs ??
+      DEFAULT_WAIT_POLL_INTERVAL_MS;
     const deadline = this.now() + timeoutMs;
     let attempts = 0;
     let lastObservation: BrowserObservation | undefined;
@@ -269,6 +323,7 @@ export class ModelFacingBrowserAdapter {
         }
       } catch (error) {
         if (
+          rethrowPolicyErrors &&
           error instanceof BrowserRuntimeError &&
           (
             error.code === "MODEL_EGRESS_BLOCKED" ||
@@ -314,6 +369,65 @@ export class ModelFacingBrowserAdapter {
       ...(lastObservationError !== undefined
         ? { lastObservationError }
         : {}),
+    };
+  }
+
+  private async act(
+    rawInput: unknown,
+  ): Promise<ModelActResult> {
+    const broker = this.options.actBroker;
+    if (!broker) {
+      throw new BrowserRuntimeError(
+        "POLICY_BLOCKED",
+        "model act broker is not configured",
+      );
+    }
+
+    const input: ModelActInput =
+      parseModelActInput(rawInput);
+    const observation = this.requireVisibleObservation(
+      input.tabId,
+      input.observedRevision,
+      "browser.act",
+    );
+    if (
+      !observation.elements.some(
+        (element) => element.ref === input.ref,
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "REF_NOT_IN_OBSERVATION",
+        "browser.act ref was not exposed in the observed revision",
+      );
+    }
+
+    const execution = await broker.act(
+      input,
+      observation,
+    );
+
+    // 动作已执行：此后任何 observe 失败都只让 verification inconclusive。
+    const polled = await this.pollVerification(
+      {
+        tabId: input.tabId,
+        verification: input.verification,
+        timeoutMs:
+          input.verifyTimeoutMs ??
+          MODEL_ACT_DEFAULT_VERIFY_TIMEOUT_MS,
+      },
+      false,
+    );
+
+    return {
+      status: execution.status,
+      effectClass: execution.effectClass,
+      // 有投影 observation 时 verification 来自本地验证（revision 已入出境 store）；
+      // 否则给出固定的 inconclusive，不透传 lastObservationError 原文。
+      verification:
+        polled.observation !== undefined
+          ? polled.verification
+          : unavailableActVerification(input),
+      verificationAttempts: polled.attempts,
     };
   }
 
@@ -400,6 +514,24 @@ function boundedConfig(
   }
 
   return value;
+}
+
+function unavailableActVerification(
+  input: ModelActInput,
+): VerificationResult {
+  return {
+    verified: false,
+    conclusive: false,
+    evidence: input.verification.conditions.map(
+      (condition) => ({
+        condition,
+        pass: false,
+        conclusive: false,
+        reason:
+          "model-facing observation unavailable after browser.act",
+      }),
+    ),
+  };
 }
 
 function boundedError(error: unknown): string {

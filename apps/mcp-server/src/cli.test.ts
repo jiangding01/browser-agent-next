@@ -48,6 +48,50 @@ describe("MCP CLI assembly", () => {
       .toEqual(first.exposedTools());
   });
 
+  it("显式暴露 browser.act 时为每个连接注入 act broker", async () => {
+    const config =
+      loadModelFacingMcpConfig({
+        [MCP_CONFIG_ENV.readOrigins]:
+          "https://allowed.test",
+        [MCP_CONFIG_ENV.actOrigins]:
+          "https://allowed.test",
+        [MCP_CONFIG_ENV.tools]:
+          "browser.observe,browser.act",
+      });
+
+    const adapter =
+      createModelFacingInvoker(
+        config,
+        TOKEN,
+      );
+
+    expect(adapter.exposedTools())
+      .toEqual([
+        "browser.observe",
+        "browser.act",
+      ]);
+    // broker 已注入：越过“未配置 broker”检查，停在本连接未出境的 revision 上。
+    await expect(
+      adapter.invoke("browser.act", {
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        kind: "click",
+        verification: {
+          mode: "all",
+          conditions: [
+            {
+              type: "text_present",
+              text: "Saved",
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "MODEL_EGRESS_BLOCKED",
+    });
+  });
+
   it("默认配置不会因为 CLI 组装而隐式添加 origin", () => {
     const config =
       loadModelFacingMcpConfig({});

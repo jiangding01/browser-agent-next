@@ -6,6 +6,7 @@ export const MODEL_FACING_TOOL_NAMES = [
   "browser.extract",
   "browser.verify",
   "browser.wait",
+  "browser.act",
 ] as const;
 
 export type ModelFacingToolName =
@@ -13,7 +14,8 @@ export type ModelFacingToolName =
 
 export type ModelFacingToolTier =
   | "read"
-  | "navigation";
+  | "navigation"
+  | "side-effect";
 
 const TOOL_TIERS: Record<
   ModelFacingToolName,
@@ -24,7 +26,20 @@ const TOOL_TIERS: Record<
   "browser.extract": "read",
   "browser.verify": "read",
   "browser.wait": "read",
+  "browser.act": "side-effect",
 };
+
+/**
+ * 未显式配置 MODEL_TOOLS 时的默认暴露集合。
+ *
+ * side-effect tier 的工具必须由 operator 显式写入配置才会暴露，
+ * 不能随“全量目录”默认进入模型可见面。
+ */
+export const MODEL_FACING_DEFAULT_TOOL_NAMES:
+  readonly ModelFacingToolName[] =
+  MODEL_FACING_TOOL_NAMES.filter(
+    (tool) => TOOL_TIERS[tool] !== "side-effect",
+  );
 
 const KNOWN_TOOLS = new Set<string>(
   MODEL_FACING_TOOL_NAMES,
