@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  MODEL_FACING_DEFAULT_TOOL_NAMES,
   ModelToolExposurePolicy,
   type ModelFacingToolName,
 } from "@browser-agent-next/policy";
 import {
   MODEL_INPUT_LIMITS,
+  parseModelActInput,
   parseModelExtractInput,
   parseModelObserveInput,
   parseModelOpenInput,
@@ -77,7 +79,24 @@ const representativeInputs: Record<
       ],
     },
   },
+  "browser.act": {
+    tabId: 7,
+    observedRevision: "rev-1",
+    ref: "@save",
+    kind: "click",
+    verifyTimeoutMs: MODEL_INPUT_LIMITS.maxActVerifyTimeoutMs,
+    verification: {
+      mode: "any",
+      conditions: [
+        { type: "text_present", text: "Saved" },
+      ],
+    },
+  },
 };
+
+const validActInput = representativeInputs[
+  "browser.act"
+] as Record<string, unknown>;
 
 function parseRepresentative(
   tool: ModelFacingToolName,
@@ -99,11 +118,14 @@ function parseRepresentative(
     case "browser.wait":
       parseModelWaitInput(input);
       return;
+    case "browser.act":
+      parseModelActInput(input);
+      return;
   }
 }
 
 describe("model-facing MCP tool catalog", () => {
-  it("只包含显式允许的五个模型工具，且不包含副作用/控制面工具", () => {
+  it("只包含显式允许的六个模型工具，且不包含控制面工具", () => {
     expect(
       MODEL_FACING_MCP_TOOL_DEFINITIONS.map(
         (tool) => tool.name,
@@ -114,13 +136,9 @@ describe("model-facing MCP tool catalog", () => {
       "browser.extract",
       "browser.verify",
       "browser.wait",
+      "browser.act",
     ]);
 
-    expect(
-      MODEL_FACING_MCP_TOOL_DEFINITIONS.some(
-        (tool) => tool.name === ("browser.act" as ModelFacingToolName),
-      ),
-    ).toBe(false);
     expect(
       MODEL_FACING_MCP_TOOL_DEFINITIONS.some(
         (tool) =>
@@ -129,6 +147,67 @@ describe("model-facing MCP tool catalog", () => {
           String(tool.name).startsWith("execution."),
       ),
     ).toBe(false);
+  });
+
+  it("默认暴露集合下 catalog 不含 side-effect 的 browser.act，显式暴露后才出现", () => {
+    expect(
+      createModelFacingMcpToolCatalog(
+        new ModelToolExposurePolicy(
+          MODEL_FACING_DEFAULT_TOOL_NAMES,
+        ),
+      ).map((tool) => tool.name),
+    ).not.toContain("browser.act");
+
+    expect(
+      createModelFacingMcpToolCatalog(
+        new ModelToolExposurePolicy([
+          "browser.observe",
+          "browser.act",
+        ]),
+      ).map((tool) => tool.name),
+    ).toEqual(["browser.observe", "browser.act"]);
+  });
+
+  it("browser.act schema 精确封闭，bounds 引用 MODEL_INPUT_LIMITS", () => {
+    const act = MODEL_FACING_MCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "browser.act",
+    )!;
+
+    expect(act.inputSchema.additionalProperties).toBe(false);
+    expect(
+      Object.keys(record(act.inputSchema.properties)).sort(),
+    ).toEqual([
+      "kind",
+      "observedRevision",
+      "ref",
+      "tabId",
+      "verification",
+      "verifyTimeoutMs",
+    ]);
+    expect(act.inputSchema.required).toEqual([
+      "tabId",
+      "observedRevision",
+      "ref",
+      "kind",
+      "verification",
+    ]);
+    expect(property(act.inputSchema, "kind")).toEqual({
+      const: "click",
+    });
+    expect(
+      property(act.inputSchema, "ref").maxLength,
+    ).toBe(MODEL_INPUT_LIMITS.maxRefLength);
+    expect(
+      property(act.inputSchema, "verifyTimeoutMs"),
+    ).toMatchObject({
+      minimum: 0,
+      maximum: MODEL_INPUT_LIMITS.maxActVerifyTimeoutMs,
+    });
+    expect(
+      property(act.inputSchema, "verification")
+        .additionalProperties,
+    ).toBe(false);
+    expect(act.description).toContain("Side-effect");
   });
 
   it("catalog 继续由 ModelToolExposurePolicy 做最终过滤", () => {
@@ -203,5 +282,88 @@ describe("model-facing MCP tool catalog", () => {
         MODEL_FACING_MCP_TOOL_DEFINITIONS[0]?.inputSchema,
       ),
     ).toBe(true);
+  });
+});
+
+describe("parseModelActInput", () => {
+  it("接受精确字段集合并只返回已知字段", () => {
+    expect(parseModelActInput(validActInput)).toEqual(
+      validActInput,
+    );
+
+    const { verifyTimeoutMs: _timeout, ...withoutTimeout } =
+      validActInput;
+    expect(parseModelActInput(withoutTimeout)).not.toHaveProperty(
+      "verifyTimeoutMs",
+    );
+  });
+
+  it.each([
+    "authorizationId",
+    "assurance",
+    "source",
+    "actionId",
+    "ownedBySession",
+    "ttlMs",
+  ])("模型传入授权/执行身份字段 %s 一律 POLICY_BLOCKED", (key) => {
+    expect(() =>
+      parseModelActInput({
+        ...validActInput,
+        [key]: key === "assurance"
+          ? "operator-approved"
+          : "model-supplied",
+      })
+    ).toThrow(
+      expect.objectContaining({ code: "POLICY_BLOCKED" }),
+    );
+  });
+
+  it("kind 必须是 click", () => {
+    for (const kind of ["setValue", "CLICK", undefined, 1]) {
+      expect(() =>
+        parseModelActInput({ ...validActInput, kind })
+      ).toThrow(
+        expect.objectContaining({ code: "POLICY_BLOCKED" }),
+      );
+    }
+  });
+
+  it("verifyTimeoutMs 必须在 0..5000，ref/revision/verification 必须有界且合法", () => {
+    expect(() =>
+      parseModelActInput({ ...validActInput, verifyTimeoutMs: 0 })
+    ).not.toThrow();
+
+    const invalid: Array<Record<string, unknown>> = [
+      { verifyTimeoutMs: -1 },
+      { verifyTimeoutMs: 5_001 },
+      { verifyTimeoutMs: Number.POSITIVE_INFINITY },
+      { verifyTimeoutMs: "100" },
+      { tabId: -1 },
+      { tabId: 1.5 },
+      { ref: "" },
+      { ref: "x".repeat(MODEL_INPUT_LIMITS.maxRefLength + 1) },
+      { observedRevision: "" },
+      { verification: { mode: "all", conditions: [] } },
+      {
+        verification: {
+          mode: "all",
+          conditions: [{ type: "text_present", text: "x", extra: 1 }],
+        },
+      },
+    ];
+    for (const patch of invalid) {
+      expect(() =>
+        parseModelActInput({ ...validActInput, ...patch })
+      ).toThrow(
+        expect.objectContaining({ code: "POLICY_BLOCKED" }),
+      );
+    }
+
+    expect(() => parseModelActInput(null)).toThrow(
+      expect.objectContaining({ code: "POLICY_BLOCKED" }),
+    );
+    expect(() => parseModelActInput([validActInput])).toThrow(
+      expect.objectContaining({ code: "POLICY_BLOCKED" }),
+    );
   });
 });

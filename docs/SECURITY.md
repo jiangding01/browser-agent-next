@@ -1,6 +1,6 @@
 # 安全模型与信任边界
 
-最后更新：2026-09-20
+最后更新：2026-10-16
 
 ## 目标
 
@@ -60,6 +60,40 @@ Native host 在每次启动（即扩展连接）时读取 `~/.browser-agent-next
 - 任一条目非法、或文件校验失败时，整份文件作废，不做部分应用。
 - 文件缺失、非法或下发失败时，native host 只在 stderr 记录原因并继续启动，不下发任何内容，扩展 allowlist 保持为空，act 全部被拒绝（fail closed）。日志不得包含 origin 列表，且绝不能写入 stdout（Native Messaging 协议通道）。
 - allowlist 只存在于扩展内存。运行期间通过 RPC replace 的结果会在下一次 native host 重连时被配置文件内容覆盖；没有配置文件时则重置为空。
+
+## Model act broker 边界
+
+Phase 6.6a 起，operator 可以显式把 side-effect tier 的 `browser.act` 暴露给模型。模型只能提出“点击某个已出境 ref”，授权 id、action id 与授权路径都由 MCP 进程内的 Act broker 生成（见 `docs/MODEL-FACING-ADAPTER.md`）。
+
+### broker scope 与威胁模型
+
+broker 的 scope 是 MCP 进程内的代码约束：它限制的是只能通过受限 MCP 使用浏览器的模型，与不变量 46 描述的威胁模型一致。拥有同 UID 任意 filesystem/network 能力的 Coding Agent 仍可以绕过 MCP 进程直接读取 trusted token，这不属于 broker 能隔离的对象。扩展侧对授权签发（assurance ceiling、`ownedBySession`、retained observation / ref / origin 重验证）与执行（grant 精确绑定、第二次 Strict Prepare）的校验是第二道防线，不依赖 broker 的实现正确性。
+
+### 默认配置
+
+- `browser.act` 默认不在 `MODEL_TOOLS` 里；
+- act origin 默认为空，且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）都必须在 act allowlist 内；
+- 授权路径默认是 operator approval；`agent-owned-auto` 仅对 `ownedBySession` 且未降级的 tab 生效；
+- `ACTION_OUTCOME_UNKNOWN`（授权或执行阶段）或非 Runtime 异常之后，该 tab 在当前连接内永久降级为 operator approval。
+
+### operator approval 的证明来源
+
+MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。MCP client 侧的确认界面由宿主或模型运行环境控制，MCP 进程无法证明它来自人类，也无法阻止同一个模型环境自动应答。operator-approved 只能来自扩展的审批 UI（见上文「Operator approval UI boundary」）：broker 只创建 pending request 并轮询状态，不能调用 approve。
+
+### 出境脱敏
+
+- 扩展返回的 verification、`verificationAttempts`、`freshRevision`、`postActionObservationError`、execution 细节与 evidence 中的 `observed` 全部在 trusted client 或 broker 层丢弃；模型可见的 verification 在投影后的 observation 上本地重算；
+- trusted Runtime 的错误只保留 code，message 换成固定文本；
+- 执行阶段固定 `verifyTimeoutMs=0`，act 耗时不随隐藏页面状态变化。
+
+### 已接受的残余风险
+
+- act 执行失败的 runtime code（`TARGET_OCCLUDED`、`DOCUMENT_CHANGED` 等）会原样保留，每次最多泄露约 1 bit 实时页面状态。该信道受三项约束：每连接预算（默认 16，上限 256）、同一 `(tab, revision, ref)` 至多执行一次、每次都需要授权（默认 operator approval）；
+- approval 超时后，扩展里仍遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它。计划在 Phase 6.6b 通过 cancel 解决。
+
+### 状态按连接计
+
+预算、`(tab, revision, ref)` 账本与降级状态都保存在每个 MCP 连接自己的 broker 里。宿主重连会重置这些状态，模型自身无法触发重连。因此预算和降级是“每连接”而不是“每 operator”的限制，operator 需要把宿主的重连行为视为信任边界的一部分。
 
 ## Unknown Effect
 

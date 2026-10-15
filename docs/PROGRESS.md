@@ -1,6 +1,6 @@
 # 实现进度
 
-最后更新：2026-09-20
+最后更新：2026-10-16
 
 ## 当前基线
 
@@ -29,6 +29,8 @@ Model-facing Runtime client                ✅ open/observe only
 MCP executable CLI + operator config       ✅ fail-closed baseline
 MCP stdio wire integration                  ✅ legacy handshake + tools
 PR #5 Final Adversarial Review              ✅
+Phase 6.6 PR-0 auto-act origins 配置文件下发 ✅
+Phase 6.6a Act broker + model-facing browser.act ✅ baseline（默认不暴露）
 ```
 
 ## PR #5 第一阶段已完成
@@ -104,7 +106,7 @@ PR #5 Final Adversarial Review              ✅
 
 Runtime `browser.wait` 已支持 event-assisted wake-up；但 model-facing `browser.wait` 第一阶段故意只在 projected observation 上做 bounded polling + verify，避免 Runtime 完整 observation 形成模型不可见数据的 verification side channel。
 
-Runtime `browser.act` 仍可在 trusted control plane 内使用；model-facing adapter 当前不暴露它。后续只有在 scoped authorization broker 不能被模型直接调用或自报 assurance 的前提下才开放副作用工具。
+Runtime `browser.act` 仍可在 trusted control plane 内使用；model-facing `browser.act` 自 Phase 6.6a 起作为 side-effect tier 工具存在，但默认不暴露，只有 operator 显式写进 `MODEL_TOOLS` 并配置 act origin 才可用，且只能经过 MCP 进程内的 Act broker，模型不能提供或自报 authorizationId / assurance。
 
 child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立推进，不在 PR #5 第一阶段隐式放宽。
 
@@ -225,17 +227,42 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 任一项非法则整份作废，文件缺失、非法或下发失败时扩展 allowlist 保持为空（fail closed），日志只写 stderr 且只记数量；
 - 新增不变量 117；Real Chromium E2E 覆盖“仅凭配置文件即可完成 control-plane strict click”与“无配置文件时 ORIGIN_NOT_ALLOWED”对照。
 
+## Phase 6.6a：Act broker 与 model-facing browser.act
+
+- `browser.act` 作为唯一的 side-effect tier 工具进入模型工具目录，默认集合 `MODEL_FACING_DEFAULT_TOOL_NAMES` 不包含它，必须显式写进 `MODEL_TOOLS`；
+- 新增第 4 个独立 policy plane（model act origin）：默认空，必须是 read origin 的子集，非法时进程启动失败；检查同时覆盖 tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）；
+- 新增 4 个 operator 配置：`MODEL_ACT_ORIGINS`、`MODEL_ACT_BUDGET`（默认 16，1..256）、`MODEL_ACT_APPROVAL`（`operator` / `agent-owned-auto`，默认 `operator`）、`MODEL_APPROVAL_TIMEOUT_MS`（默认 60000，1..120000）；
+- `TrustedRuntimeHttpClient` 新增 broker 专用的 `act / issueStrictClick / requestOperatorApproval / operatorApprovalStatus`，各自独立响应校验；act 在 client 层丢弃 `freshRevision`、`postActionObservationError`、execution 细节与 evidence 中的 `observed`；issue 与 approval status 校验返回 id 与请求一致；这四个方法不并入 adapter 使用的 `ModelBrowserRuntimeClient`；
+- 新增 `modelActBroker`（工厂函数 + 闭包，无 class）：每连接预算、`(tab, revision, ref)` 单次执行账本（标记先于任何 trusted 请求落账，重复调用被拒仍扣 1 点预算）、grant TTL 30 秒、operator approval 每 1 秒轮询；
+- 授权路径：默认 operator approval；`agent-owned-auto` 仅对 `ownedBySession` 且未降级的 tab 直接签发 control-plane grant；
+- 授权阶段或执行阶段出现 `ACTION_OUTCOME_UNKNOWN`，或抛出非 Runtime 异常，该 tab 在当前连接内永久降级为 operator；降级状态不跨连接持久；
+- act 以 `verifyTimeoutMs=0` 调用 trusted Runtime，扩展侧 verification 与 attempts 全部丢弃；adapter 在动作后对投影后的 observation 本地重算 verification（默认窗口 `MODEL_ACT_DEFAULT_VERIFY_TIMEOUT_MS = 1500`），act 之后 observe 失败时返回 executed + inconclusive（固定文案）；
+- trusted Runtime 错误只保留 code，message 换成固定文本；
+- 新增不变量 118～123（N1～N6），并修订第 78、84 条。
+
+已接受的残余风险与 6.6b 计划见 `docs/SECURITY.md` 的「Model act broker 边界」。
+
+## Phase 6.6a 最终门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（424 个）✅
+- Workspace build ✅
+- Real Chromium E2E 11/11 ✅
+- check 深度审查 + 对抗式审查：无 HIGH / MEDIUM 结论 ✅
+
 ## 下一步
 
-1. 进入 Phase 6.6a scoped authorization broker（PR-0 已解除 allowlist 运维死结）；
-2. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
+1. Phase 6.6b：扩展 badge、progress notification、popup 显示 TTL 倒计时并标注不可信页面文本、approval 超时后取消 pending approval request（关闭 6.6a 已接受的残余风险之一）；
+2. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查；
 3. Phase 6.6 完成后再进入 Intelligence Layer。
 
 ## 文档
 
 - `docs/MODEL-FACING-ADAPTER.md`：PR #5 模型信任边界与第一阶段设计；
 - `docs/INVARIANTS.md`：新增 model-visible revision / projected verification 等不变量；
-- `docs/ROADMAP.md`：Phase 6.5 按可验证子阶段推进。
+- `docs/ROADMAP.md`：Phase 6.5 按可验证子阶段推进；
+- `docs/MODEL-FACING-ADAPTER.md`：新增「Act broker」一节；
+- `docs/SECURITY.md`：新增「Model act broker 边界」一节。
 
 
 ## PR #5 最终门禁

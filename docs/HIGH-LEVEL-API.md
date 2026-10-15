@@ -1,6 +1,6 @@
 # High-level Browser API
 
-最后更新：2026-09-20
+最后更新：2026-10-16
 
 ## 目标
 
@@ -156,6 +156,36 @@ Stored Observation
 
 非 click action 当前返回 ACTION_NOT_SUPPORTED，而不是降级到 compatible execution。
 
+### Model-facing 形态（Phase 6.6a）
+
+上面描述的是 trusted control plane 的 `browser.act`。面向模型的 `browser.act` 是 side-effect tier 的独立工具，默认不暴露，只有 operator 显式把它写进 `BROWSER_AGENT_NEXT_MODEL_TOOLS` 才会出现在 MCP 目录，并且只能经过 MCP 进程内的 Act broker 执行（详见 `docs/MODEL-FACING-ADAPTER.md` 的「Act broker」）。
+
+模型输入只有：
+
+```text
+tabId
+observedRevision     必须是已对本连接出境的 revision
+ref                  必须在该 revision 投影后的 observation 里
+kind                 固定为 "click"
+verification         VerificationSpec
+verifyTimeoutMs?     0..5000，默认 1500
+```
+
+模型不能提供 `authorizationId`、`actionId`、`assurance`、`source` 等字段：这些字段由 broker 生成或固定，传入任何多余字段都会以 `POLICY_BLOCKED` 拒绝。授权路径默认是 operator approval，只有 operator 配置 `agent-owned-auto` 且 tab 为 `ownedBySession` 且未降级时才走 control-plane grant。
+
+返回结构：
+
+```text
+{
+  status: "executed",
+  effectClass: "unknown",
+  verification,            // 在投影后的 observation 上本地重算，evidence 不含 observed
+  verificationAttempts
+}
+```
+
+扩展侧的 `verification`、`verificationAttempts`、`freshRevision`、`postActionObservationError` 与 execution 细节都不会出境：trusted `browser.act` 以 `verifyTimeoutMs=0` 调用，返回值只用于确认“已执行”。act 之后如果本地 observe 不可用，返回 executed + inconclusive，而不是错误。运行时失败只保留 error code，message 换成固定文本。
+
 ## 兼容接口
 
 旧的：
@@ -167,15 +197,25 @@ Stored Observation
 
 ## 当前未完成
 
-- scoped authorization broker（Phase 6.6）；
-- model-facing `browser.act` policy 与 side-effect MCP integration tests（Phase 6.6）。
+Phase 6.6a 已交付 scoped Act broker 与 model-facing `browser.act` baseline。剩余工作拆为：
 
-以下能力已在 trusted control plane baseline 中完成，但仍不等于面向模型开放：
+**Phase 6.6b（扩展侧 approval UX）**
+
+- 扩展 badge；
+- progress notification；
+- popup 显示 TTL 倒计时，并标注页面文本不可信；
+- approval 超时后取消 pending approval request。
+
+**Phase 6.6c（验收）**
+
+- side-effect 的 MCP stdio wire 集成测试；
+- 最终对抗式审查。
+
+以下能力属于 trusted control plane baseline 或 6.6a 交付范围，不能被理解为“任意模型可直接使用”：
 
 - operator-approved / enterprise-policy issuance ingress（PR #6）；
-- OOPIF exact session mapping 与 child-frame Strict Click（PR #7）。
-
-当前 `browser.act` 仍只在 trusted control plane 内可用；在 Phase 6.6 的 scoped authorization broker 完成前，不进入 model-facing tool catalog。
+- OOPIF exact session mapping 与 child-frame Strict Click（PR #7）；
+- model-facing `browser.act` 只能经 Act broker、默认不暴露，需 operator 显式配置 `MODEL_TOOLS` 与 `MODEL_ACT_ORIGINS`。
 
 
 ## Transport 与 Model Boundary
@@ -189,7 +229,7 @@ Stored Observation
 ```text
 LLM / Agent
     ↓
-Model-facing MCP Adapter（当前已交付五工具）
+Model-facing MCP Adapter（默认五工具；browser.act 需显式暴露）
     ↓  model-egress policy / tool exposure policy
 browser.* runtime facade
     ↓
@@ -202,8 +242,9 @@ Trusted Native Host / Extension
 2. 不暴露 `policy.replace-autoact-origins`；
 3. 不暴露 operator / enterprise authorization minting；
 4. 在 BrowserObservation 或 extract 内容进入模型前执行独立的 model-egress policy；
-5. model-egress allowlist 与 auto-act origin allowlist 保持两个独立策略面；
-6. read/navigation 使用 exact-origin allowlist，跨 frame 的结果先经过 model-visible projection，`includeValues` 默认关闭。
+5. model-egress allowlist、model act origin allowlist 与 Runtime auto-act origin allowlist 保持独立策略面，model act origin 必须是 read origin 的子集；
+6. read/navigation/act 使用 exact-origin allowlist，跨 frame 的结果先经过 model-visible projection，`includeValues` 默认关闭；
+7. `browser.act` 作为 side-effect tier 工具默认不暴露，且只能经 Act broker 取得授权与执行。
 
 按 secret、credential、proprietary data 等语义分类执行更细的数据出境控制仍属于后续工作；当前 baseline 的约束不能替代该能力。
 

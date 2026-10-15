@@ -75,12 +75,12 @@
 71. Native Messaging Port 断连或回包失败后必须停用 ingress；异步请求完成时不得继续回传、重连或重放动作。
 
 72. Model-facing tool catalog 必须是独立显式 allowlist；trusted-host 内部 RPC、新增控制面方法不能因为名称存在就自动成为模型工具。
-73. Model read/egress origin policy、model navigation origin policy、Runtime auto-act origin policy 是三个独立 policy plane，任何一个 allow 都不能推导另外两个 allow。
+73. Model read/egress origin policy、model navigation origin policy、Runtime auto-act origin policy 是三个独立 policy plane，任何一个 allow 都不能推导另外两个 allow。第 119 条在此基础上增加第 4 个独立 plane（model act origin）。
 74. `sinceRevision`、model-facing `browser.extract` 与 `browser.verify` 只能引用已经成功通过 model-egress projection 的 model-visible revision；adapter restart 后不得猜测恢复内部 revision 可见性。
 75. 未被 model read policy 允许的 child frame 内容不得进入模型；发生 frame egress filtering 时 coverage 必须降级，模型“没看到”不能被解释为页面不存在。
 76. credential/value 默认不进入模型；模型请求 `includeValues=true` 不能越过 trusted model-egress policy，verification evidence 也不得把被 redaction 的 observed value 二次带回模型。
 77. Model-facing `extract/verify/wait` 必须基于 projected model-visible observation；不得通过直接调用 trusted Runtime 的完整 retained state / verification 形成 hidden-state boolean side channel。
-78. `browser.act` 在模型边界完成 scoped authorization broker 前必须保持不可见；模型不能直接提供或 mint authorizationId/assurance 来绕过该边界。
+78. `browser.act` 只能经过 scoped broker 暴露给模型；模型不能提供或铸造 authorizationId、actionId、assurance。
 
 79. Model-facing MCP stdio 必须使用 connection factory 创建独立 adapter/invoker；model-visible revision store 不得跨 MCP connection 共享。
 80. MCP tools/call 的名称必须再次经过当前 catalog allowlist 校验；未列出的工具不得进入 model-facing adapter dispatch。
@@ -88,7 +88,7 @@
 82. MCP error 出境只能包含 bounded code/message；BrowserRuntimeError.details、stack 与未知异常原文不得返回模型。
 83. Stdio stdout 是 MCP protocol channel；实现不得向 stdout 写业务日志或调试文本。
 
-84. Model-facing trusted Runtime client 的公共能力只能是明确需要的高层 Runtime 方法；当前仅允许 browser.open / browser.observe，不得暴露 generic trusted RPC passthrough。
+84. Model-facing trusted Runtime client 的公共能力只能是明确需要的高层 Runtime 方法：open / observe，加上 broker 专用的 act、issueStrictClick、requestOperatorApproval、operatorApprovalStatus；这四个 broker 专用方法不得出现在 adapter 的 runtime client 类型里，仍然禁止 generic trusted RPC passthrough。
 85. Trusted Runtime HTTP client 只能连接显式 loopback endpoint，并且必须禁止 redirect；trusted Bearer token 不得因 URL/redirect/proxy-style 配置进入非 loopback 目标。
 86. MCP 侧只能读取 native-host 已存在的 trusted token，不能创建、轮换或修复 token；token 路径必须拒绝 symlink、错误 owner 和过宽权限。
 87. Trusted Runtime response 必须绑定精确 requestId，并受显式字节数与结构校验约束；不满足时不得进入 model-facing adapter。
@@ -126,3 +126,10 @@
 115. Nested child-frame 坐标投影的每一跳都必须在对应 parent execution context 中对 frame-owner 执行 live hit-test；只验证最外层 root iframe 不足以证明内层 iframe 未被 parent-document overlay 遮挡。
 116. Scroll、layout shift 或 2D transform 后的 frame-owner 坐标必须来自当前 prepare 的实时 `DOM.getBoxModel`；不得缓存或复用前一次 prepare 的投影坐标。
 117. auto-act origins 配置文件必须是当前用户拥有、非 symlink、不可被组或其他用户写入的普通文件，且只接受纯 origin；任一条目非法时整份文件作废、不做部分应用，扩展 allowlist 保持为空（fail closed）；native host 不得因配置读取失败而向 stdout 写入。
+
+118. （N1）side-effect tier 的工具不得进入默认 `MODEL_TOOLS`；只有 operator 显式写进 `BROWSER_AGENT_NEXT_MODEL_TOOLS` 才会暴露。
+119. （N2）model act origin 是第 4 个独立 policy plane，默认为空且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）都必须满足。
+120. （N3）只能对本连接已出境 revision 中已投影的 ref 发起授权。
+121. （N4）同一 `(tab, revision, ref)` 每个连接至多执行一次，标记先于任何 trusted 请求落账；`ACTION_OUTCOME_UNKNOWN` 之后该 tab 至少需要 operator-approved。
+122. （N5）MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明，批准只能来自扩展的审批 UI。
+123. （N6）act 结果必须经过出境投影，不得携带扩展侧的 verification、`observed`、未出境的 revision 或原始错误文本；模型可见的 verification 必须在投影后的 observation 上本地计算。

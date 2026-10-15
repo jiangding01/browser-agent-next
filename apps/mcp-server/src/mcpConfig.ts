@@ -1,4 +1,6 @@
 import {
+  ExactOriginAllowlist,
+  MODEL_FACING_DEFAULT_TOOL_NAMES,
   MODEL_FACING_TOOL_NAMES,
   ModelOriginAccessPolicy,
   ModelToolExposurePolicy,
@@ -17,6 +19,11 @@ import {
 export const MCP_CONFIG_ENV = {
   readOrigins: "BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS",
   navigationOrigins: "BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS",
+  actOrigins: "BROWSER_AGENT_NEXT_MODEL_ACT_ORIGINS",
+  actBudget: "BROWSER_AGENT_NEXT_MODEL_ACT_BUDGET",
+  actApproval: "BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL",
+  approvalTimeoutMs:
+    "BROWSER_AGENT_NEXT_MODEL_APPROVAL_TIMEOUT_MS",
   tools: "BROWSER_AGENT_NEXT_MODEL_TOOLS",
   includeValues: "BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES",
   maxObservationElements:
@@ -33,9 +40,17 @@ export const MCP_CONFIG_ENV = {
     "BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES",
 } as const;
 
+export type ModelActApprovalMode =
+  | "operator"
+  | "agent-owned-auto";
+
 export interface ModelFacingMcpConfig {
   readonly readOrigins: readonly string[];
   readonly navigationOrigins: readonly string[];
+  readonly actOrigins: readonly string[];
+  readonly actBudget: number;
+  readonly actApproval: ModelActApprovalMode;
+  readonly approvalTimeoutMs: number;
   readonly tools: readonly ModelFacingToolName[];
   readonly includeValues: boolean;
   readonly maxObservationElements: number;
@@ -145,7 +160,7 @@ function parseTools(
   const requested =
     value === undefined ||
     value.trim() === ""
-      ? [...MODEL_FACING_TOOL_NAMES]
+      ? [...MODEL_FACING_DEFAULT_TOOL_NAMES]
       : parseList(
           value,
           MCP_CONFIG_ENV.tools,
@@ -176,6 +191,57 @@ function canonicalOrigins(
     navigationOrigins:
       policy.navigableOrigins(),
   };
+}
+
+function parseActApproval(
+  value: string | undefined,
+): ModelActApprovalMode {
+  if (
+    value === undefined ||
+    value === ""
+  ) {
+    return "operator";
+  }
+  if (
+    value === "operator" ||
+    value === "agent-owned-auto"
+  ) {
+    return value;
+  }
+
+  throw new Error(
+    MCP_CONFIG_ENV.actApproval +
+      " must be operator or agent-owned-auto",
+  );
+}
+
+/**
+ * act plane 是独立于 read/navigation 的第三个 origin 配置，
+ * 但必须是 read plane 的子集：模型不能对自己读不到的 origin 发起动作。
+ */
+function canonicalActOrigins(
+  actOrigins: readonly string[],
+  readOrigins: readonly string[],
+): string[] {
+  const canonical =
+    new ExactOriginAllowlist(
+      actOrigins,
+    ).values();
+  const readable = new Set(readOrigins);
+
+  for (const origin of canonical) {
+    if (!readable.has(origin)) {
+      throw new Error(
+        MCP_CONFIG_ENV.actOrigins +
+          " must be a subset of " +
+          MCP_CONFIG_ENV.readOrigins +
+          ": " +
+          origin,
+      );
+    }
+  }
+
+  return canonical;
 }
 
 function parseLoopbackHost(
@@ -221,6 +287,16 @@ export function loadModelFacingMcpConfig(
     ),
   );
 
+  const actOrigins =
+    canonicalActOrigins(
+      parseList(
+        env[MCP_CONFIG_ENV.actOrigins],
+        MCP_CONFIG_ENV.actOrigins,
+        100,
+      ),
+      origins.readOrigins,
+    );
+
   const rpcTokenPath =
     env[MCP_CONFIG_ENV.rpcTokenPath]
       ?.trim();
@@ -255,6 +331,30 @@ export function loadModelFacingMcpConfig(
       ),
       navigationOrigins: Object.freeze(
         origins.navigationOrigins,
+      ),
+      actOrigins: Object.freeze(
+        actOrigins,
+      ),
+      actBudget: parseInteger(
+        env[MCP_CONFIG_ENV.actBudget],
+        MCP_CONFIG_ENV.actBudget,
+        16,
+        1,
+        256,
+      ),
+      actApproval: parseActApproval(
+        env[MCP_CONFIG_ENV.actApproval],
+      ),
+      approvalTimeoutMs: parseInteger(
+        env[
+          MCP_CONFIG_ENV
+            .approvalTimeoutMs
+        ],
+        MCP_CONFIG_ENV
+          .approvalTimeoutMs,
+        60_000,
+        1,
+        120_000,
       ),
       tools: Object.freeze(
         parseTools(

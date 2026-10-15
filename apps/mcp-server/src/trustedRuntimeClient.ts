@@ -17,6 +17,10 @@ import {
   type BrowserOpenInput,
   type BrowserOpenResult,
   type RuntimeErrorCode,
+  type VerificationEvidence,
+  type VerificationResult,
+  type VerificationSpec,
+  type VerifyCondition,
 } from "@browser-agent-next/core";
 import type {
   ModelBrowserRuntimeClient,
@@ -70,7 +74,94 @@ type TrustedFailure = {
 type TrustedResponse =
   | TrustedSuccess
   | TrustedFailure;
-type OperationKind = "open" | "observe";
+type OperationKind =
+  | "open"
+  | "observe"
+  | "act"
+  | "authorize";
+
+export interface TrustedActInput {
+  tabId: number;
+  actionId: string;
+  observedRevision: string;
+  ref: string;
+  authorizationId: string;
+  verification: VerificationSpec;
+  verifyTimeoutMs?: number;
+}
+
+export interface TrustedStrictClickGrantInput {
+  authorizationId: string;
+  tabId: number;
+  observedRevision: string;
+  ref: string;
+  ttlMs: number;
+}
+
+/**
+ * act 在 trusted client 这一层就丢弃 execution 细节、
+ * freshRevision 与 postActionObservationError。
+ */
+export interface TrustedActResult {
+  status: "executed";
+  verification: VerificationResult;
+  verificationAttempts: number;
+}
+
+export interface TrustedIssuedAuthorization {
+  id: string;
+  expiresAt: number;
+}
+
+export interface TrustedOperatorApprovalRequest {
+  approvalRequestId: string;
+  expiresAt: number;
+}
+
+export type TrustedOperatorApprovalState =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "invalidated"
+  | "unknown";
+
+export interface TrustedOperatorApprovalStatus {
+  state: TrustedOperatorApprovalState;
+  grantExpiresAt?: number;
+}
+
+/**
+ * 仅供 model act broker 使用的 trusted Runtime client。
+ *
+ * 刻意不并入 ModelBrowserRuntimeClient：后者保持只有 open / observe。
+ */
+export interface TrustedActBrokerRuntimeClient {
+  act(input: TrustedActInput): Promise<TrustedActResult>;
+  issueStrictClick(
+    input: TrustedStrictClickGrantInput,
+  ): Promise<TrustedIssuedAuthorization>;
+  requestOperatorApproval(
+    input: TrustedStrictClickGrantInput,
+  ): Promise<TrustedOperatorApprovalRequest>;
+  operatorApprovalStatus(
+    approvalRequestId: string,
+  ): Promise<TrustedOperatorApprovalStatus>;
+}
+
+const MAX_TEXT = 2_048;
+const MAX_REF = 256;
+const MAX_ID = 256;
+const MAX_EVIDENCE = 20;
+const MAX_VERIFICATION_ATTEMPTS = 10_000;
+const APPROVAL_STATES = new Set<string>([
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "invalidated",
+  "unknown",
+]);
 
 function boundedInteger(
   value: number,
@@ -563,21 +654,360 @@ function operationFailure(
   message: string,
 ): BrowserRuntimeError {
   return new BrowserRuntimeError(
-    operation === "open"
+    operation === "open" || operation === "act"
       ? "ACTION_OUTCOME_UNKNOWN"
-      : "STATE_INCOMPLETE",
+      : operation === "authorize"
+        ? "AUTHORIZATION_REQUIRED"
+        : "STATE_INCOMPLETE",
     message.slice(0, 500),
   );
 }
 
+function nonNegativeInteger(
+  value: unknown,
+  max = Number.MAX_SAFE_INTEGER,
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= max
+  );
+}
+
+function optionalText(
+  value: unknown,
+): value is string | undefined {
+  return (
+    value === undefined ||
+    (
+      typeof value === "string" &&
+      value.length <= MAX_TEXT
+    )
+  );
+}
+
 /**
- * 面向 Model-facing Adapter 的最小 trusted Runtime client。
+ * 逐字段校验并重建 condition，只保留已知字段。
+ */
+function pickVerifyCondition(
+  value: unknown,
+): VerifyCondition | undefined {
+  const condition = record(value);
+  if (!condition) return undefined;
+
+  switch (condition.type) {
+    case "url_matches":
+    case "title_matches":
+      return boundedString(
+        condition.pattern,
+        MAX_TEXT,
+      )
+        ? {
+            type: condition.type,
+            pattern: condition.pattern,
+          }
+        : undefined;
+    case "ref_exists":
+    case "ref_visible":
+    case "ref_absent":
+      return boundedString(
+        condition.ref,
+        MAX_REF,
+      )
+        ? {
+            type: condition.type,
+            ref: condition.ref,
+          }
+        : undefined;
+    case "text_present":
+      return boundedString(
+        condition.text,
+        MAX_TEXT,
+      ) &&
+        (
+          condition.scopeRef ===
+            undefined ||
+          boundedString(
+            condition.scopeRef,
+            MAX_REF,
+          )
+        )
+        ? {
+            type: "text_present",
+            text: condition.text,
+            ...(condition.scopeRef !==
+            undefined
+              ? {
+                  scopeRef:
+                    condition.scopeRef,
+                }
+              : {}),
+          }
+        : undefined;
+    case "field_value":
+      return boundedString(
+        condition.ref,
+        MAX_REF,
+      )
+        ? {
+            type: "field_value",
+            ref: condition.ref,
+            equals: condition.equals,
+          }
+        : undefined;
+    case "dialog_present":
+      return optionalText(condition.title)
+        ? {
+            type: "dialog_present",
+            ...(condition.title !==
+            undefined
+              ? { title: condition.title }
+              : {}),
+          }
+        : undefined;
+    case "download_started":
+      return optionalText(
+        condition.filenamePattern,
+      )
+        ? {
+            type: "download_started",
+            ...(condition.filenamePattern !==
+            undefined
+              ? {
+                  filenamePattern:
+                    condition.filenamePattern,
+                }
+              : {}),
+          }
+        : undefined;
+    case "network_request_completed":
+      return boundedString(
+        condition.urlPattern,
+        MAX_TEXT,
+      )
+        ? {
+            type:
+              "network_request_completed",
+            urlPattern:
+              condition.urlPattern,
+          }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function pickVerificationEvidence(
+  value: unknown,
+): VerificationEvidence | undefined {
+  const evidence = record(value);
+  if (
+    !evidence ||
+    typeof evidence.pass !== "boolean" ||
+    typeof evidence.conclusive !==
+      "boolean" ||
+    !optionalText(evidence.reason)
+  ) {
+    return undefined;
+  }
+
+  const condition = pickVerifyCondition(
+    evidence.condition,
+  );
+  if (!condition) return undefined;
+
+  // observed 是扩展在未投影 observation 上读到的真实页面数据，无类型与大小上界；
+  // 在 client 层即丢弃，避免任何后续消费者拿到未出境内容。
+  return {
+    condition,
+    pass: evidence.pass,
+    conclusive: evidence.conclusive,
+    ...(evidence.reason !== undefined
+      ? { reason: evidence.reason }
+      : {}),
+  };
+}
+
+function pickVerificationResult(
+  value: unknown,
+): VerificationResult | undefined {
+  const result = record(value);
+  if (
+    !result ||
+    typeof result.verified !== "boolean" ||
+    typeof result.conclusive !==
+      "boolean" ||
+    !Array.isArray(result.evidence) ||
+    result.evidence.length > MAX_EVIDENCE ||
+    (
+      result.revision !== undefined &&
+      !boundedString(
+        result.revision,
+        MAX_ID,
+      )
+    )
+  ) {
+    return undefined;
+  }
+
+  const evidence: VerificationEvidence[] = [];
+  for (const raw of result.evidence) {
+    const item = pickVerificationEvidence(raw);
+    if (!item) return undefined;
+    evidence.push(item);
+  }
+
+  return {
+    verified: result.verified,
+    conclusive: result.conclusive,
+    evidence,
+    ...(result.revision !== undefined
+      ? { revision: result.revision }
+      : {}),
+  };
+}
+
+/**
+ * browser.act 响应：只挑出 status / verification / verificationAttempts。
+ * execution 细节、freshRevision、postActionObservationError 在此丢弃。
+ */
+function pickActResult(
+  value: unknown,
+): TrustedActResult | undefined {
+  const result = record(value);
+  const execution = record(
+    result?.execution,
+  );
+
+  if (
+    !result ||
+    !execution ||
+    execution.status !== "executed" ||
+    !nonNegativeInteger(
+      result.verificationAttempts,
+      MAX_VERIFICATION_ATTEMPTS,
+    )
+  ) {
+    return undefined;
+  }
+
+  const verification =
+    pickVerificationResult(
+      result.verification,
+    );
+  if (!verification) return undefined;
+
+  return {
+    status: "executed",
+    verification,
+    verificationAttempts:
+      result.verificationAttempts,
+  };
+}
+
+function pickIssuedAuthorization(
+  value: unknown,
+  authorizationId: string,
+): TrustedIssuedAuthorization | undefined {
+  const result = record(value);
+
+  return result &&
+    boundedString(result.id, MAX_ID) &&
+    result.id === authorizationId &&
+    nonNegativeInteger(result.expiresAt)
+    ? {
+        id: result.id,
+        expiresAt: result.expiresAt,
+      }
+    : undefined;
+}
+
+function pickOperatorApprovalRequest(
+  value: unknown,
+  authorizationId: string,
+): TrustedOperatorApprovalRequest | undefined {
+  const result = record(value);
+
+  return result &&
+    boundedString(
+      result.approvalRequestId,
+      MAX_ID,
+    ) &&
+    nonNegativeInteger(result.expiresAt) &&
+    (
+      result.authorizationId ===
+        undefined ||
+      result.authorizationId ===
+        authorizationId
+    )
+    ? {
+        approvalRequestId:
+          result.approvalRequestId,
+        expiresAt: result.expiresAt,
+      }
+    : undefined;
+}
+
+function pickOperatorApprovalStatus(
+  value: unknown,
+  approvalRequestId: string,
+): TrustedOperatorApprovalStatus | undefined {
+  const result = record(value);
+
+  if (
+    !result ||
+    result.approvalRequestId !==
+      approvalRequestId ||
+    typeof result.state !== "string" ||
+    !APPROVAL_STATES.has(result.state) ||
+    (
+      result.authorizationId !==
+        undefined &&
+      !boundedString(
+        result.authorizationId,
+        MAX_ID,
+      )
+    ) ||
+    (
+      result.resolvedAt !== undefined &&
+      !nonNegativeInteger(result.resolvedAt)
+    ) ||
+    (
+      result.grantExpiresAt !==
+        undefined &&
+      !nonNegativeInteger(
+        result.grantExpiresAt,
+      )
+    )
+  ) {
+    return undefined;
+  }
+
+  return {
+    state:
+      result.state as TrustedOperatorApprovalState,
+    ...(result.grantExpiresAt !== undefined
+      ? {
+          grantExpiresAt:
+            result.grantExpiresAt,
+        }
+      : {}),
+  };
+}
+
+/**
+ * 面向 Model-facing Adapter 与 model act broker 的最小 trusted Runtime client。
  *
- * 公共能力只有 browser.open / browser.observe。
+ * 公共能力只有 browser.open / browser.observe（ModelBrowserRuntimeClient），
+ * 以及 act broker 专用的 act / issueStrictClick / requestOperatorApproval /
+ * operatorApprovalStatus（TrustedActBrokerRuntimeClient）。
  * 内部 HTTP bridge 不暴露 generic type/payload passthrough。
  */
 export class TrustedRuntimeHttpClient
-implements ModelBrowserRuntimeClient {
+implements
+  ModelBrowserRuntimeClient,
+  TrustedActBrokerRuntimeClient {
   private readonly host: string;
   private readonly port: number;
   private readonly token: string;
@@ -687,6 +1117,137 @@ implements ModelBrowserRuntimeClient {
     }
 
     return result;
+  }
+
+  async act(
+    input: TrustedActInput,
+  ): Promise<TrustedActResult> {
+    const result = await this.call(
+      "act",
+      {
+        type: "browser.act",
+        tabId: input.tabId,
+        action: {
+          kind: "click",
+          actionId: input.actionId,
+          observedRevision:
+            input.observedRevision,
+          ref: input.ref,
+          authorizationId:
+            input.authorizationId,
+        },
+        verification: input.verification,
+        ...(input.verifyTimeoutMs !==
+        undefined
+          ? {
+              verifyTimeoutMs:
+                input.verifyTimeoutMs,
+            }
+          : {}),
+      },
+    );
+
+    const picked = pickActResult(result);
+    if (!picked) {
+      throw operationFailure(
+        "act",
+        "trusted Runtime returned a malformed browser.act result",
+      );
+    }
+
+    return picked;
+  }
+
+  async issueStrictClick(
+    input: TrustedStrictClickGrantInput,
+  ): Promise<TrustedIssuedAuthorization> {
+    const result = await this.call(
+      "authorize",
+      {
+        type:
+          "authorization.issue-strict-click",
+        authorizationId:
+          input.authorizationId,
+        tabId: input.tabId,
+        observedRevision:
+          input.observedRevision,
+        ref: input.ref,
+        ttlMs: input.ttlMs,
+      },
+    );
+
+    const picked = pickIssuedAuthorization(
+      result,
+      input.authorizationId,
+    );
+    if (!picked) {
+      throw operationFailure(
+        "authorize",
+        "trusted Runtime returned a malformed authorization.issue-strict-click result",
+      );
+    }
+
+    return picked;
+  }
+
+  async requestOperatorApproval(
+    input: TrustedStrictClickGrantInput,
+  ): Promise<TrustedOperatorApprovalRequest> {
+    const result = await this.call(
+      "authorize",
+      {
+        type:
+          "authorization.request-operator-approval",
+        authorizationId:
+          input.authorizationId,
+        tabId: input.tabId,
+        observedRevision:
+          input.observedRevision,
+        ref: input.ref,
+        ttlMs: input.ttlMs,
+      },
+    );
+
+    const picked =
+      pickOperatorApprovalRequest(
+        result,
+        input.authorizationId,
+      );
+    if (!picked) {
+      throw operationFailure(
+        "authorize",
+        "trusted Runtime returned a malformed authorization.request-operator-approval result",
+      );
+    }
+
+    return picked;
+  }
+
+  async operatorApprovalStatus(
+    approvalRequestId: string,
+  ): Promise<TrustedOperatorApprovalStatus> {
+    const result = await this.call(
+      "authorize",
+      {
+        type:
+          "authorization.operator-approval-status",
+        approvalRequestId,
+      },
+    );
+
+    const picked =
+      pickOperatorApprovalStatus(
+        result,
+        approvalRequestId,
+      );
+    if (!picked) {
+      throw operationFailure(
+        "authorize",
+        "trusted Runtime returned a malformed authorization.operator-approval-status result",
+      );
+    }
+
+    return picked;
   }
 
   private async call(
