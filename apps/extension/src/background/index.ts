@@ -35,6 +35,9 @@ import {
   PolicyGatedStrictClickExecutor,
 } from "./execution/policyGatedStrictClick.js";
 import {
+  createRootPresentationFence,
+} from "./execution/rootPresentationFence.js";
+import {
   TrustedHostExecutionService,
 } from "./execution/trustedHostExecutionService.js";
 import {
@@ -238,6 +241,9 @@ const policyGatedClick =
     clickDispatcher,
     authorizations,
     autoActOrigins,
+    createRootPresentationFence(
+      debuggerTransport,
+    ),
   );
 
 const trustedHostService =

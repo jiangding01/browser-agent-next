@@ -15,6 +15,7 @@ import {
   expect,
   test,
   type BrowserContext,
+  type Frame,
   type Page,
 } from "@playwright/test";
 
@@ -247,6 +248,46 @@ async function trustedRequest(
   }
 
   return json;
+}
+
+/**
+ * 通过 iframe owner 元素解析 OOPIF 的 Playwright Frame。
+ *
+ * Runtime 用 chrome.tabs.create 打开的 Tab 不是 Playwright 创建的；CI 上
+ * Playwright 为其中 OOPIF 建立的 Frame 对象可能长期保持 url() === ""，
+ * 因此不能按 frame.url() 查找。content frame 由 owner 元素的 frameId 解析，
+ * 只用于 Strict Click / Verify 之后的最终 DOM 断言或测试自身的页面操作。
+ */
+async function oopifContentFrame(
+  owner: Page | Frame,
+  selector: string,
+): Promise<Frame> {
+  const handle = await owner
+    .locator(selector)
+    .elementHandle();
+
+  try {
+    for (
+      let attempt = 0;
+      attempt < 50;
+      attempt += 1
+    ) {
+      const frame =
+        await handle.contentFrame();
+      if (frame) return frame;
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, 100)
+      );
+    }
+  } finally {
+    await handle.dispose();
+  }
+
+  throw new Error(
+    "OOPIF content frame unavailable for " +
+      selector,
+  );
 }
 
 async function targetTabId(
@@ -1123,7 +1164,8 @@ test(
             observedRevision:
               observation.revision.id,
             ref: child.ref,
-            ttlMs: 5_000,
+            // OOPIF dispatch 前的 presentation fence 在后台 Tab 中可能等待秒级。
+            ttlMs: 15_000,
           },
         ),
       ).toMatchObject({
@@ -1180,19 +1222,11 @@ test(
         },
       });
 
-      const oopif = target.frames().find(
-        (frame) =>
-          frame.url().startsWith(
-            "http://localhost:4173/oopif-child.html",
-          ),
-      );
-
-      if (!oopif) {
-        throw new Error(
-          "OOPIF child frame missing after confirmed observe and act; frame URLs: " +
-            target.frames().map((frame) => frame.url()).join(", "),
+      const oopif =
+        await oopifContentFrame(
+          target,
+          "#oopif-child-frame",
         );
-      }
 
       await expect(
         oopif.locator(
@@ -1456,18 +1490,10 @@ test(
       });
 
       const firstOopif =
-        target.frames().find(
-          (frame) =>
-            frame.url().startsWith(
-              "http://localhost:4173/oopif-child.html",
-            ),
+        await oopifContentFrame(
+          target,
+          "#oopif-child-frame",
         );
-
-      if (!firstOopif) {
-        throw new Error(
-          "initial cross-site OOPIF frame missing",
-        );
-      }
 
       await firstOopif.goto(
         "http://localhost:4173/oopif-child.html?reload-before-act=1",
@@ -1881,7 +1907,8 @@ test(
               affineObservation
                 .revision.id,
             ref: affineChild.ref,
-            ttlMs: 5_000,
+            // OOPIF dispatch 前的 presentation fence 在后台 Tab 中可能等待秒级。
+            ttlMs: 15_000,
           },
         ),
       ).toMatchObject({
@@ -1922,6 +1949,9 @@ test(
           },
         );
 
+      // 后台 Tab 的 root renderer 在 Linux CI 上约 1 fps；scroll 后若未等待
+      // presentation，真实输入会被浏览器路由到 root frame 的 iframe owner。
+      // 这里要求 Runtime 自己的 Verify 证明点击确实送达 child。
       expect(affineAct)
         .toMatchObject({
           ok: true,
@@ -1930,37 +1960,18 @@ test(
               status:
                 "executed",
             },
+            verification: {
+              verified: true,
+              conclusive: true,
+            },
           },
         });
 
-      let childFrame =
-        target.frames().find(
-          (frame) =>
-            frame.url().startsWith(
-              "http://localhost:4173/oopif-transform-child.html",
-            ),
+      const childFrame =
+        await oopifContentFrame(
+          target,
+          "#oopif-transform-frame",
         );
-
-      for (
-        let attempt = 0;
-        !childFrame && attempt < 40;
-        attempt += 1
-      ) {
-        await target.waitForTimeout(50);
-        childFrame =
-          target.frames().find(
-            (frame) =>
-              frame.url().startsWith(
-                "http://localhost:4173/oopif-transform-child.html",
-              ),
-          );
-      }
-
-      if (!childFrame) {
-        throw new Error(
-          "transformed cross-site OOPIF frame missing after bounded wait",
-        );
-      }
 
       await expect(
         childFrame.locator(
@@ -2335,55 +2346,17 @@ test(
         );
       }
 
-      let parentFrame =
-        target.frames().find(
-          (frame) =>
-            frame.url().startsWith(
-              "http://localhost:4173/oopif-nested-parent.html",
-            ),
+      // Readiness 已由 hybrid Observe 证明；Playwright 对这些 OOPIF 的
+      // frame.url() 可能长期为空，因此测试自身的页面操作只通过 owner
+      // iframe 元素组成的 frameLocator 链定位，不按 URL 查找 Frame。
+      const parentFrame =
+        target.frameLocator(
+          "#oopif-nested-parent-frame",
         );
-      let nestedChildFrame =
-        target.frames().find(
-          (frame) =>
-            frame.url().startsWith(
-              "http://127.0.0.1:4173/oopif-nested-child.html",
-            ),
+      const nestedChildFrame =
+        parentFrame.frameLocator(
+          "#oopif-nested-child-frame",
         );
-
-      for (
-        let attempt = 0;
-        (
-          !parentFrame ||
-          !nestedChildFrame
-        ) &&
-        attempt < 40;
-        attempt += 1
-      ) {
-        await target.waitForTimeout(50);
-        parentFrame =
-          target.frames().find(
-            (frame) =>
-              frame.url().startsWith(
-                "http://localhost:4173/oopif-nested-parent.html",
-              ),
-          );
-        nestedChildFrame =
-          target.frames().find(
-            (frame) =>
-              frame.url().startsWith(
-                "http://127.0.0.1:4173/oopif-nested-child.html",
-              ),
-          );
-      }
-
-      if (
-        !parentFrame ||
-        !nestedChildFrame
-      ) {
-        throw new Error(
-          "nested OOPIF frame chain missing after bounded wait",
-        );
-      }
 
       expect(
         await trustedRequest(
@@ -2407,48 +2380,48 @@ test(
         ok: true,
       });
 
-      await parentFrame.evaluate(() => {
-        const frame =
-          document.querySelector(
-            "#oopif-nested-child-frame",
-          );
-        if (
-          !(frame instanceof
-            HTMLIFrameElement)
-        ) {
-          throw new Error(
-            "nested child frame missing",
-          );
-        }
+      await parentFrame
+        .locator(
+          "#oopif-nested-child-frame",
+        )
+        .evaluate((frame) => {
+          if (
+            !(frame instanceof
+              HTMLIFrameElement)
+          ) {
+            throw new Error(
+              "nested child frame missing",
+            );
+          }
 
-        const rect =
-          frame.getBoundingClientRect();
-        const overlay =
-          document.createElement(
-            "div",
+          const rect =
+            frame.getBoundingClientRect();
+          const overlay =
+            document.createElement(
+              "div",
+            );
+          overlay.id =
+            "nested-frame-overlay";
+          overlay.style.position =
+            "fixed";
+          overlay.style.left =
+            rect.left + "px";
+          overlay.style.top =
+            rect.top + "px";
+          overlay.style.width =
+            rect.width + "px";
+          overlay.style.height =
+            rect.height + "px";
+          overlay.style.zIndex =
+            "999999";
+          overlay.style.pointerEvents =
+            "auto";
+          overlay.style.background =
+            "rgba(255,0,0,0.2)";
+          document.body.append(
+            overlay,
           );
-        overlay.id =
-          "nested-frame-overlay";
-        overlay.style.position =
-          "fixed";
-        overlay.style.left =
-          rect.left + "px";
-        overlay.style.top =
-          rect.top + "px";
-        overlay.style.width =
-          rect.width + "px";
-        overlay.style.height =
-          rect.height + "px";
-        overlay.style.zIndex =
-          "999999";
-        overlay.style.pointerEvents =
-          "auto";
-        overlay.style.background =
-          "rgba(255,0,0,0.2)";
-        document.body.append(
-          overlay,
-        );
-      });
+        });
 
       const blocked =
         await trustedRequest(
@@ -2499,13 +2472,13 @@ test(
         "Nested OOPIF Action",
       );
 
-      await parentFrame.evaluate(() => {
-        document
-          .querySelector(
-            "#nested-frame-overlay",
-          )
-          ?.remove();
-      });
+      await parentFrame
+        .locator(
+          "#nested-frame-overlay",
+        )
+        .evaluate((overlay) => {
+          overlay.remove();
+        });
 
       const second =
         await observeNested();
@@ -2537,7 +2510,8 @@ test(
             observedRevision:
               second.revision.id,
             ref: secondChild.ref,
-            ttlMs: 5_000,
+            // OOPIF dispatch 前的 presentation fence 在后台 Tab 中可能等待秒级。
+            ttlMs: 15_000,
           },
         ),
       ).toMatchObject({

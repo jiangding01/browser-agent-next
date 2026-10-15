@@ -369,3 +369,35 @@ projection fail
 ```
 
 这样 nested frame 的遮挡检查与坐标投影使用同一条 exact frame/session/document binding，不会只在 root 层做“看起来还在 iframe 里”的弱验证。
+
+
+## Root presentation fence（OOPIF 输入路由）
+
+projection 与逐层 owner hit-test 证明的是 main-thread 实时 layout 下的几何；真实 `Input.dispatchMouseEvent` 由浏览器按 root renderer 已 present 的 compositor hit-test 数据路由到具体 frame process。两者之间存在 presentation 延迟：
+
+```text
+scrollIntoView / layout shift
+→ main-thread layout 已更新（prepare 命中 OOPIF owner）
+→ root renderer 尚未 present 新 frame（后台 Tab 在 Linux 上约 1 fps）
+→ 浏览器仍按旧 hit-test 数据把 press/release 路由给 root frame
+→ 事件落在 root 文档的 iframe owner 上，child 收不到 click
+```
+
+因此目标位于 OOPIF child session 的 Strict Click 在 dispatch 前执行：
+
+```text
+strict prepare #2
+→ root frame 独立 isolated world 中等待 3 个 requestAnimationFrame（页面不能替换该 world 的 rAF）
+→ strict prepare #3
+→ identity / frame binding / top-level 点与 #2 一致
+→ grant TTL 复核
+→ mousePressed / mouseReleased
+```
+
+fence 超时、异常、frame 不足或 root 文档 hidden：`TARGET_NOT_VISIBLE`；fence 期间几何变化：`TARGET_IDENTITY_MISMATCH`。两者都在任何 input 之前 fail closed，不自动重试 click。
+
+已知限制：
+
+- 有界面 Chrome 中 `active:false` 打开的后台 Tab 对页面是 hidden，浏览器不会为它 present frame，因此 OOPIF 目标的 Strict Click 在这种 Tab 中会直接 fail closed（headless CI 中后台 Tab 仍是 visible，只是约 1 fps）；
+- fence 只证明 root renderer 已 present。nested OOPIF 中，路由到内层 frame 还依赖中间层 OOPIF renderer 已提交的 hit-test 数据，这一层尚未单独 fence；
+- main-frame 目标不经过 fence。若页面在 scroll 后某个 OOPIF 移出了点击点、但旧 hit-test 数据尚未更新，理论上仍可能被路由到该 OOPIF；这是 fence 之前就存在的窗口，未来如需覆盖应按 frame 链逐层 fence，而不是让所有含 iframe 的页面都等待 rAF。

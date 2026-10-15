@@ -250,6 +250,29 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E 11/11 ✅
 - check 深度审查 + 对抗式审查：无 HIGH / MEDIUM 结论 ✅
 
+## 修复：OOPIF 输入路由 presentation fence 与 CI E2E flake（已完成）
+
+两个 OOPIF 用例只在 GitHub Actions（ubuntu-latest headless Chromium）上偶发失败，根因分别如下。
+
+**滚动后的 affine transform OOPIF：产品层竞态（已在 Runtime 修复）**
+
+- 证据（CI run 38777671337，8 个 shard × `--repeat-each 4`）：失败的 17/32 次全部是 root frame 收到了 trusted `pointerdown/mousedown/click`，target 是 `#oopif-transform-frame`（iframe owner），child 文档没有收到任何事件；成功的 15/32 次相反。是否送达与“scroll 后 root frame 跑过的 rAF 数”严格相关：≥ 2 帧时 15/15 送达，0～1 帧时 17/17 被路由到 root frame。
+- 证据（CI run 38778819528，变体对照，各 12 次）：`active:false`（基线）后台 Tab 的 root renderer 只有约 1 fps（child OOPIF 约 44 fps，`visibilityState` 仍为 visible），失败 9/12；同一用例改为 `active:true` 时 root 为 60 fps，0/12 失败；保持后台 Tab、但 scroll 后先等待 root double-rAF（约 1.9s）时 0/12 失败。
+- 结论：浏览器按 root renderer 最近一次 present 的 compositor hit-test 数据跨 process 路由输入；Strict prepare 的 `DOM.getBoxModel` / `elementFromPoint` 读到的是 main-thread 的实时 layout。scroll 尚未被 present 时 prepare 判定命中 OOPIF owner，真实输入却被路由到 root frame。这与 PR #8 移除 `mouseMoved` 无关：PR #8 之前的 run 35505962840 已经以同样方式失败。
+- 修复：新增 `rootPresentationFence`。`PolicyGatedStrictClickExecutor` 在第二次 Strict prepare 后，若目标位于 OOPIF child session，就在 root frame 的独立 isolated world 中等待 3 个 animation frame（超时 5s，host 侧另有兜底；root 文档 hidden 时立即失败），然后第三次 prepare，要求 identity 与 top-level 点不变才 dispatch；fence 失败返回 `TARGET_NOT_VISIBLE`，几何变化返回 `TARGET_IDENTITY_MISMATCH`，两者都发生在任何 input 之前，不自动重试 click；grant TTL 在 fence 之后再次校验。新增不变量 124、125。
+- 代价与限制：后台 Tab 在 Linux 上约 1 fps 时，每次 OOPIF Strict Click 多等约 3s；有界面 Chrome 的后台 Tab 是 hidden，OOPIF Strict Click 会直接 fail closed；nested 中间层 renderer 尚未单独 fence（见 `docs/CHILD-FRAME.md`）；E2E 中相关 grant 的 `ttlMs` 因此放宽到 15s，affine 用例同时要求 Runtime 自己的 Verify `verified=true`。
+
+**nested OOPIF：测试层问题（已修测试）**
+
+- 证据（CI run 38777671337）：失败时 Playwright 已经有 3 个 Frame 对象，但 parent OOPIF（有时还有 nested child）的 `frame.url()` 一直是 `""`，继续轮询 10s 仍为空；同一时刻 `frameLocator` 链 68ms 就读到了 `Nested OOPIF Action`。Runtime 的 hybrid Observe 也已证明 child ref 完整。
+- 结论：对 Runtime 用 `chrome.tabs.create` 打开的 Tab，Playwright 对 OOPIF 的 URL 记账不可靠，按 URL 查找 Frame 是错误的 readiness / 定位依据（历史上 Agent-owned OOPIF 用例的 “cross-site OOPIF frame missing” 也是同一类问题）。
+- 修复：nested 用例改用 owner iframe 的 `frameLocator` 链执行 overlay 注入、移除和文本断言；其余 OOPIF 用例需要 `Frame` 时改用 `oopifContentFrame()`，即按 owner 元素的 content frame 解析，不再按 URL 查找。
+
+**验证**
+
+- CI run 38781151262（首版修复）与 38783159288（最终代码，fence 收窄为仅 OOPIF 目标并对 hidden 文档立即失败）：各为 6 shard × `-g OOPIF --repeat-each 5`，均 150/150 通过，其中 affine 30/30、nested 30/30；
+- 本地：typecheck、全部单测（含新增 fence / executor 顺序测试）、workspace build、10/10 Chromium E2E。
+
 ## 下一步
 
 1. Phase 6.6b：扩展 badge、progress notification、popup 显示 TTL 倒计时并标注不可信页面文本、approval 超时后取消 pending approval request（关闭 6.6a 已接受的残余风险之一）；
