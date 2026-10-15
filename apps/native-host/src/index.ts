@@ -2,6 +2,10 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  bootstrapAutoActOrigins,
+  readAutoActOriginsConfig,
+} from "./autoActOriginsFile.js";
 import { NativeMessagingTransport } from "./nativeMessaging.js";
 import { ensureTrustedToken } from "./tokenFile.js";
 import {
@@ -29,6 +33,11 @@ interface Pending {
 }
 
 const pending = new Map<string, Pending>();
+
+// 在 bootstrap await 期间 transport 可能已关闭，因此这两个状态必须先于
+// transport.on("close") 声明，避免 shutdown() 触发 TDZ 错误。
+let shuttingDown = false;
+let rpc: TrustedRpcServer | undefined;
 
 transport.on("message", (message: unknown) => {
   if (
@@ -86,15 +95,27 @@ transport.on("close", () => {
 
 transport.start();
 
-const rpc = new TrustedRpcServer({
+// stdout 是 Native Messaging 协议通道，这里只能写 stderr。
+// 读取/下发失败都不阻止启动：扩展 allowlist 保持为空（fail closed）。
+await bootstrapAutoActOrigins(
+  () => readAutoActOriginsConfig(STATE_DIR),
+  forwardToExtension,
+  (message) =>
+    console.error(
+      "[browser-agent-next/native-host] " + message,
+    ),
+);
+
+const server = new TrustedRpcServer({
   host: HOST,
   port: PORT,
   token,
   forward: forwardToExtension,
 });
+rpc = server;
 
 try {
-  const address = await rpc.start();
+  const address = await server.start();
   console.error(
     "[browser-agent-next/native-host] trusted RPC listening on http://" +
       address.host +
@@ -109,13 +130,11 @@ try {
   process.exit(1);
 }
 
-let shuttingDown = false;
-
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  await rpc.stop();
+  await rpc?.stop();
   process.exit(0);
 }
 

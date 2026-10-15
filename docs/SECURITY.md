@@ -52,6 +52,15 @@ Auto-act allowlist 默认空，只支持 http/https，配置项必须是纯 orig
 
 这样可以避免调用方误以为自己只授权了一个 path，实际上 Runtime 却扩大到了整个 origin。
 
+### 配置文件来源
+
+Native host 在每次启动（即扩展连接）时读取 `~/.browser-agent-next/autoact-origins.json`，并在 trusted RPC 开始监听之前通过 `policy.replace-autoact-origins` 整体下发给扩展。格式固定为 `{"version":1,"origins":[...]}`，最多 100 项，每项必须是纯 origin。
+
+- 文件必须是当前用户拥有、非 symlink、不可被组或其他用户写入的普通文件，大小不超过 64 KiB；所在目录要求与 trusted token 目录相同。origins 不是机密，因此不强制 `0600`。
+- 任一条目非法、或文件校验失败时，整份文件作废，不做部分应用。
+- 文件缺失、非法或下发失败时，native host 只在 stderr 记录原因并继续启动，不下发任何内容，扩展 allowlist 保持为空，act 全部被拒绝（fail closed）。日志不得包含 origin 列表，且绝不能写入 stdout（Native Messaging 协议通道）。
+- allowlist 只存在于扩展内存。运行期间通过 RPC replace 的结果会在下一次 native host 重连时被配置文件内容覆盖；没有配置文件时则重置为空。
+
 ## Unknown Effect
 
 Generic click 默认 effect=unknown、confidence=unknown。

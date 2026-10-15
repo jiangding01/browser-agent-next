@@ -218,9 +218,16 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - nested parent-owner occlusion fail-closed / recovery ✅
 - Final Adversarial Review ✅
 
+## Phase 6.6 PR-0：auto-act origins 配置文件下发
+
+- native host 每次启动（即扩展连接）时读取 `~/.browser-agent-next/autoact-origins.json`，在 trusted RPC 监听前通过 `policy.replace-autoact-origins` 整体下发；
+- 文件必须是当前用户拥有、非 symlink、不可被组/其他用户写入的普通文件，≤ 64 KiB，格式固定为 `{"version":1,"origins":[...]}`，只接受纯 origin；
+- 任一项非法则整份作废，文件缺失、非法或下发失败时扩展 allowlist 保持为空（fail closed），日志只写 stderr 且只记数量；
+- 新增不变量 117；Real Chromium E2E 覆盖“仅凭配置文件即可完成 control-plane strict click”与“无配置文件时 ORIGIN_NOT_ALLOWED”对照。
+
 ## 下一步
 
-1. 进入 Phase 6.6 scoped authorization broker；
+1. 进入 Phase 6.6a scoped authorization broker（PR-0 已解除 allowlist 运维死结）；
 2. 在 broker 完成前 model-facing `browser.act` 继续保持不可见；
 3. Phase 6.6 完成后再进入 Intelligence Layer。
 

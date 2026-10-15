@@ -2613,3 +2613,276 @@ test(
     }
   },
 );
+
+interface TrustedHostBrowser {
+  context: BrowserContext;
+  token: string;
+  rpcPort: number;
+  close(): Promise<void>;
+}
+
+// 与上面各用例相同的启动流程：先用 discovery profile 取得 extension id，
+// 再注册 native host 并用 execute profile 启动。`beforeHostStart` 在
+// native host 被拉起之前执行（此时 HOME 已就绪、浏览器尚未连接 host）。
+async function startTrustedHostBrowser(
+  home: string,
+  beforeHostStart?: () => void,
+): Promise<TrustedHostBrowser> {
+  const extensionPath = path.resolve("apps/extension/dist");
+  const rpcPort = await freePort();
+  const env = browserEnv(home, rpcPort);
+  const launchArgs = [
+    "--disable-extensions-except=" + extensionPath,
+    "--load-extension=" + extensionPath,
+  ];
+
+  const discovery = await chromium.launchPersistentContext(
+    path.join(home, "profile-discovery"),
+    {
+      channel: "chromium",
+      headless: true,
+      env,
+      args: launchArgs,
+    },
+  );
+
+  let extensionId: string;
+  try {
+    extensionId = await extensionIdOf(discovery);
+  } finally {
+    await discovery.close();
+  }
+
+  const executeProfile = path.join(home, "profile-execute");
+  writeNativeHostRegistration(home, executeProfile, extensionId);
+  beforeHostStart?.();
+
+  const context = await chromium.launchPersistentContext(
+    executeProfile,
+    {
+      channel: "chromium",
+      headless: true,
+      env,
+      args: launchArgs,
+    },
+  );
+
+  try {
+    expect(await extensionIdOf(context)).toBe(extensionId);
+
+    const token = await waitForTrustedHost(
+      rpcPort,
+      path.join(home, ".browser-agent-next/trusted-rpc.token"),
+    );
+
+    return {
+      context,
+      token,
+      rpcPort,
+      close: () => context.close(),
+    };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
+async function openAndObserveSave(
+  host: TrustedHostBrowser,
+  suffix: string,
+): Promise<{
+  page: Page;
+  tabId: number;
+  revision: string;
+  saveRef: string;
+}> {
+  const createdPage = host.context.waitForEvent("page");
+  const open = await trustedRequest(host.rpcPort, host.token, {
+    type: "browser.open",
+    requestId: "browser-open-" + suffix,
+    url: mainUrl,
+    active: false,
+  });
+  expect(open).toMatchObject({
+    ok: true,
+    result: { ownedBySession: true },
+  });
+
+  const page = await createdPage;
+  await page.waitForLoadState("load");
+
+  const tabId: number = open.result.tabId;
+  const observed = await trustedRequest(host.rpcPort, host.token, {
+    type: "browser.observe",
+    requestId: "browser-observe-" + suffix,
+    tabId,
+    options: { profile: "hybrid" },
+  });
+  expect(observed, JSON.stringify(observed)).toMatchObject({
+    ok: true,
+  });
+
+  const save = observed.result.elements.find(
+    (element: { semantic: { name?: string } }) =>
+      element.semantic.name === "Save",
+  );
+  if (!save) throw new Error("Save ref unavailable");
+
+  return {
+    page,
+    tabId,
+    revision: observed.result.revision.id,
+    saveRef: save.ref,
+  };
+}
+
+test(
+  "native host 启动时从 autoact-origins.json 下发 allowlist；缺失配置时 fail closed",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+
+    const homes: string[] = [];
+    const hosts: TrustedHostBrowser[] = [];
+
+    try {
+      // 对照组：不写配置文件，allowlist 为空，签发必须被拒绝。
+      const controlHome = mkdtempSync(
+        path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+      );
+      homes.push(controlHome);
+
+      const control = await startTrustedHostBrowser(controlHome);
+      hosts.push(control);
+
+      const controlTarget = await openAndObserveSave(
+        control,
+        "control",
+      );
+      const controlAuth = await trustedRequest(
+        control.rpcPort,
+        control.token,
+        {
+          type: "authorization.issue-strict-click",
+          requestId: "auth-control",
+          authorizationId: "auth-control",
+          tabId: controlTarget.tabId,
+          observedRevision: controlTarget.revision,
+          ref: controlTarget.saveRef,
+          ttlMs: 5_000,
+        },
+      );
+
+      expect(controlAuth).toMatchObject({
+        ok: false,
+        error: { code: "ORIGIN_NOT_ALLOWED" },
+      });
+
+      await control.close();
+      hosts.splice(hosts.indexOf(control), 1);
+
+      // 实验组：host 启动前写入配置文件，不通过 RPC 调用 replace。
+      const home = mkdtempSync(
+        path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+      );
+      homes.push(home);
+
+      const host = await startTrustedHostBrowser(home, () => {
+        const stateDir = path.join(home, ".browser-agent-next");
+        mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+        chmodSync(stateDir, 0o700);
+
+        const file = path.join(stateDir, "autoact-origins.json");
+        writeFileSync(
+          file,
+          JSON.stringify({
+            version: 1,
+            origins: [fixtureOrigin],
+          }) + "\n",
+          { mode: 0o600 },
+        );
+        chmodSync(file, 0o600);
+      });
+      hosts.push(host);
+
+      const target = await openAndObserveSave(host, "configured");
+      const page = target.page;
+
+      // 观察之后注册页面侧导航，点击后跳到 done.html 供 Verify 使用。
+      await page.evaluate(() => {
+        document
+          .querySelector("#main-action")
+          ?.addEventListener("click", () => {
+            location.href = "/done.html";
+          });
+      });
+
+      const auth = await trustedRequest(host.rpcPort, host.token, {
+        type: "authorization.issue-strict-click",
+        requestId: "auth-configured",
+        authorizationId: "auth-configured",
+        tabId: target.tabId,
+        observedRevision: target.revision,
+        ref: target.saveRef,
+        ttlMs: 5_000,
+      });
+
+      expect(auth).toMatchObject({
+        ok: true,
+        result: {
+          id: "auth-configured",
+          origin: fixtureOrigin,
+        },
+      });
+
+      const act = await trustedRequest(host.rpcPort, host.token, {
+        type: "browser.act",
+        requestId: "browser-act-configured",
+        tabId: target.tabId,
+        action: {
+          actionId: "action-configured",
+          kind: "click",
+          authorizationId: "auth-configured",
+          observedRevision: target.revision,
+          ref: target.saveRef,
+        },
+        verification: {
+          mode: "all",
+          conditions: [
+            {
+              type: "url_matches",
+              pattern: fixtureOrigin + "/done.html",
+            },
+          ],
+        },
+        verifyTimeoutMs: 3_000,
+      });
+
+      expect(act).toMatchObject({
+        ok: true,
+        result: {
+          execution: {
+            status: "executed",
+            actionId: "action-configured",
+          },
+          verification: {
+            verified: true,
+            conclusive: true,
+          },
+        },
+      });
+
+      await expect(page).toHaveURL(fixtureOrigin + "/done.html");
+    } finally {
+      for (const host of hosts) {
+        await host.close().catch(() => undefined);
+      }
+
+      for (const home of homes) {
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+  },
+);
