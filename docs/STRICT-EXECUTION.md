@@ -84,6 +84,12 @@ trusted authorization
       ↓
 strict prepare #2
       ↓
+presentation fence（仅当目标位于 OOPIF）
+      ↓
+strict prepare #3（identity 与 top-level 点必须与 #2 一致）
+      ↓
+grant TTL 复核
+      ↓
 mouse dispatch
       ↓
 fresh observation
@@ -92,6 +98,8 @@ verification
 ```
 
 当前最后两步还没有串成公开 execute 命令；verification engine 已具备纯状态验证能力。
+
+Presentation fence 的原因：浏览器按 root renderer 已 present 的 compositor hit-test 数据把输入路由到 OOPIF process，而 prepare 读取的是 main-thread 实时 layout。后台 Tab 的 root renderer 在 Linux Chromium 上可能只有约 1 fps，scroll 后若立即 dispatch，输入会落到 root frame 的 iframe owner 上。目标位于 OOPIF 时，executor 会在 root frame 的独立 isolated world 中等待 3 个 animation frame，再重新 prepare 确认几何不变；root 文档 hidden（有界面 Chrome 的后台 Tab）时立即失败。fence 失败（`TARGET_NOT_VISIBLE`）或几何变化（`TARGET_IDENTITY_MISMATCH`）都发生在任何 input 之前，不自动重试。main-frame 与同 process child frame 的输入由 root renderer 用实时 layout hit-test，不经过 fence。见不变量 124、125。
 
 ## Ambiguous Outcome
 

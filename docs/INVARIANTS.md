@@ -133,3 +133,5 @@
 121. （N4）同一 `(tab, revision, ref)` 每个连接至多执行一次，标记先于任何 trusted 请求落账；`ACTION_OUTCOME_UNKNOWN` 之后该 tab 至少需要 operator-approved。
 122. （N5）MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明，批准只能来自扩展的审批 UI。
 123. （N6）act 结果必须经过出境投影，不得携带扩展侧的 verification、`observed`、未出境的 revision 或原始错误文本；模型可见的 verification 必须在投影后的 observation 上本地计算。
+124. 浏览器跨 process 路由 `Input.dispatchMouseEvent` 依据的是 root renderer 已 present 的 compositor hit-test 数据，而 Strict prepare 的 box model / `elementFromPoint` 读取 main-thread 实时 layout；二者一致不能被假设。目标位于 OOPIF child session 时，dispatch 前必须在 root frame 的独立 isolated world 中等待 root renderer present 足够的 animation frame（presentation fence）；root 文档 hidden、超时、异常或 frame 不足都必须在任何 input 之前 fail closed。当前 fence 只覆盖 root renderer，nested OOPIF 中间层 renderer 的 presentation 延迟是已知限制，不得据此宣称中间层路由已被证明。
+125. Presentation fence 之后必须再次执行 Strict prepare，live identity、frame/session binding 与 top-level 点必须与 fence 前一致才可 dispatch；任一变化都 fail closed，且不得自动重试 click。grant TTL 必须在 fence 之后、`mousePressed` 之前再次校验。

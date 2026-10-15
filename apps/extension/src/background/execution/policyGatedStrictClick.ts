@@ -16,6 +16,7 @@ import {
   StrictClickDispatchError,
   type ChromeStrictClickDispatcher,
 } from "./chromeStrictClickDispatcher.js";
+import type { StrictClickPresentationFence } from "./rootPresentationFence.js";
 
 export interface StrictClickOriginPolicy {
   isAllowed(origin: string): boolean;
@@ -46,6 +47,34 @@ export interface ExecuteStrictClickResult {
   effect: EffectAssessment;
 }
 
+// 同一份 live layout 重新计算的 projection 应逐位一致；只容忍浮点噪声。
+const PRESENTED_POINT_TOLERANCE_PX = 0.01;
+
+/**
+ * fence 前后的两次 prepare 必须指向同一个 live 目标与同一个 top-level 点；
+ * 否则 fence 期间 layout 发生了变化，已 present 的 hit-test 数据不能证明
+ * 新点的路由结果。
+ */
+function samePresentedTarget(
+  before: PreparedStrictClickTarget,
+  after: PreparedStrictClickTarget,
+): boolean {
+  return (
+    before.tabId === after.tabId &&
+    before.ref === after.ref &&
+    before.stableId === after.stableId &&
+    before.backendNodeId === after.backendNodeId &&
+    before.cdpFrameId === after.cdpFrameId &&
+    before.cdpSessionId === after.cdpSessionId &&
+    before.frameEpoch === after.frameEpoch &&
+    before.coordinateSpace === after.coordinateSpace &&
+    Math.abs(before.point.x - after.point.x) <=
+      PRESENTED_POINT_TOLERANCE_PX &&
+    Math.abs(before.point.y - after.point.y) <=
+      PRESENTED_POINT_TOLERANCE_PX
+  );
+}
+
 /**
  * 任意 click 的业务副作用默认无法从页面结构证明，因此第一版统一为 unknown。
  * 后续 Effect Classifier 可以提升结构化 action 的精度，但不能把模型猜测当 known。
@@ -67,6 +96,7 @@ export class PolicyGatedStrictClickExecutor {
     private readonly dispatcher: ChromeStrictClickDispatcher,
     private readonly authorizations: InMemoryAuthorizationStore,
     private readonly origins: StrictClickOriginPolicy,
+    private readonly presentationFence: StrictClickPresentationFence,
   ) {}
 
   async execute(
@@ -144,6 +174,53 @@ export class PolicyGatedStrictClickExecutor {
       action,
     );
 
+    let commitTarget = preparedForCommit.prepared;
+
+    if (this.presentationFence.required(commitTarget)) {
+      // 浏览器按 root renderer 已 present 的 hit-test 数据跨 process 路由输入；
+      // 必须先证明 prepare 读到的 layout 已经被 present，再在 fence 之后
+      // 重新 prepare，确认 identity 与 top-level 点都没有变化。
+      const fenced =
+        await this.presentationFence.waitForPresentedFrames(
+          input.tabId,
+        );
+
+      if (!fenced.ok) {
+        throw new BrowserRuntimeError(
+          "TARGET_NOT_VISIBLE",
+          "strict click input routing cannot be proven before dispatch: " +
+            fenced.reason,
+          {
+            ref: input.ref,
+            actionId: input.actionId,
+          },
+        );
+      }
+
+      const confirmed = await this.coordinator.prepare(
+        input.tabId,
+        action,
+      );
+
+      if (
+        !samePresentedTarget(
+          commitTarget,
+          confirmed.prepared,
+        )
+      ) {
+        throw new BrowserRuntimeError(
+          "TARGET_IDENTITY_MISMATCH",
+          "strict click target geometry changed while waiting for browser presentation",
+          {
+            ref: input.ref,
+            actionId: input.actionId,
+          },
+        );
+      }
+
+      commitTarget = confirmed.prepared;
+    }
+
     if (
       auth?.ok === true &&
       auth.grant.expiresAt <= Date.now()
@@ -161,7 +238,7 @@ export class PolicyGatedStrictClickExecutor {
 
     try {
       await this.dispatcher.dispatch(
-        preparedForCommit.prepared,
+        commitTarget,
       );
     } catch (error) {
       if (
