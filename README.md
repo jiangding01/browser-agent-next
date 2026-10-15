@@ -40,7 +40,8 @@ PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已合并，Stric
 - OOPIF flat child-session exact mapping；
 - child-frame session-aware Strict live revalidation；
 - child-frame → top-level viewport 坐标投影；
-- Real Chromium OOPIF / nested child-frame Strict Click 执行闭环（含 `mouseMoved` 时序修复）。
+- Real Chromium OOPIF / nested child-frame Strict Click 执行闭环（含 `mouseMoved` 时序修复）；
+- native host 启动时从 `~/.browser-agent-next/autoact-origins.json` 下发 auto-act origin allowlist（Phase 6.6 PR-0，fail closed）。
 
 真实 Chromium 已验证：
 

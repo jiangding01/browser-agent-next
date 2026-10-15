@@ -125,3 +125,4 @@
 114. Effect/authorization policy 通过后仍必须执行第二次 Strict prepare，因此 child-frame identity 与 top-level projection 必须在真正 dispatch 前重新计算，不能复用第一次 prepare 的几何结果。
 115. Nested child-frame 坐标投影的每一跳都必须在对应 parent execution context 中对 frame-owner 执行 live hit-test；只验证最外层 root iframe 不足以证明内层 iframe 未被 parent-document overlay 遮挡。
 116. Scroll、layout shift 或 2D transform 后的 frame-owner 坐标必须来自当前 prepare 的实时 `DOM.getBoxModel`；不得缓存或复用前一次 prepare 的投影坐标。
+117. auto-act origins 配置文件必须是当前用户拥有、非 symlink、不可被组或其他用户写入的普通文件，且只接受纯 origin；任一条目非法时整份文件作废、不做部分应用，扩展 allowlist 保持为空（fail closed）；native host 不得因配置读取失败而向 stdout 写入。

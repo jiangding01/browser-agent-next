@@ -73,6 +73,7 @@
 - [x] PR #5 final adversarial review + frozen-lockfile gate
 
 ## Phase 6.6 — Model-facing side-effect authorization
+- [x] PR-0：native host 从 `autoact-origins.json` 下发扩展 auto-act origin allowlist（fail closed）
 - [ ] safe scoped authorization broker
 - [ ] browser.act model-facing policy
 - [ ] operator-approved user confirmation integration

@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 export const TOKEN_REGEX = /^[a-f0-9]{64}$/;
 
-function assertSecureDirectory(path: string): void {
+export function assertSecureDirectory(path: string): void {
   const stat = lstatSync(path);
 
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
