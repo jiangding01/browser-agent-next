@@ -50,18 +50,77 @@ header p,
   padding: 12px;
 }
 
+.approval-card.stale {
+  opacity: 0.6;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .approval-card h2 {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 15px;
 }
 
-.origin {
+.code,
+.origin-value {
   font-family:
     ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
   font-size: 12px;
+}
+
+.code {
+  color: #5f6368;
+}
+
+.field-label,
+.untrusted-label {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.untrusted {
+  margin: 8px 0;
+  border: 1px dashed #c5221f;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.untrusted-label {
+  color: #c5221f;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.approval-card .untrusted-text {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.approval-card .countdown {
+  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+#status {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.origin {
   overflow-wrap: anywhere;
 }
 
@@ -115,6 +174,19 @@ button:disabled {
 
   .approval-card {
     border-color: #5f6368;
+  }
+
+  .code,
+  .field-label {
+    color: #bdc1c6;
+  }
+
+  .untrusted {
+    border-color: #f28b82;
+  }
+
+  .untrusted-label {
+    color: #f28b82;
   }
 
   .secondary {

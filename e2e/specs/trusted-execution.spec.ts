@@ -2764,20 +2764,7 @@ test(
       homes.push(home);
 
       const host = await startTrustedHostBrowser(home, () => {
-        const stateDir = path.join(home, ".browser-agent-next");
-        mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-        chmodSync(stateDir, 0o700);
-
-        const file = path.join(stateDir, "autoact-origins.json");
-        writeFileSync(
-          file,
-          JSON.stringify({
-            version: 1,
-            origins: [fixtureOrigin],
-          }) + "\n",
-          { mode: 0o600 },
-        );
-        chmodSync(file, 0o600);
+        writeAutoActOrigins(home);
       });
       hosts.push(host);
 
@@ -2857,6 +2844,164 @@ test(
       for (const home of homes) {
         rmSync(home, { recursive: true, force: true });
       }
+    }
+  },
+);
+
+function writeAutoActOrigins(home: string): void {
+  const stateDir = path.join(home, ".browser-agent-next");
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  chmodSync(stateDir, 0o700);
+
+  const file = path.join(stateDir, "autoact-origins.json");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      origins: [fixtureOrigin],
+    }) + "\n",
+    { mode: 0o600 },
+  );
+  chmodSync(file, 0o600);
+}
+
+test(
+  "审批角标随 pending 增减；审批页倒计时、标注不可信文本、自动刷新且不重排",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    let host: TrustedHostBrowser | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home, () => {
+        writeAutoActOrigins(home);
+      });
+      const active = host;
+      const extensionId = await extensionIdOf(active.context);
+      const worker = active.context.serviceWorkers()[0];
+      if (!worker) throw new Error("extension service worker unavailable");
+
+      const badgeText = () =>
+        worker.evaluate(() =>
+          (globalThis as unknown as {
+            chrome: {
+              action: { getBadgeText(details: object): Promise<string> };
+            };
+          }).chrome.action.getBadgeText({})
+        );
+
+      await expect.poll(badgeText).toBe("");
+
+      const target = await openAndObserveSave(active, "approval-ux");
+
+      async function requestApproval(authorizationId: string) {
+        const response = await trustedRequest(
+          active.rpcPort,
+          active.token,
+          {
+            type: "authorization.request-operator-approval",
+            requestId: "request-" + authorizationId,
+            authorizationId,
+            tabId: target.tabId,
+            observedRevision: target.revision,
+            ref: target.saveRef,
+            ttlMs: 5_000,
+            approvalTtlMs: 60_000,
+          },
+        );
+        expect(response, JSON.stringify(response)).toMatchObject({
+          ok: true,
+        });
+        return response.result.approvalRequestId as string;
+      }
+
+      const approvalA = await requestApproval("auth-ux-a");
+      await expect.poll(badgeText).toBe("1");
+
+      const popup = await active.context.newPage();
+      await popup.goto(
+        "chrome-extension://" + extensionId + "/operator-approval.html",
+      );
+      await popup.bringToFront();
+
+      const cardA = popup.locator(
+        `[data-approval-id="${approvalA}"]`,
+      );
+      await expect(popup.locator(".approval-card")).toHaveCount(1);
+      await expect(cardA.locator(".origin-value")).toHaveText(fixtureOrigin);
+      await expect(cardA.locator(".untrusted-label")).toContainText("不可信");
+      await expect(cardA.locator(".untrusted-text").first())
+        .toContainText("「Save」");
+      await expect(cardA.locator(".code"))
+        .toHaveText("#" + approvalA.slice(-6));
+      await expect(cardA.locator(".countdown")).toHaveText(/^剩余 /);
+
+      const cardANode = await cardA.elementHandle();
+      if (!cardANode) throw new Error("approval card unavailable");
+
+      // 第二个请求由自动刷新追加到末尾。
+      const approvalB = await requestApproval("auth-ux-b");
+      await expect.poll(badgeText).toBe("2");
+      await expect(popup.locator(".approval-card")).toHaveCount(2, {
+        timeout: 10_000,
+      });
+      await expect(popup.locator(".approval-card").last())
+        .toHaveAttribute("data-approval-id", approvalB);
+
+      // 取消 B：卡片先原位标记失效，下一轮刷新才移除；A 的节点保持不变。
+      const cancel = await trustedRequest(active.rpcPort, active.token, {
+        type: "authorization.cancel-strict-click",
+        requestId: "cancel-auth-ux-b",
+        authorizationId: "auth-ux-b",
+      });
+      expect(cancel).toMatchObject({
+        ok: true,
+        result: { authorizationId: "auth-ux-b" },
+      });
+      await expect.poll(badgeText).toBe("1");
+
+      const cardB = popup.locator(
+        `[data-approval-id="${approvalB}"]`,
+      );
+      // stale 只持续一个刷新周期；按钮禁用与 stale 在同一次渲染内完成，由单测覆盖。
+      await expect(cardB).toHaveClass(/stale/, { timeout: 10_000 });
+      await expect(cardB).toHaveCount(0, { timeout: 10_000 });
+      expect(
+        await popup.evaluate(
+          ([node, id]) =>
+            node === document.querySelector(`[data-approval-id="${id}"]`),
+          [cardANode, approvalA] as const,
+        ),
+      ).toBe(true);
+
+      // operator 在审批页批准 A。
+      await cardA.getByRole("button", { name: "批准一次" }).click();
+      await expect(popup.locator("#status"))
+        .toHaveText("已批准 #" + approvalA.slice(-6));
+      await expect.poll(badgeText).toBe("");
+
+      const status = await trustedRequest(active.rpcPort, active.token, {
+        type: "authorization.operator-approval-status",
+        requestId: "status-auth-ux-a",
+        approvalRequestId: approvalA,
+      });
+      expect(status).toMatchObject({
+        ok: true,
+        result: { state: "approved" },
+      });
+
+      await expect(popup.locator("#empty-state")).toBeVisible({
+        timeout: 10_000,
+      });
+    } finally {
+      await host?.close().catch(() => undefined);
+      rmSync(home, { recursive: true, force: true });
     }
   },
 );

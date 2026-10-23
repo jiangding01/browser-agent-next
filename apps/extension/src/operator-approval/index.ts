@@ -4,16 +4,35 @@ import type {
 import type {
   OperatorApprovalUiResponse,
 } from "../protocol/operatorApproval.js";
+import {
+  type CardState,
+  formatRemaining,
+  planCardUpdate,
+  shortCode,
+  untrustedDisplayText,
+} from "./display.js";
 
 declare const chrome: {
   runtime: {
     sendMessage(
       message: unknown,
     ): Promise<
-      OperatorApprovalUiResponse
+      OperatorApprovalUiResponse | undefined
     >;
   };
 };
+
+const REFRESH_INTERVAL_MS = 2_000;
+const TICK_INTERVAL_MS = 250;
+const STALE_TEXT = "已失效（已被处理、取消或过期）";
+
+interface CardView {
+  summary: OperatorApprovalSummary;
+  element: HTMLElement;
+  countdown: HTMLElement;
+  buttons: HTMLButtonElement[];
+  inFlight: boolean;
+}
 
 const list =
   document.querySelector(
@@ -23,10 +42,20 @@ const empty =
   document.querySelector(
     "#empty-state",
   );
+const status =
+  document.querySelector(
+    "#status",
+  );
 const refresh =
   document.querySelector(
     "#refresh",
   );
+
+let cardStates: CardState[] = [];
+const views = new Map<string, CardView>();
+// 本弹窗内由 operator 亲自处理的请求，卡片失效时显示具体结果。
+const resolutions = new Map<string, string>();
+let loading = false;
 
 function requestId(): string {
   if (
@@ -49,18 +78,25 @@ function requestId(): string {
   );
 }
 
+function showStatus(
+  text: string,
+): void {
+  if (!status) return;
+
+  status.removeAttribute(
+    "hidden",
+  );
+  status.textContent = text;
+}
+
 function showError(
   error: unknown,
 ): void {
-  if (!empty) return;
-
-  empty.removeAttribute(
-    "hidden",
-  );
-  empty.textContent =
+  showStatus(
     error instanceof Error
       ? error.message
-      : "审批操作失败";
+      : "审批操作失败",
+  );
 }
 
 async function call(
@@ -69,6 +105,12 @@ async function call(
   const response =
     await chrome.runtime
       .sendMessage(message);
+
+  if (!response) {
+    throw new Error(
+      "审批服务不可用",
+    );
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -79,148 +121,331 @@ async function call(
   return response.result;
 }
 
-function button(
+function element(
+  tag: string,
+  className?: string,
+  text?: string,
+): HTMLElement {
+  const node =
+    document.createElement(tag);
+
+  if (className) {
+    node.className = className;
+  }
+  if (text !== undefined) {
+    node.textContent = text;
+  }
+
+  return node;
+}
+
+/**
+ * 页面派生文本：清理后加「」引号，只经 textContent 写入。
+ * 清理后为空（例如全是不可见字符）时显示占位，避免出现空引号。
+ */
+function quoted(
+  value: string,
+): string {
+  const text =
+    untrustedDisplayText(value);
+
+  return text
+    ? "「" + text + "」"
+    : "（无可显示内容）";
+}
+
+function markResolved(
+  id: string,
+  text: string,
+): void {
+  resolutions.set(id, text);
+  cardStates = cardStates.map(
+    (card) =>
+      card.id === id
+        ? { ...card, status: "stale" }
+        : card,
+  );
+  updateCards();
+}
+
+function actionButton(
   label: string,
   className: string,
-  onClick:
-    () => Promise<void>,
+  approval:
+    OperatorApprovalSummary,
+  type:
+    | "operator-approval.approve"
+    | "operator-approval.reject",
+  resolvedText: string,
 ): HTMLButtonElement {
-  const element =
+  const button =
     document.createElement(
       "button",
     );
 
-  element.type = "button";
-  element.textContent = label;
-  element.className =
-    className;
+  button.type = "button";
+  button.textContent = label;
+  button.className = className;
+  button.disabled = true;
 
-  element.addEventListener(
+  button.addEventListener(
     "click",
     () => {
-      element.disabled = true;
+      const view = views.get(
+        approval.approvalRequestId,
+      );
+      if (!view || view.inFlight) {
+        return;
+      }
 
-      void onClick()
-        .catch(showError)
+      view.inFlight = true;
+      updateCards();
+
+      void call({
+        type,
+        requestId: requestId(),
+        approvalRequestId:
+          approval.approvalRequestId,
+      })
+        .then(() => {
+          markResolved(
+            approval.approvalRequestId,
+            resolvedText,
+          );
+          showStatus(
+            resolvedText +
+              " " +
+              shortCode(
+                approval.approvalRequestId,
+              ),
+          );
+        })
+        .catch((error: unknown) => {
+          showError(error);
+          void load();
+        })
         .finally(() => {
-          element.disabled =
-            false;
+          view.inFlight = false;
+          updateCards();
         });
     },
   );
 
-  return element;
+  return button;
 }
 
-function render(
+function createCard(
+  approval:
+    OperatorApprovalSummary,
+): CardView {
+  const card = element(
+    "article",
+    "approval-card",
+  );
+  card.dataset.approvalId =
+    approval.approvalRequestId;
+
+  const head = element(
+    "div",
+    "card-head",
+  );
+  head.append(
+    element(
+      "h2",
+      undefined,
+      "待批准的点击",
+    ),
+    element(
+      "span",
+      "code",
+      shortCode(
+        approval.approvalRequestId,
+      ),
+    ),
+  );
+
+  // origin 来自浏览器（URL.origin，IDN 以 punycode 显示），与页面文本分开展示。
+  const origin = element(
+    "div",
+    "origin",
+  );
+  origin.append(
+    element(
+      "span",
+      "field-label",
+      "来源（浏览器提供）",
+    ),
+    element(
+      "span",
+      "origin-value",
+      approval.origin,
+    ),
+  );
+
+  const untrusted = element(
+    "section",
+    "untrusted",
+  );
+  const target =
+    approval.targetName !== undefined
+      ? quoted(approval.targetName) +
+        " · 角色 " +
+        quoted(approval.targetRole)
+      : "角色 " +
+        quoted(approval.targetRole);
+  untrusted.append(
+    element(
+      "div",
+      "untrusted-label",
+      "页面提供的内容（不可信，仅供参考）",
+    ),
+    element(
+      "p",
+      "untrusted-text",
+      "目标：" + target,
+    ),
+    element(
+      "p",
+      "untrusted-text",
+      "页面标题：" +
+        quoted(approval.pageTitle),
+    ),
+  );
+
+  const countdown = element(
+    "p",
+    "countdown",
+  );
+
+  const actions = element(
+    "div",
+    "actions",
+  );
+  const buttons = [
+    actionButton(
+      "拒绝",
+      "secondary",
+      approval,
+      "operator-approval.reject",
+      "已拒绝",
+    ),
+    actionButton(
+      "批准一次",
+      "primary",
+      approval,
+      "operator-approval.approve",
+      "已批准",
+    ),
+  ];
+  actions.append(...buttons);
+
+  card.append(
+    head,
+    origin,
+    untrusted,
+    countdown,
+    actions,
+  );
+
+  return {
+    summary: approval,
+    element: card,
+    countdown,
+    buttons,
+    inFlight: false,
+  };
+}
+
+/** 倒计时与按钮可用性；高频调用，只改文本与 disabled，不改布局。 */
+function updateCards(): void {
+  const now = Date.now();
+
+  for (const card of cardStates) {
+    const view = views.get(card.id);
+    if (!view) continue;
+
+    const stale =
+      card.status === "stale";
+    const remaining = formatRemaining(
+      view.summary.expiresAt,
+      now,
+    );
+
+    view.element.classList.toggle(
+      "stale",
+      stale,
+    );
+    view.countdown.textContent = stale
+      ? resolutions.get(card.id) ??
+        STALE_TEXT
+      : remaining;
+
+    const disabled =
+      stale ||
+      view.inFlight ||
+      now < card.enableAt ||
+      view.summary.expiresAt <= now;
+
+    for (const button of view.buttons) {
+      button.disabled = disabled;
+    }
+  }
+
+  empty?.toggleAttribute(
+    "hidden",
+    cardStates.length > 0,
+  );
+}
+
+function apply(
   approvals:
     OperatorApprovalSummary[],
 ): void {
-  if (!list || !empty) {
-    return;
-  }
+  if (!list) return;
 
-  list.textContent = "";
-  empty.textContent =
-    "当前没有待审批动作。";
-  empty.toggleAttribute(
-    "hidden",
-    approvals.length > 0,
+  const byId = new Map(
+    approvals.map((approval) => [
+      approval.approvalRequestId,
+      approval,
+    ]),
+  );
+  // 本弹窗已处理的请求不再复活为可点击状态（列表请求可能早于处理结果返回）。
+  const plan = planCardUpdate(
+    cardStates,
+    approvals
+      .map(
+        (approval) =>
+          approval.approvalRequestId,
+      )
+      .filter(
+        (id) => !resolutions.has(id),
+      ),
+    Date.now(),
   );
 
-  for (
-    const approval
-    of approvals
-  ) {
-    const item =
-      document.createElement(
-        "article",
-      );
-    item.className =
-      "approval-card";
-
-    const title =
-      document.createElement(
-        "h2",
-      );
-    title.textContent =
-      approval.targetName ||
-      approval.targetRole;
-
-    const origin =
-      document.createElement(
-        "div",
-      );
-    origin.className =
-      "origin";
-    origin.textContent =
-      approval.origin;
-
-    const detail =
-      document.createElement(
-        "p",
-      );
-    detail.textContent =
-      approval.pageTitle +
-      " · " +
-      approval.targetRole +
-      " · " +
-      approval.ref;
-
-    const actions =
-      document.createElement(
-        "div",
-      );
-    actions.className =
-      "actions";
-
-    actions.append(
-      button(
-        "拒绝",
-        "secondary",
-        async () => {
-          await call({
-            type:
-              "operator-approval.reject",
-            requestId:
-              requestId(),
-            approvalRequestId:
-              approval
-                .approvalRequestId,
-          });
-          await load();
-        },
-      ),
-      button(
-        "批准一次",
-        "primary",
-        async () => {
-          await call({
-            type:
-              "operator-approval.approve",
-            requestId:
-              requestId(),
-            approvalRequestId:
-              approval
-                .approvalRequestId,
-          });
-          await load();
-        },
-      ),
-    );
-
-    item.append(
-      title,
-      origin,
-      detail,
-      actions,
-    );
-
-    list.append(item);
+  for (const id of plan.removed) {
+    views.get(id)?.element.remove();
+    views.delete(id);
+    resolutions.delete(id);
   }
+
+  for (const id of plan.added) {
+    const approval = byId.get(id);
+    if (!approval) continue;
+
+    const view = createCard(approval);
+    views.set(id, view);
+    list.append(view.element);
+  }
+
+  cardStates = plan.cards;
+  updateCards();
 }
 
 async function load(): Promise<void> {
+  if (loading) return;
+  loading = true;
+
   try {
     const result =
       await call({
@@ -230,7 +455,7 @@ async function load(): Promise<void> {
           requestId(),
       });
 
-    render(
+    apply(
       Array.isArray(result)
         ? result as
             OperatorApprovalSummary[]
@@ -238,14 +463,34 @@ async function load(): Promise<void> {
     );
   } catch (error) {
     showError(error);
+  } finally {
+    loading = false;
   }
 }
 
-refresh?.addEventListener(
-  "click",
-  () => {
-    void load();
-  },
-);
+// 审批入口按 sender.url 精确匹配页面地址；带 query / hash 打开时先回到干净地址。
+if (
+  location.search ||
+  location.hash
+) {
+  location.replace(
+    location.pathname,
+  );
+} else {
+  refresh?.addEventListener(
+    "click",
+    () => {
+      void load();
+    },
+  );
 
-void load();
+  setInterval(
+    updateCards,
+    TICK_INTERVAL_MS,
+  );
+  setInterval(() => {
+    void load();
+  }, REFRESH_INTERVAL_MS);
+
+  void load();
+}

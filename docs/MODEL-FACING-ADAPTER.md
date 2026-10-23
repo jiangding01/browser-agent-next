@@ -466,7 +466,6 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 
 ## 后续工作
 
-Phase 6.6a 已交付 Act broker baseline，Phase 6.6b-A 已交付取消、撤销与 progress。后续按 Roadmap 继续：
+Phase 6.6a 已交付 Act broker baseline，Phase 6.6b-A 已交付取消、撤销与 progress，Phase 6.6b-B 已交付扩展侧审批体验（角标、倒计时、不可信文本标注、防误点刷新，见 `docs/SECURITY.md`「审批页展示规则」）。后续按 Roadmap 继续：
 
-1. Phase 6.6b-B：扩展 badge 显示待审批数、popup 显示 TTL 倒计时并标注不可信页面文本，以及对应的 Real Chromium E2E；
-2. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查。
+1. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查。

@@ -78,10 +78,10 @@
 - [x] browser.act model-facing policy（6.6a：side-effect tier、act origin plane ⊆ read、per-connection 预算与单次执行账本）
 - [x] operator-approved user confirmation integration（6.6a baseline：broker 创建 pending request 并轮询状态）
 - [ ] side-effect MCP integration tests（6.6c：stdio wire 集成测试与最终对抗式审查）
-- [ ] 6.6b 扩展侧 approval UX
-  - [ ] 扩展 badge（6.6b-B）
+- [x] 6.6b 扩展侧 approval UX
+  - [x] 扩展 badge（6.6b-B）
   - [x] progress notification（6.6b-A）
-  - [ ] popup 显示 TTL 倒计时，并标注页面文本不可信（6.6b-B）
+  - [x] popup 显示 TTL 倒计时，并标注页面文本不可信（6.6b-B，含防误点增量刷新）
   - [x] approval 超时 / 客户端取消 / 执行失败后撤销 pending approval request 与未消费 grant（6.6b-A）
 
 ## Phase 7 — Intelligence

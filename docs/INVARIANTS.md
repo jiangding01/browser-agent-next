@@ -137,3 +137,4 @@
 125. Presentation fence 之后必须再次执行 Strict prepare，live identity、frame/session binding 与 top-level 点必须与 fence 前一致才可 dispatch；任一变化都 fail closed，且不得自动重试 click。grant TTL 必须在 fence 之后、`mousePressed` 之前再次校验。
 126. Model act broker 生成 `authorizationId` 后，只要 act 未成功返回，就必须按 `authorizationId` 撤销本次授权（pending approval 与未消费 grant）；撤销尽力而为，失败不得覆盖原错误，撤销成功也不代表点击被阻止，不得据此改变错误码或降级判断。降级状态必须先于撤销 RPC 落定。扩展侧撤销后必须拒绝同 id 的迟到签发（有界 tombstone）。客户端取消只能阻止尚未发出的 act，不得中断在途 act RPC。
 127. 等待 operator approval 期间发给 MCP 客户端的 progress notification 只能包含严格递增的计数与固定文本，不得包含 approval id、authorization id、ref、origin、revision 或任何页面派生文本；客户端未提供 progressToken 时不得发送。
+128. 审批页必须把页面派生文本（目标名称、role、页面标题）放在明确标注为不可信的区域，并与浏览器提供的 origin 分开展示；显示前必须删除控制字符、格式字符（含 bidi 覆盖 / 隔离与零宽字符）与变体选择符，且只能经 `textContent` 写入。自动刷新不得让已有卡片在 operator 点击时移位而按钮仍可用：已有卡片不重排、新卡片只追加并延迟启用、消失的卡片先原位禁用再移除。扩展角标只能显示待审批数量。

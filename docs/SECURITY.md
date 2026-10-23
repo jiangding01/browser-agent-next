@@ -150,6 +150,21 @@ sender.url == chrome-extension://<id>/operator-approval.html
 
 control-plane/native-host 只能创建 pending request、读取状态和撤销（只减少能力），不能调用 approve。批准按钮触发后，pending request 会被单次消费，并在真正签发前重新验证 retained observation、ref、origin 与 assurance requirement。
 
+### 审批页展示规则（Phase 6.6b-B）
+
+审批页是 operator-approved 的唯一来源，展示必须帮助 operator 做出正确判断，而不是被页面内容误导：
+
+- origin 来自浏览器（`URL.origin`，IDN 以 punycode 显示），标注“浏览器提供”，与页面文本分开展示；
+- 目标名称、role、页面标题都来自页面，放在标注“页面提供的内容（不可信，仅供参考）”的虚线框里；显示前删除控制字符与格式字符（`\p{Cc}`、`\p{Cf}`，含 bidi 覆盖 / 隔离、零宽字符、soft hyphen、Tag 字符、BOM）以及变体选择符，空白折叠，按码点截断，加「」引号，只经 `textContent` 写入；清理后为空时显示固定占位；
+- 每张卡片显示请求短码（approvalRequestId 末 6 位）与剩余时间，批准 / 拒绝后的提示带短码；
+- 防误点：列表每 2 秒刷新，已有卡片不重排；新请求只追加到末尾，按钮延迟 500 ms 启用；消失的请求先原位禁用并标注“已失效”，下一次刷新才移除，移除位置之后的卡片按钮也延迟启用；本页已处理的请求不会被晚到的列表结果恢复为可点击；
+- 带 query 或 hash 打开审批页时先跳回干净地址，以满足上面的 `sender.url` 精确匹配；
+- 扩展图标角标只显示待审批数量，不含任何页面内容。
+
+UI 防护只降低误点概率，签发正确性仍由 store 保证：批准时请求必须仍是 pending，并在签发前重新验证。
+
+已知限制：Chrome 106–109 上 native messaging 端口不保证让 service worker 保活，worker 空闲后可能被回收，待审批请求随之清空（fail closed），角标可能残留到下次唤醒；下次启动时角标会按当前数量（0）重绘。非 `Cc` / `Cf` 的不可见字符（如 U+3164 HANGUL FILLER）不会被删除，只会以空白形式出现在不可信框内。
+
 这个边界表示“来自受信扩展审批 UI 的明确批准路径”，仍不应被描述成对拥有同 UID 任意桌面自动化、调试器或扩展代码修改能力的攻击者提供 OS 级硬隔离。更强部署仍应使用独立 OS 用户、宿主审批进程或企业策略服务。
 
 
