@@ -88,6 +88,10 @@ import {
 import { DomObservationCoordinator } from "./perception/observationCoordinator.js";
 import { HighLevelBrowserApiService } from "./api/browserApiService.js";
 import {
+  type ApprovalBadgeActionApi,
+  bindOperatorApprovalBadge,
+} from "./execution/approvalBadge.js";
+import {
   BrowserChangeSignalHub,
   registerBrowserChangeSignals,
 } from "./api/browserChangeSignalHub.js";
@@ -97,6 +101,7 @@ interface ChromeBackgroundApi extends ChromeLifecycleApi {
     & BackgroundRuntimeApi
     & TrustedNativeRuntimeApi;
   debugger: ChromeDebuggerApi;
+  action: ApprovalBadgeActionApi;
   tabs:
     & ChromeLifecycleApi["tabs"]
     & ChromeTabsApi
@@ -296,6 +301,10 @@ registerObserveTabBackgroundListener(
 registerOperatorApprovalUiIngress(
   chrome.runtime as unknown as
     OperatorApprovalRuntimeApi,
+  operatorApprovals,
+);
+bindOperatorApprovalBadge(
+  chrome.action,
   operatorApprovals,
 );
 

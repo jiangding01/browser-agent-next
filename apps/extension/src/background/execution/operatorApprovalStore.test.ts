@@ -2,6 +2,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import {
   OperatorApprovalStore,
@@ -10,6 +11,7 @@ import {
 function setup(
   options: {
     idFactory?: () => string;
+    maxPending?: number;
   } = {},
 ) {
   let now = 100;
@@ -81,6 +83,13 @@ function setup(
           options.idFactory ??
           (() => "operator-1"),
         requestTtlMs: 200,
+        ...(options.maxPending !==
+        undefined
+          ? {
+              maxPending:
+                options.maxPending,
+            }
+          : {}),
       },
     );
 
@@ -808,3 +817,401 @@ describe(
     );
   },
 );
+
+const flush = () =>
+  new Promise<void>((resolve) =>
+    queueMicrotask(resolve),
+  );
+
+function sequentialIds() {
+  let n = 0;
+  return () => {
+    n += 1;
+    return `operator-${n}`;
+  };
+}
+
+describe("OperatorApprovalStore.subscribe", () => {
+  function subscribed(
+    options: Parameters<typeof setup>[0] = {},
+  ) {
+    const ctx = setup({
+      idFactory: sequentialIds(),
+      ...options,
+    });
+    const counts: number[] = [];
+    const unsubscribe = ctx.store.subscribe(
+      (count) => counts.push(count),
+    );
+
+    return { ...ctx, counts, unsubscribe };
+  }
+
+  it("request 后通知 1，且在 microtask 之前不通知", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    expect(counts).toEqual([]);
+
+    await flush();
+    expect(counts).toEqual([1]);
+  });
+
+  it("approve 后通知 0", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+    store.approve("operator-1");
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("reject 后通知 0", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+    store.reject("operator-1");
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("同一同步操作内多次增删只通知一次（最终计数）", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    store.request({
+      ...input,
+      authorizationId: "auth-2",
+    });
+    store.request({
+      ...input,
+      authorizationId: "auth-3",
+    });
+    store.reject("operator-2");
+    await flush();
+
+    expect(counts).toEqual([2]);
+  });
+
+  it("增删后回到原数量时不通知", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    store.reject("operator-1");
+    await flush();
+
+    expect(counts).toEqual([]);
+  });
+
+  it("数量不变不通知（request 时过期 1 个再新增 1 个）", async () => {
+    const { store, counts, setNow } = subscribed();
+
+    store.request(input);
+    await flush();
+    expect(counts).toEqual([1]);
+
+    setNow(300);
+    store.request({
+      ...input,
+      authorizationId: "auth-2",
+    });
+    await flush();
+
+    expect(counts).toEqual([1]);
+    expect(store.listPending()).toHaveLength(1);
+    expect(store.status("operator-1").state).toBe(
+      "expired",
+    );
+  });
+
+  it("request 因 ttl 非法抛错但触发了过期清理时仍通知新计数", async () => {
+    const { store, counts, setNow } = subscribed();
+
+    store.request(input);
+    await flush();
+
+    setNow(300);
+    expect(() =>
+      store.request({ ...input, ttlMs: 60_001 }),
+    ).toThrow(/ttl is outside the allowed range/);
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("request 因 ORIGIN_NOT_ALLOWED 抛错但触发了过期清理时仍通知新计数", async () => {
+    const { store, counts, setNow, entries } =
+      subscribed();
+
+    entries.set("rev-evil", {
+      byRef: new Map([[
+        "@e_1",
+        { semantic: { role: "button", name: "X" } },
+      ]]),
+      observation: {
+        tab: {
+          origin: "https://evil.test",
+          title: "Evil",
+        },
+      },
+    });
+
+    store.request(input);
+    await flush();
+
+    setNow(300);
+    expect(() =>
+      store.request({
+        ...input,
+        authorizationId: "auth-2",
+        observedRevision: "rev-evil",
+      }),
+    ).toThrow(/outside the auto-act allowlist/);
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("request 因重复 authorizationId 抛错但触发了过期清理时仍通知新计数", async () => {
+    const { store, counts, setNow } = subscribed();
+
+    store.request(input);
+    store.request({
+      ...input,
+      authorizationId: "auth-2",
+      approvalTtlMs: 100,
+    });
+    await flush();
+    expect(counts).toEqual([2]);
+
+    // operator-2 过期于 200，operator-1 过期于 300：推进到 250 只清掉 operator-2。
+    setNow(250);
+    expect(() => store.request(input)).toThrow(
+      /already has a pending operator approval/,
+    );
+    await flush();
+
+    expect(counts).toEqual([2, 1]);
+  });
+
+  it("approve 签发失败（issuance 抛错）仍通知 0", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+
+    (store as any).issuance.issueOperatorApproved =
+      () => {
+        throw new Error("observation expired");
+      };
+
+    expect(() => store.approve("operator-1")).toThrow(
+      /observation expired/,
+    );
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("status 触发过期时通知", async () => {
+    const { store, counts, setNow } = subscribed();
+
+    store.request(input);
+    await flush();
+
+    setNow(300);
+    store.status("operator-1");
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("listPending 触发过期时通知", async () => {
+    const { store, counts, setNow } = subscribed();
+
+    store.request(input);
+    await flush();
+
+    setNow(300);
+    expect(store.listPending()).toEqual([]);
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("cancelByAuthorizationId 取消 pending 时通知", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+    store.cancelByAuthorizationId("auth-1", false);
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("clearTab 通知", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+    store.clearTab(7);
+    await flush();
+
+    expect(counts).toEqual([1, 0]);
+  });
+
+  it("clearTab 对其他 tab 不通知", async () => {
+    const { store, counts } = subscribed();
+
+    store.request(input);
+    await flush();
+    store.clearTab(8);
+    await flush();
+
+    expect(counts).toEqual([1]);
+  });
+
+  it("trimPending（maxPending 溢出）后通知裁剪后的计数", async () => {
+    const { store, counts, setNow } = subscribed({
+      maxPending: 2,
+    });
+
+    for (const id of ["auth-1", "auth-2", "auth-3"]) {
+      store.request({ ...input, authorizationId: id });
+    }
+    await flush();
+
+    expect(counts).toEqual([2]);
+    expect(store.status("operator-1").state).toBe(
+      "invalidated",
+    );
+    expect(store.listPending()).toHaveLength(2);
+
+    // 已在上限：再新增一个，裁掉最旧的，数量不变不通知。
+    setNow(100);
+    store.request({
+      ...input,
+      authorizationId: "auth-4",
+    });
+    await flush();
+
+    expect(counts).toEqual([2]);
+  });
+
+  it("listener 抛错不影响 store，其他 listener 仍收到", async () => {
+    const { store, counts } = subscribed();
+    const bad = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const later: number[] = [];
+
+    store.subscribe(bad);
+    store.subscribe((count) => later.push(count));
+
+    expect(() => store.request(input)).not.toThrow();
+    await flush();
+
+    expect(bad).toHaveBeenCalledWith(1);
+    expect(counts).toEqual([1]);
+    expect(later).toEqual([1]);
+    expect(store.listPending()).toHaveLength(1);
+
+    store.approve("operator-1");
+    await flush();
+    expect(later).toEqual([1, 0]);
+  });
+
+  it("取消订阅后不再收到，其他订阅不受影响", async () => {
+    const { store, counts, unsubscribe } =
+      subscribed();
+    const other: number[] = [];
+    store.subscribe((count) => other.push(count));
+
+    store.request(input);
+    await flush();
+    unsubscribe();
+    store.reject("operator-1");
+    await flush();
+
+    expect(counts).toEqual([1]);
+    expect(other).toEqual([1, 0]);
+  });
+
+  it("listener 内同步触发的二次变化会重新调度而不是重入", async () => {
+    const { store } = subscribed();
+    const seen: number[] = [];
+    let first = true;
+
+    store.subscribe((count) => {
+      seen.push(count);
+      if (first) {
+        first = false;
+        store.reject("operator-1");
+      }
+    });
+
+    store.request(input);
+    await flush();
+    await flush();
+
+    expect(seen).toEqual([1, 0]);
+  });
+});
+
+describe("OperatorApprovalStore.nextExpiryAt", () => {
+  it("空时返回 undefined", () => {
+    const { store } = setup();
+    expect(store.nextExpiryAt()).toBeUndefined();
+  });
+
+  it("返回最早的 expiresAt", () => {
+    const { store, setNow } = setup({
+      idFactory: sequentialIds(),
+    });
+
+    store.request(input);
+    setNow(150);
+    store.request({
+      ...input,
+      authorizationId: "auth-2",
+    });
+    expect(store.nextExpiryAt()).toBe(300);
+
+    store.request({
+      ...input,
+      authorizationId: "auth-3",
+      approvalTtlMs: 20,
+    });
+    expect(store.nextExpiryAt()).toBe(170);
+  });
+
+  it("受 approvalTtlMs 影响，并被 requestTtlMs 截断", () => {
+    const { store } = setup({
+      idFactory: sequentialIds(),
+    });
+
+    store.request({ ...input, approvalTtlMs: 50 });
+    expect(store.nextExpiryAt()).toBe(150);
+
+    store.reject("operator-1");
+    store.request({
+      ...input,
+      authorizationId: "auth-2",
+      approvalTtlMs: 10_000,
+    });
+    expect(store.nextExpiryAt()).toBe(300);
+  });
+
+  it("处理完成后恢复为 undefined", () => {
+    const { store } = setup();
+
+    store.request(input);
+    store.approve("operator-1");
+    expect(store.nextExpiryAt()).toBeUndefined();
+  });
+});

@@ -130,6 +130,10 @@ export class OperatorApprovalStore {
     new Map<string, PendingEntry>();
   private readonly outcomes =
     new Map<string, OutcomeEntry>();
+  private readonly listeners =
+    new Set<(pendingCount: number) => void>();
+  private lastNotifiedCount = 0;
+  private notifyScheduled = false;
 
   constructor(
     private readonly states: TabStateStore,
@@ -281,7 +285,7 @@ export class OperatorApprovalStore {
       };
 
     // approvalTtlMs 只决定等待时长，不进入签发输入。
-    this.pending.set(
+    this.setPending(
       approvalRequestId,
       {
         ...summary,
@@ -336,7 +340,7 @@ export class OperatorApprovalStore {
       );
     }
 
-    this.pending.delete(
+    this.deletePending(
       approvalRequestId,
     );
 
@@ -394,7 +398,7 @@ export class OperatorApprovalStore {
       );
     }
 
-    this.pending.delete(
+    this.deletePending(
       approvalRequestId,
     );
 
@@ -469,7 +473,7 @@ export class OperatorApprovalStore {
         continue;
       }
 
-      this.pending.delete(id);
+      this.deletePending(id);
 
       this.recordOutcome({
         approvalRequestId: id,
@@ -518,7 +522,7 @@ export class OperatorApprovalStore {
         continue;
       }
 
-      this.pending.delete(id);
+      this.deletePending(id);
 
       this.recordOutcome({
         approvalRequestId: id,
@@ -528,6 +532,81 @@ export class OperatorApprovalStore {
         resolvedAt: now,
       });
     }
+  }
+
+  /**
+   * 订阅 pending 数量变化（例如扩展角标）。
+   *
+   * 通知在当前同步操作结束后的 microtask 中发出：覆盖抛错路径，同一操作内的
+   * 多次增删合并为一次，listener 也不会看到 store 的中间状态。数量不变不通知；
+   * listener 抛错被吞掉，不影响 store。
+   */
+  subscribe(
+    listener: (pendingCount: number) => void,
+  ): () => void {
+    this.listeners.add(listener);
+
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /** pending 中最早的过期时间；没有 pending 时为 undefined。 */
+  nextExpiryAt(): number | undefined {
+    let earliest: number | undefined;
+
+    for (const entry of this.pending.values()) {
+      if (
+        earliest === undefined ||
+        entry.expiresAt < earliest
+      ) {
+        earliest = entry.expiresAt;
+      }
+    }
+
+    return earliest;
+  }
+
+  private setPending(
+    id: string,
+    entry: PendingEntry,
+  ): void {
+    this.pending.set(id, entry);
+    this.scheduleNotify();
+  }
+
+  private deletePending(id: string): void {
+    if (this.pending.delete(id)) {
+      this.scheduleNotify();
+    }
+  }
+
+  private scheduleNotify(): void {
+    if (this.notifyScheduled) {
+      return;
+    }
+
+    this.notifyScheduled = true;
+
+    queueMicrotask(() => {
+      this.notifyScheduled = false;
+      const count = this.pending.size;
+
+      if (count === this.lastNotifiedCount) {
+        return;
+      }
+
+      // 先前移再回调：listener 同步触发的二次变化会重新调度，而不是重入。
+      this.lastNotifiedCount = count;
+
+      for (const listener of [...this.listeners]) {
+        try {
+          listener(count);
+        } catch {
+          // 订阅方（角标）只是提示，不能影响审批状态。
+        }
+      }
+    });
   }
 
   private uniqueId(): string {
@@ -566,7 +645,7 @@ export class OperatorApprovalStore {
         continue;
       }
 
-      this.pending.delete(id);
+      this.deletePending(id);
 
       this.recordOutcome({
         approvalRequestId: id,
@@ -635,7 +714,7 @@ export class OperatorApprovalStore {
       const entry =
         this.pending.get(oldest);
 
-      this.pending.delete(
+      this.deletePending(
         oldest,
       );
 

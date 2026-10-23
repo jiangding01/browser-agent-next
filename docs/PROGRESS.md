@@ -290,11 +290,27 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E：本 PR 未改 E2E，由 CI browser-e2e 覆盖
 - 方案经 think + check 两轮审查；代码经 check 深度审查与对抗式审查，发现的 LOW 已修复并复审：无 HIGH / MEDIUM ✅
 
+## Phase 6.6b-B：扩展侧审批体验
+
+- `OperatorApprovalStore` 新增 `subscribe`（pending 数量变化在 microtask 中合并通知，覆盖抛错路径，数量不变不通知）与 `nextExpiryAt`；
+- 新增 `approvalBadge`：扩展图标角标显示待审批数（全局计数，只含数字）；按最早到期时间调度定时器，到点无条件触发过期清理并重新调度；service worker 启动时先重绘，清掉残留角标；
+- 审批页：每张卡片显示请求短码与倒计时；页面派生文本（目标名称、role、页面标题）放在“不可信”虚线框内，删除控制 / 格式字符与变体选择符后加「」引号；origin 单独标注“浏览器提供”；
+- 防误点：每 2 秒增量刷新，已有卡片不重排，新卡片追加到末尾并延迟 500 ms 启用，消失的卡片先原位禁用再移除，移除位置之后的卡片延迟启用；本页已处理的请求不再恢复为可点击；
+- 带 query / hash 打开审批页时跳回干净地址；
+- 新增不变量 128；Real Chromium E2E 覆盖角标增减、审批页渲染、自动追加、取消后原位失效再移除（已有卡片节点不变）与页内批准。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（636 个）✅
+- Workspace build ✅
+- Real Chromium E2E 12/12 ✅（新用例本地连续重复 5 次与 3 次均通过）
+- 方案经 think + check 审查（1 条 HIGH、4 条 MEDIUM 均在实现前并入方案）；代码经 check 审查与独立审查，无 HIGH / MEDIUM，LOW 已修复并复审 ✅
+
 ## 下一步
 
-1. Phase 6.6b-B：扩展 badge 显示待审批数、popup 显示 TTL 倒计时并标注不可信页面文本，以及对应的 Real Chromium E2E；
-2. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查；
-3. Phase 6.6 完成后再进入 Intelligence Layer。
+1. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查；
+2. Phase 6.6 完成后再进入 Intelligence Layer。
 
 ## 文档
 

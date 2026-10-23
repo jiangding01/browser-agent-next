@@ -197,13 +197,7 @@ verifyTimeoutMs?     0..5000，默认 1500
 
 ## 当前未完成
 
-Phase 6.6a 已交付 scoped Act broker 与 model-facing `browser.act` baseline；Phase 6.6b-A 已交付按 `authorizationId` 取消审批与撤销 grant、审批有效期对齐、等待审批期间的 MCP progress notification 与客户端取消。剩余工作拆为：
-
-**Phase 6.6b-B（扩展侧 approval UX）**
-
-- 扩展 badge 显示待审批数；
-- popup 显示 TTL 倒计时，并标注页面文本不可信；
-- 对应的 Real Chromium E2E。
+Phase 6.6a 已交付 scoped Act broker 与 model-facing `browser.act` baseline；Phase 6.6b-A 已交付按 `authorizationId` 取消审批与撤销 grant、审批有效期对齐、等待审批期间的 MCP progress notification 与客户端取消；Phase 6.6b-B 已交付扩展角标、审批页倒计时、不可信文本标注与防误点刷新。剩余工作：
 
 **Phase 6.6c（验收）**
 
