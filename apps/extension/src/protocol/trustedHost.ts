@@ -35,11 +35,17 @@ export type TrustedHostRequest =
       observedRevision: string;
       ref: string;
       ttlMs: number;
+      approvalTtlMs?: number;
     }
   | {
       type: "authorization.operator-approval-status";
       requestId: string;
       approvalRequestId: string;
+    }
+  | {
+      type: "authorization.cancel-strict-click";
+      requestId: string;
+      authorizationId: string;
     }
   | {
       type: "authorization.issue-enterprise-policy";
@@ -273,11 +279,23 @@ export function isTrustedHostRequest(
         nonEmptyString(request.ref) &&
         request.ref.length <= 256 &&
         optionalFiniteNumber(request.ttlMs, 1, 60_000) &&
-        request.ttlMs !== undefined;
+        request.ttlMs !== undefined &&
+        (
+          request.approvalTtlMs === undefined ||
+          boundedInteger(request.approvalTtlMs, 1, 120_000)
+        );
 
     case "authorization.operator-approval-status":
       return nonEmptyString(request.approvalRequestId) &&
         request.approvalRequestId.length <= 256;
+
+    case "authorization.cancel-strict-click":
+      return hasOnlyKeys(
+        request,
+        ["type", "requestId", "authorizationId"],
+      ) &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256;
 
     case "authorization.issue-enterprise-policy":
       return hasOnlyKeys(

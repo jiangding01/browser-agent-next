@@ -200,8 +200,18 @@ export class InMemoryAuthorizationStore {
     return { ok: true, grant };
   }
 
-  revoke(id: string): void {
+  /**
+   * 撤销 grant；返回是否删除了一个仍在有效期内的 grant。
+   * 已消费、已过期或不存在的 id 返回 false。
+   */
+  revoke(id: string): boolean {
+    const grant = this.grants.get(id);
+    if (!grant) {
+      return false;
+    }
+
     this.grants.delete(id);
+    return grant.expiresAt > this.now();
   }
 
   clearTab(tabId: number): void {

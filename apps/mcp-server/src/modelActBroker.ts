@@ -13,6 +13,8 @@ import type {
 
 export const MODEL_ACT_GRANT_TTL_MS = 30_000;
 export const MODEL_ACT_APPROVAL_POLL_INTERVAL_MS = 1_000;
+export const MODEL_ACT_APPROVAL_PROGRESS_MESSAGE =
+  "waiting for operator approval in the browser extension";
 const MAX_APPROVAL_TIMEOUT_MS = 120_000;
 const MAX_ACT_BUDGET = 256;
 
@@ -22,8 +24,24 @@ export interface ModelActBrokerOptions {
   approvalMode: ModelActApprovalMode;
   approvalTimeoutMs: number;
   now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   uuid?: () => string;
+}
+
+export interface ModelActProgress {
+  progress: number;
+  message: string;
+}
+
+/**
+ * 单次 tool call 的上下文：MCP 客户端的取消信号与 progress 回调。
+ *
+ * signal 只用于尚未发出 act 之前的等待与检查，绝不接入在途 act RPC：
+ * 中断在途 act 会把“点击可能已发生”伪装成客户端取消。
+ */
+export interface ModelToolCallContext {
+  signal?: AbortSignal;
+  onProgress?: (progress: ModelActProgress) => void;
 }
 
 /**
@@ -43,7 +61,36 @@ export interface ModelActBroker {
   act(
     input: ModelActInput,
     observation: BrowserObservation,
+    context?: ModelToolCallContext,
   ): Promise<ModelActExecution>;
+}
+
+function defaultSleep(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function clientCancelled(): BrowserRuntimeError {
+  return new BrowserRuntimeError(
+    "AUTHORIZATION_REQUIRED",
+    "browser.act was cancelled by the client",
+  );
 }
 
 function boundedOption(
@@ -160,9 +207,7 @@ export function createModelActBroker(
     );
   }
   const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms: number) =>
-    new Promise<void>((resolve) => setTimeout(resolve, ms))
-  );
+  const sleep = options.sleep ?? defaultSleep;
   const uuid = options.uuid ?? randomUUID;
 
   let remainingBudget = boundedOption(
@@ -187,15 +232,52 @@ export function createModelActBroker(
     }
   }
 
+  /**
+   * 撤销本次 act 的授权（pending approval 与未消费 grant）。
+   * 尽力而为：撤销失败不覆盖原错误；撤销成功也不代表点击被阻止。
+   */
+  async function bestEffortCancel(
+    authorizationId: string,
+  ): Promise<void> {
+    try {
+      await runtime.cancelStrictClick(authorizationId);
+    } catch {
+      // 原错误优先；未撤销的 grant 仍受 30 s TTL 与 navigation 撤销约束。
+    }
+  }
+
+  function reportProgress(
+    context: ModelToolCallContext | undefined,
+    progress: number,
+  ): void {
+    try {
+      context?.onProgress?.({
+        progress,
+        message: MODEL_ACT_APPROVAL_PROGRESS_MESSAGE,
+      });
+    } catch {
+      // progress 只是提示，不影响授权流程。
+    }
+  }
+
   async function awaitOperatorApproval(
     grant: TrustedStrictClickGrantInput,
+    context: ModelToolCallContext | undefined,
   ): Promise<void> {
+    const signal = context?.signal;
     const deadline = now() + approvalTimeoutMs;
     const request = await authorizationCall(() =>
-      runtime.requestOperatorApproval(grant)
+      runtime.requestOperatorApproval(
+        grant,
+        approvalTimeoutMs,
+      )
     );
+    let progress = 0;
 
     while (true) {
+      if (signal?.aborted) {
+        throw clientCancelled();
+      }
       const remaining = deadline - now();
       if (remaining <= 0) {
         throw new BrowserRuntimeError(
@@ -208,15 +290,25 @@ export function createModelActBroker(
           MODEL_ACT_APPROVAL_POLL_INTERVAL_MS,
           remaining,
         ),
+        signal,
       );
+      if (signal?.aborted) {
+        throw clientCancelled();
+      }
 
       const status = await authorizationCall(() =>
         runtime.operatorApprovalStatus(
           request.approvalRequestId,
         )
       );
+      // status 往返期间客户端可能已取消：不再上报 progress，也不进入执行。
+      if (signal?.aborted) {
+        throw clientCancelled();
+      }
       switch (status.state) {
         case "pending":
+          progress += 1;
+          reportProgress(context, progress);
           continue;
         case "approved":
           return;
@@ -235,6 +327,11 @@ export function createModelActBroker(
             "AUTHORIZATION_REQUIRED",
             "operator approval was invalidated by a page change",
           );
+        case "cancelled":
+          throw new BrowserRuntimeError(
+            "AUTHORIZATION_REQUIRED",
+            "operator approval was cancelled",
+          );
         default:
           throw new BrowserRuntimeError(
             "AUTHORIZATION_REQUIRED",
@@ -247,7 +344,14 @@ export function createModelActBroker(
   async function act(
     input: ModelActInput,
     observation: BrowserObservation,
+    context?: ModelToolCallContext,
   ): Promise<ModelActExecution> {
+    const signal = context?.signal;
+    // 客户端已取消时不发起任何 RPC，也不消耗预算。
+    if (signal?.aborted) {
+      throw clientCancelled();
+    }
+
     // 0. adapter 传入的 observation 必须与入参绑定一致（纵深防御）。
     if (
       observation.tab.tabId !== input.tabId ||
@@ -327,7 +431,12 @@ export function createModelActBroker(
           runtime.issueStrictClick(grant)
         );
       } else {
-        await awaitOperatorApproval(grant);
+        await awaitOperatorApproval(grant, context);
+      }
+
+      // act 之前最后一次检查；此后 signal 不再生效。
+      if (signal?.aborted) {
+        throw clientCancelled();
       }
 
       // 5. 执行。verifyTimeoutMs 恒为 0：扩展只做一次验证、不轮询，
@@ -357,12 +466,17 @@ export function createModelActBroker(
       };
     } catch (error) {
       // 6. 结果未知后该 tab 永久降级为 operator approval。
+      // 先于撤销 RPC 落定，避免并发 act 在等待撤销期间看不到降级。
       if (
         !(error instanceof BrowserRuntimeError) ||
         error.code === "ACTION_OUTCOME_UNKNOWN"
       ) {
         degradedTabs.add(input.tabId);
       }
+
+      // act 未成功返回：撤销本次授权，避免遗留 pending approval 或未消费 grant。
+      // 撤销成功不代表点击被阻止，错误码与降级判断保持不变。
+      await bestEffortCancel(grant.authorizationId);
       throw error;
     }
   }

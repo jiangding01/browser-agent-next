@@ -52,6 +52,11 @@ export interface TrustedExecuteAndVerifyResult {
   postActionObservationError?: string;
 }
 
+export interface TrustedOperatorApprovalRequestInput
+  extends TrustedAuthorizationInput {
+  approvalTtlMs?: number;
+}
+
 export interface TrustedHostExecutionServiceOptions {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -60,6 +65,7 @@ export interface TrustedHostExecutionServiceOptions {
   operatorApprovals?: OperatorApprovalStore;
   enterprisePolicyAuthorization?:
     EnterprisePolicyAuthorizationService;
+  maxCancelledAuthorizationIds?: number;
 }
 
 function boundedError(error: unknown): string {
@@ -100,6 +106,9 @@ export class TrustedHostExecutionService {
     OperatorApprovalStore | undefined;
   private readonly enterprisePolicyAuthorization:
     EnterprisePolicyAuthorizationService | undefined;
+  private readonly maxCancelledAuthorizationIds: number;
+  private readonly cancelledAuthorizationIds =
+    new Set<string>();
 
   constructor(
     private readonly states: TabStateStore,
@@ -128,6 +137,19 @@ export class TrustedHostExecutionService {
       options.operatorApprovals;
     this.enterprisePolicyAuthorization =
       options.enterprisePolicyAuthorization;
+    this.maxCancelledAuthorizationIds =
+      options.maxCancelledAuthorizationIds ?? 256;
+
+    if (
+      !Number.isInteger(
+        this.maxCancelledAuthorizationIds,
+      ) ||
+      this.maxCancelledAuthorizationIds < 1
+    ) {
+      throw new Error(
+        "maxCancelledAuthorizationIds must be a positive integer",
+      );
+    }
   }
 
   replaceAutoActOrigins(
@@ -139,12 +161,16 @@ export class TrustedHostExecutionService {
   issueStrictClickAuthorization(
     input: TrustedAuthorizationInput,
   ) {
+    this.assertNotCancelled(
+      input.authorizationId,
+    );
+
     return this.authorizationIssuance
       .issueControlPlane(input);
   }
 
   requestOperatorApproval(
-    input: TrustedAuthorizationInput,
+    input: TrustedOperatorApprovalRequestInput,
   ) {
     if (!this.operatorApprovals) {
       throw new BrowserRuntimeError(
@@ -153,8 +179,61 @@ export class TrustedHostExecutionService {
       );
     }
 
+    this.assertNotCancelled(
+      input.authorizationId,
+    );
+
     return this.operatorApprovals
       .request(input);
+  }
+
+  /**
+   * 撤销 authorizationId 对应的 pending approval 与未消费 grant（任意来源）。
+   *
+   * 先记 tombstone，迟到的同 id issue / request 会被拒绝；撤销只减少能力，
+   * 已消费的 grant 不受影响，因此成功返回不代表点击被阻止。
+   */
+  cancelStrictClickAuthorization(
+    authorizationId: string,
+  ): { authorizationId: string } {
+    this.cancelledAuthorizationIds.delete(
+      authorizationId,
+    );
+    this.cancelledAuthorizationIds.add(
+      authorizationId,
+    );
+
+    while (
+      this.cancelledAuthorizationIds.size >
+      this.maxCancelledAuthorizationIds
+    ) {
+      const oldest =
+        this.cancelledAuthorizationIds
+          .values()
+          .next()
+          .value as string | undefined;
+
+      if (oldest === undefined) {
+        break;
+      }
+
+      this.cancelledAuthorizationIds.delete(
+        oldest,
+      );
+    }
+
+    const grantRevoked =
+      this.authorizationIssuance.revoke(
+        authorizationId,
+      );
+
+    this.operatorApprovals
+      ?.cancelByAuthorizationId(
+        authorizationId,
+        grantRevoked,
+      );
+
+    return { authorizationId };
   }
 
   operatorApprovalStatus(
@@ -171,6 +250,21 @@ export class TrustedHostExecutionService {
       .status(approvalRequestId);
   }
 
+  private assertNotCancelled(
+    authorizationId: string,
+  ): void {
+    if (
+      this.cancelledAuthorizationIds.has(
+        authorizationId,
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "authorization id was cancelled",
+      );
+    }
+  }
+
   async issueEnterprisePolicyAuthorization(
     envelope: EnterpriseAuthorizationEnvelope,
   ) {
@@ -180,6 +274,10 @@ export class TrustedHostExecutionService {
         "enterprise policy authorization ingress is unavailable",
       );
     }
+
+    this.assertNotCancelled(
+      envelope.assertion.authorizationId,
+    );
 
     return this.enterprisePolicyAuthorization
       .issue(envelope);

@@ -18,12 +18,19 @@ import {
 import {
   createModelFacingMcpToolCatalog,
 } from "./modelToolCatalog.js";
+import type {
+  ModelToolCallContext,
+} from "./modelActBroker.js";
 
 export const DEFAULT_MCP_RESULT_MAX_BYTES = 256 * 1024;
 
 export interface ModelFacingToolInvoker {
   exposedTools(): ModelFacingToolName[];
-  invoke(tool: string, input: unknown): Promise<unknown>;
+  invoke(
+    tool: string,
+    input: unknown,
+    context?: ModelToolCallContext,
+  ): Promise<unknown>;
 }
 
 export interface ModelFacingMcpServerOptions {
@@ -149,6 +156,7 @@ export class ModelFacingMcpBridge {
   async callTool(
     name: string,
     input: unknown,
+    context?: ModelToolCallContext,
   ): Promise<CallToolResult> {
     if (!this.allowedTools.has(name)) {
       return toolError(
@@ -162,6 +170,7 @@ export class ModelFacingMcpBridge {
       const result = await this.invoker.invoke(
         name,
         input,
+        context,
       );
       return jsonTextResult(
         result,
@@ -195,12 +204,35 @@ export function createModelFacingMcpServer(
     tools: [...bridge.listTools()],
   }));
 
-  server.setRequestHandler("tools/call", async (request) =>
-    bridge.callTool(
+  server.setRequestHandler("tools/call", async (request, ctx) => {
+    const progressToken = request.params._meta?.progressToken;
+    const context: ModelToolCallContext = {
+      signal: ctx.mcpReq.signal,
+      // progress 只含递增计数与固定文本；客户端未请求时不发送。
+      ...(progressToken !== undefined
+        ? {
+            onProgress: (progress) => {
+              void ctx.mcpReq
+                .notify({
+                  method: "notifications/progress",
+                  params: {
+                    progressToken,
+                    progress: progress.progress,
+                    message: progress.message,
+                  },
+                })
+                .catch(() => undefined);
+            },
+          }
+        : {}),
+    };
+
+    return bridge.callTool(
       request.params.name,
       request.params.arguments ?? {},
-    )
-  );
+      context,
+    );
+  });
 
   return server;
 }

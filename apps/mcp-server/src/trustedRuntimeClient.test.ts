@@ -987,6 +987,100 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
     },
   );
 
+  it("requestOperatorApproval 传入 approvalTtlMs 时请求体携带该字段，省略时不带该 key", async () => {
+    const calls: Array<
+      Record<string, unknown>
+    > = [];
+    const client = respondWith(
+      {
+        approvalRequestId: "operator-1",
+        expiresAt: 2_000,
+      },
+      calls,
+    );
+
+    await client.requestOperatorApproval(
+      GRANT_INPUT,
+      45_000,
+    );
+    await client.requestOperatorApproval(
+      GRANT_INPUT,
+    );
+
+    expect(calls).toEqual([
+      {
+        type: "authorization.request-operator-approval",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        ttlMs: 30_000,
+        approvalTtlMs: 45_000,
+      },
+      {
+        type: "authorization.request-operator-approval",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        ttlMs: 30_000,
+      },
+    ]);
+    expect("approvalTtlMs" in calls[1]!).toBe(false);
+  });
+
+  it("cancelStrictClick 只发送 type 与 authorizationId，回显一致时 resolve", async () => {
+    const calls: Array<
+      Record<string, unknown>
+    > = [];
+    const client: TrustedActBrokerRuntimeClient =
+      respondWith(
+        {
+          authorizationId: "auth-1",
+          cancelled: true,
+          origin: "https://allowed.test",
+        },
+        calls,
+      );
+
+    await expect(
+      client.cancelStrictClick("auth-1"),
+    ).resolves.toBeUndefined();
+    expect(calls).toEqual([
+      {
+        type: "authorization.cancel-strict-click",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "回显的 authorizationId 不一致",
+      { authorizationId: "auth-other" },
+    ],
+    ["缺少 authorizationId", { cancelled: true }],
+    ["result 为字符串", "auth-1"],
+    ["result 为 null", null],
+    ["result 为数组", ["auth-1"]],
+  ])(
+    "cancelStrictClick 响应异形（%s）映射为 malformed AUTHORIZATION_REQUIRED",
+    async (_name, result) => {
+      await expect(
+        respondWith(result)
+          .cancelStrictClick("auth-1"),
+      ).rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+        message: expect.stringContaining(
+          "malformed authorization.cancel-strict-click",
+        ),
+      });
+    },
+  );
+
   it("requestOperatorApproval 只返回 approvalRequestId / expiresAt", async () => {
     const result = await respondWith({
       approvalRequestId: "operator-1",
@@ -1066,6 +1160,7 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
     "rejected",
     "expired",
     "invalidated",
+    "cancelled",
     "unknown",
   ])(
     "operatorApprovalStatus 支持 state=%s",

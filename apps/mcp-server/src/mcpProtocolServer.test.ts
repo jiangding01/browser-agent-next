@@ -94,7 +94,27 @@ describe("ModelFacingMcpBridge", () => {
     expect(target.invoke).toHaveBeenCalledWith(
       "browser.observe",
       { tabId: 7 },
+      undefined,
     );
+  });
+
+  it("callTool 把 tool call context 原样透传给 invoker", async () => {
+    const target = invoker(["browser.observe"]);
+    const bridge = new ModelFacingMcpBridge(target);
+    const controller = new AbortController();
+    const context = {
+      signal: controller.signal,
+      onProgress: vi.fn(),
+    };
+
+    await bridge.callTool(
+      "browser.observe",
+      { tabId: 7 },
+      context,
+    );
+
+    expect(target.invoke).toHaveBeenCalledTimes(1);
+    expect(target.invoke.mock.calls[0]![2]).toBe(context);
   });
 
   it("BrowserRuntimeError 只暴露 bounded code/message，不暴露 details", async () => {
@@ -251,6 +271,7 @@ describe("ModelFacingMcpBridge browser.act", () => {
       operatorApprovalStatus: vi.fn(async () => ({
         state: "approved" as const,
       })),
+      cancelStrictClick: vi.fn(async () => {}),
     };
     const adapter = new ModelFacingBrowserAdapter(
       {
@@ -320,6 +341,8 @@ describe("ModelFacingMcpBridge browser.act", () => {
     );
     expect(body).not.toContain("raw page text");
     expect(body).not.toContain("fresh-unexposed-rev");
+    // 成功执行不撤销授权。
+    expect(trusted.cancelStrictClick).not.toHaveBeenCalled();
 
     // 预算为 1：第二次（不同 key 也一样）被拒，并以 bounded tool error 返回。
     const again = await bridge.callTool("browser.act", {

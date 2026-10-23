@@ -273,9 +273,26 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - CI run 38781151262（首版修复）与 38783159288（最终代码，fence 收窄为仅 OOPIF 目标并对 hidden 文档立即失败）：各为 6 shard × `-g OOPIF --repeat-each 5`，均 150/150 通过，其中 affine 30/30、nested 30/30；
 - 本地：typecheck、全部单测（含新增 fence / executor 顺序测试）、workspace build、10/10 Chromium E2E。
 
+## Phase 6.6b-A：取消、撤销与 progress notification
+
+- 新增 trusted RPC `authorization.cancel-strict-click { authorizationId }`：扩展先记有界 tombstone（默认 256 条），拒绝迟到的同 id issue / request / 企业签发；再撤销同 id 的未消费 grant（任意来源，`InMemoryAuthorizationStore.revoke` 改为返回是否删除了仍有效的 grant）；最后把同 id 的 pending approval 记为新状态 `cancelled`，已批准的 approval 仅在 grant 确实被撤销时翻为 `cancelled`；
+- `authorization.request-operator-approval` 新增可选 `approvalTtlMs`（1..120000），扩展审批有效期取它与扩展上限的较小值，且不进入 grant 签发输入；
+- broker 在 `authorizationId` 生成后，只要 act 未成功返回就尽力撤销一次；降级判断先于撤销 RPC 落定；撤销失败不覆盖原错误；
+- MCP `tools/call` 把 `ctx.mcpReq.signal` 与 progress 回调经 adapter 传给 broker：入口已取消时零 RPC、不扣预算；等待审批与批准后、act 前的取消都会撤销；在途 act 不受取消影响；客户端提供 `progressToken` 时每次轮询到 `pending` 后发送只含递增计数与固定文本的 `notifications/progress`；
+- 关闭 6.6a 残余风险“approval 超时后遗留 pending request”，SECURITY 中改写为收窄后的条目（cancel 不可达或失败、tombstone 被驱逐后迟到的 request）；
+- 新增不变量 126、127。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（528 个）✅
+- Workspace build ✅
+- Real Chromium E2E：本 PR 未改 E2E，由 CI browser-e2e 覆盖
+- 方案经 think + check 两轮审查；代码经 check 深度审查与对抗式审查，发现的 LOW 已修复并复审：无 HIGH / MEDIUM ✅
+
 ## 下一步
 
-1. Phase 6.6b：扩展 badge、progress notification、popup 显示 TTL 倒计时并标注不可信页面文本、approval 超时后取消 pending approval request（关闭 6.6a 已接受的残余风险之一）；
+1. Phase 6.6b-B：扩展 badge 显示待审批数、popup 显示 TTL 倒计时并标注不可信页面文本，以及对应的 Real Chromium E2E；
 2. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查；
 3. Phase 6.6 完成后再进入 Intelligence Layer。
 

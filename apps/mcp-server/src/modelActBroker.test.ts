@@ -6,9 +6,11 @@ import {
 } from "@browser-agent-next/core";
 import {
   MODEL_ACT_APPROVAL_POLL_INTERVAL_MS,
+  MODEL_ACT_APPROVAL_PROGRESS_MESSAGE,
   MODEL_ACT_GRANT_TTL_MS,
   createModelActBroker,
   type ModelActBrokerOptions,
+  type ModelActProgress,
 } from "./modelActBroker.js";
 import type { ModelActInput } from "./modelToolInput.js";
 import type {
@@ -134,6 +136,7 @@ interface FakeRuntime extends TrustedActBrokerRuntimeClient {
   issueStrictClick: ReturnType<typeof vi.fn>;
   requestOperatorApproval: ReturnType<typeof vi.fn>;
   operatorApprovalStatus: ReturnType<typeof vi.fn>;
+  cancelStrictClick: ReturnType<typeof vi.fn>;
 }
 
 function fakeRuntime(
@@ -160,17 +163,27 @@ function fakeRuntime(
     operatorApprovalStatus: vi.fn(async () => ({
       state: queue.length > 1 ? queue.shift()! : queue[0]!,
     })),
+    cancelStrictClick: vi.fn(async () => {}),
   };
 }
 
 function broker(
   runtime: TrustedActBrokerRuntimeClient,
   options: Partial<ModelActBrokerOptions> = {},
+  hooks: {
+    /** 第 call 次（从 1 开始）sleep 推进时间之后调用，可在此 abort。 */
+    onSleep?: (call: number) => void;
+  } = {},
 ) {
   let now = 0;
   let id = 0;
-  const sleep = vi.fn(async (ms: number) => {
+  let sleepCalls = 0;
+  // 与默认 sleep 一致：signal 已 abort 时立即返回，不推进时间。
+  const sleep = vi.fn(async (ms: number, signal?: AbortSignal) => {
+    if (signal?.aborted) return;
     now += ms;
+    sleepCalls += 1;
+    hooks.onSleep?.(sleepCalls);
   });
   const instance = createModelActBroker(runtime, {
     actOrigins: ["https://act.test", "https://other-act.test"],
@@ -257,13 +270,14 @@ describe("createModelActBroker", () => {
 
     await instance.act(actInput(), observation());
 
+    // 第二参数为 approvalTimeoutMs（broker 默认 60s）。
     expect(runtime.requestOperatorApproval).toHaveBeenCalledWith({
       authorizationId: "uuid-1",
       tabId: 7,
       observedRevision: "rev-1",
       ref: "@a",
       ttlMs: MODEL_ACT_GRANT_TTL_MS,
-    });
+    }, 60_000);
     expect(runtime.operatorApprovalStatus).toHaveBeenCalledTimes(3);
     expect(runtime.operatorApprovalStatus).toHaveBeenCalledWith(
       "approval-1",
@@ -418,9 +432,10 @@ describe("createModelActBroker", () => {
     ["rejected", "rejected"],
     ["expired", "expired"],
     ["invalidated", "invalidated"],
+    ["cancelled", "cancelled"],
     ["unknown", "unknown"],
   ] as const)(
-    "operator 状态 %s → AUTHORIZATION_REQUIRED 且不执行",
+    "operator 状态 %s → AUTHORIZATION_REQUIRED 且不执行，并撤销一次授权",
     async (state, fragment) => {
       const runtime = fakeRuntime(["pending", state]);
       const { instance } = broker(runtime);
@@ -431,6 +446,8 @@ describe("createModelActBroker", () => {
           message: expect.stringContaining(fragment),
         });
       expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
     },
   );
 
@@ -576,5 +593,595 @@ describe("createModelActBroker", () => {
         createModelActBroker(runtime, { ...base, ...patch })
       ).toThrow();
     }
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const CLIENT_CANCELLED = {
+  code: "AUTHORIZATION_REQUIRED",
+  message: "browser.act was cancelled by the client",
+};
+
+describe("createModelActBroker 取消、撤销与 progress", () => {
+  it("a. 入口 signal 已 abort：零 RPC、不扣预算、不落账，之后同一 ref 仍可 act", async () => {
+    const runtime = fakeRuntime();
+    const { instance, sleep } = broker(runtime, { budget: 1 });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(instance.act(actInput(), observation(), {
+      signal: controller.signal,
+    })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).not.toHaveBeenCalled();
+    expect(runtime.operatorApprovalStatus).not.toHaveBeenCalled();
+    expect(runtime.act).not.toHaveBeenCalled();
+    expect(runtime.cancelStrictClick).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+
+    // budget=1 未被消耗，同一 (tab, revision, ref) 也未落账。
+    await expect(instance.act(actInput(), observation()))
+      .resolves.toEqual({ status: "executed", effectClass: "unknown" });
+    // 被取消的那次没有消耗 uuid。
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ authorizationId: "uuid-1" }),
+      60_000,
+    );
+  });
+
+  it("b. operator 路径 requestOperatorApproval 第二参数为 approvalTimeoutMs", async () => {
+    const runtime = fakeRuntime();
+    const { instance } = broker(runtime, { approvalTimeoutMs: 2_500 });
+
+    await instance.act(actInput(), observation());
+
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+    expect(runtime.requestOperatorApproval.mock.calls[0]![1]).toBe(2_500);
+  });
+
+  it("sleep 收到 tool call 的 signal", async () => {
+    const runtime = fakeRuntime(["pending", "approved"]);
+    const { instance, sleep } = broker(runtime);
+    const controller = new AbortController();
+
+    await instance.act(actInput(), observation(), {
+      signal: controller.signal,
+    });
+
+    expect(sleep).toHaveBeenCalledTimes(2);
+    for (const call of sleep.mock.calls) {
+      expect(call[1]).toBe(controller.signal);
+    }
+  });
+
+  describe("c. grant id 生成后未成功返回时恰好撤销一次", () => {
+    it("成功（operator 与 agent-owned-auto）不撤销", async () => {
+      const runtime = fakeRuntime();
+      const { instance } = broker(runtime);
+      await instance.act(actInput("@a"), observation());
+
+      const autoRuntime = fakeRuntime();
+      const auto = broker(autoRuntime, {
+        approvalMode: "agent-owned-auto",
+      });
+      await auto.instance.act(actInput("@a"), observation());
+
+      expect(runtime.cancelStrictClick).not.toHaveBeenCalled();
+      expect(autoRuntime.cancelStrictClick).not.toHaveBeenCalled();
+    });
+
+    it("grant id 生成前的拒绝（origin / ref / 预算 / 重复 key）不撤销", async () => {
+      const runtime = fakeRuntime();
+      const { instance } = broker(runtime, { budget: 2 });
+
+      await instance.act(actInput("@a"), observation());
+      await expect(instance.act(actInput("@a"), observation()))
+        .rejects.toMatchObject({ code: "POLICY_BLOCKED" });
+      await expect(instance.act(actInput("@missing"), observation()))
+        .rejects.toMatchObject({ code: "REF_NOT_IN_OBSERVATION" });
+      await expect(instance.act(actInput("@readonly"), observation()))
+        .rejects.toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
+      // 重复 key 那次已扣预算，此处预算耗尽。
+      await expect(instance.act(actInput("@c"), observation()))
+        .rejects.toMatchObject({
+          code: "POLICY_BLOCKED",
+          message: expect.stringContaining("budget"),
+        });
+
+      expect(runtime.cancelStrictClick).not.toHaveBeenCalled();
+    });
+
+    it("approval 超时：撤销一次，不降级", async () => {
+      const runtime = fakeRuntime(["pending"]);
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+        approvalTimeoutMs: 2_500,
+      });
+
+      // 非 owned tab 强制走 operator，用于观察超时后是否降级。
+      await expect(instance.act(
+        actInput("@a"),
+        observation({ ownedBySession: false }),
+      )).rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+        message: "operator approval timed out",
+      });
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+
+      // 同 tab 改为 owned 后仍走 control-plane：超时不降级。
+      await instance.act(actInput("@b"), observation());
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it("轮询 sleep 期间 abort：抛 client cancelled，撤销一次，不再查询状态，不降级", async () => {
+      const runtime = fakeRuntime(["pending"]);
+      const controller = new AbortController();
+      const onProgress = vi.fn();
+      const { instance } = broker(
+        runtime,
+        { approvalMode: "agent-owned-auto" },
+        {
+          onSleep: (call) => {
+            if (call === 2) controller.abort();
+          },
+        },
+      );
+
+      await expect(instance.act(
+        actInput("@a"),
+        observation({ ownedBySession: false }),
+        { signal: controller.signal, onProgress },
+      )).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      expect(runtime.operatorApprovalStatus).toHaveBeenCalledTimes(1);
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+
+      await instance.act(actInput("@b"), observation());
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("status RPC 期间 abort：status 返回后立即抛 client cancelled、不上报 progress 并撤销一次", async () => {
+      const runtime = fakeRuntime(["pending"]);
+      const controller = new AbortController();
+      runtime.operatorApprovalStatus.mockImplementationOnce(async () => {
+        controller.abort();
+        return { state: "pending" };
+      });
+      const { instance, sleep } = broker(runtime);
+      const onProgress = vi.fn();
+
+      await expect(instance.act(actInput(), observation(), {
+        signal: controller.signal,
+        onProgress,
+      })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(runtime.operatorApprovalStatus).toHaveBeenCalledTimes(1);
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("status RPC 期间 abort 且结果为 approved：不执行 act 并撤销一次", async () => {
+      const runtime = fakeRuntime(["approved"]);
+      const controller = new AbortController();
+      runtime.operatorApprovalStatus.mockImplementationOnce(async () => {
+        controller.abort();
+        return { state: "approved" };
+      });
+      const { instance } = broker(runtime);
+
+      await expect(instance.act(actInput(), observation(), {
+        signal: controller.signal,
+      })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+    });
+
+    it("默认 sleep 在 abort 时立即返回（真实计时器）", async () => {
+      const runtime = fakeRuntime(["pending"]);
+      const instance = createModelActBroker(runtime, {
+        actOrigins: ["https://act.test"],
+        budget: 1,
+        approvalMode: "operator",
+        approvalTimeoutMs: 120_000,
+        uuid: () => "real-sleep-id",
+      });
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 20);
+      const started = Date.now();
+
+      await expect(instance.act(actInput(), observation(), {
+        signal: controller.signal,
+      })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      // 远小于 1s 轮询间隔：sleep 被 signal 提前唤醒。
+      expect(Date.now() - started).toBeLessThan(900);
+      expect(runtime.operatorApprovalStatus).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("real-sleep-id");
+    });
+
+    it("status 抛错：撤销一次，原错误码不变", async () => {
+      const runtime = fakeRuntime();
+      runtime.operatorApprovalStatus.mockRejectedValueOnce(
+        new BrowserRuntimeError(
+          "AUTHORIZATION_REQUIRED",
+          "status failed for https://hidden.test",
+        ),
+      );
+      const { instance } = broker(runtime);
+
+      const error = await instance.act(actInput(), observation())
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
+      expect((error as Error).message).not.toContain("hidden.test");
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    });
+
+    it("requestOperatorApproval 抛错：撤销一次", async () => {
+      const runtime = fakeRuntime();
+      runtime.requestOperatorApproval.mockRejectedValueOnce(
+        new BrowserRuntimeError("AUTHORIZATION_REQUIRED", "denied"),
+      );
+      const { instance } = broker(runtime);
+
+      await expect(instance.act(actInput(), observation()))
+        .rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
+      expect(runtime.operatorApprovalStatus).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    });
+
+    it("issueStrictClick 抛错：撤销一次", async () => {
+      const runtime = fakeRuntime();
+      runtime.issueStrictClick.mockRejectedValueOnce(
+        new BrowserRuntimeError("AUTHORIZATION_REQUIRED", "denied"),
+      );
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      await expect(instance.act(actInput(), observation()))
+        .rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    });
+
+    it.each([
+      "TARGET_GONE",
+      "ACTION_OUTCOME_UNKNOWN",
+    ] as const)(
+      "执行失败（%s）：撤销一次，错误码不变",
+      async (code) => {
+        const runtime = fakeRuntime();
+        runtime.act.mockRejectedValueOnce(
+          new BrowserRuntimeError(code, "raw https://hidden.test"),
+        );
+        const { instance } = broker(runtime);
+
+        const error = await instance.act(actInput(), observation())
+          .catch((caught: unknown) => caught);
+
+        expect(error).toMatchObject({ code });
+        expect((error as Error).message).not.toContain("hidden.test");
+        expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+        expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+      },
+    );
+
+    it("执行抛非 BrowserRuntimeError：撤销一次且仍降级", async () => {
+      const runtime = fakeRuntime();
+      const raw = new Error("socket hang up");
+      runtime.act.mockRejectedValueOnce(raw);
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      // 非 BrowserRuntimeError 原样抛出（由 MCP bridge 归一为 INTERNAL_ERROR）。
+      await expect(instance.act(actInput("@a"), observation()))
+        .rejects.toBe(raw);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+
+      await instance.act(actInput("@b"), observation());
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["status 抛错", "status"],
+      ["执行失败 TARGET_GONE", "act"],
+      ["执行失败 ACTION_OUTCOME_UNKNOWN", "act-unknown"],
+      ["超时", "timeout"],
+      ["client cancelled", "abort"],
+    ] as const)(
+      "cancelStrictClick 自身抛错不覆盖原错误（%s）",
+      async (_name, scenario) => {
+        async function run(cancelFails: boolean) {
+          const runtime = fakeRuntime(
+            scenario === "timeout" ? ["pending"] : ["approved"],
+          );
+          if (cancelFails) {
+            runtime.cancelStrictClick.mockRejectedValue(
+              new BrowserRuntimeError(
+                "REF_STALE",
+                "cancel failed https://cancel-secret.test",
+              ),
+            );
+          }
+          if (scenario === "status") {
+            runtime.operatorApprovalStatus.mockRejectedValueOnce(
+              new BrowserRuntimeError("STATE_INCOMPLETE", "hidden"),
+            );
+          }
+          if (scenario === "act") {
+            runtime.act.mockRejectedValueOnce(
+              new BrowserRuntimeError("TARGET_GONE", "hidden"),
+            );
+          }
+          if (scenario === "act-unknown") {
+            runtime.act.mockRejectedValueOnce(
+              new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "hidden"),
+            );
+          }
+          const controller = new AbortController();
+          const { instance } = broker(
+            runtime,
+            { approvalTimeoutMs: 1_500 },
+            {
+              onSleep: () => {
+                if (scenario === "abort") controller.abort();
+              },
+            },
+          );
+          const error = await instance
+            .act(actInput(), observation(), {
+              signal: controller.signal,
+            })
+            .catch((caught: unknown) => caught);
+          expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+          return error as BrowserRuntimeError;
+        }
+
+        const baseline = await run(false);
+        const withFailingCancel = await run(true);
+
+        expect(withFailingCancel).toBeInstanceOf(BrowserRuntimeError);
+        expect(withFailingCancel.code).toBe(baseline.code);
+        expect(withFailingCancel.message).toBe(baseline.message);
+        expect(withFailingCancel.message).not.toContain("cancel-secret");
+        expect(withFailingCancel.code).not.toBe("REF_STALE");
+      },
+    );
+
+    it("ACTION_OUTCOME_UNKNOWN 失败且 cancel 抛错时仍降级", async () => {
+      const runtime = fakeRuntime();
+      runtime.act.mockRejectedValueOnce(
+        new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "lost"),
+      );
+      runtime.cancelStrictClick.mockRejectedValue(new Error("cancel down"));
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      await expect(instance.act(actInput("@a"), observation()))
+        .rejects.toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN" });
+      await instance.act(actInput("@b"), observation());
+
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+    });
+
+    it("降级先于撤销落定：cancelStrictClick 挂起期间同 tab 第二次 act 已走 operator approval", async () => {
+      const runtime = fakeRuntime();
+      runtime.act.mockRejectedValueOnce(
+        new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "lost"),
+      );
+      const pendingCancel = deferred<void>();
+      runtime.cancelStrictClick.mockImplementationOnce(
+        () => pendingCancel.promise,
+      );
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      const first = instance.act(actInput("@a"), observation());
+      const firstSettled = first.catch((caught: unknown) => caught);
+      await vi.waitFor(() => {
+        expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      });
+
+      // 撤销 RPC 仍未完成，第一次 act 尚未返回。
+      await expect(instance.act(actInput("@b"), observation()))
+        .resolves.toEqual({ status: "executed", effectClass: "unknown" });
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: "@b", tabId: 7 }),
+        60_000,
+      );
+
+      pendingCancel.resolve();
+      await expect(firstSettled).resolves.toMatchObject({
+        code: "ACTION_OUTCOME_UNKNOWN",
+      });
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    });
+  });
+
+  describe("d. 授权完成后、act 之前已 abort", () => {
+    it("operator approved 后已 abort：不调用 runtime.act，撤销一次，抛 client cancelled", async () => {
+      const runtime = fakeRuntime();
+      const controller = new AbortController();
+      runtime.operatorApprovalStatus.mockImplementationOnce(async () => {
+        controller.abort();
+        return { state: "approved" };
+      });
+      const { instance } = broker(runtime);
+
+      await expect(instance.act(actInput(), observation(), {
+        signal: controller.signal,
+      })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    });
+
+    it("agent-owned-auto issue 后已 abort：不调用 runtime.act，撤销一次，不降级", async () => {
+      const runtime = fakeRuntime();
+      const controller = new AbortController();
+      runtime.issueStrictClick.mockImplementationOnce(
+        async (input: { authorizationId: string }) => {
+          controller.abort();
+          return { id: input.authorizationId, expiresAt: 999_999 };
+        },
+      );
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      await expect(instance.act(actInput("@a"), observation(), {
+        signal: controller.signal,
+      })).rejects.toMatchObject(CLIENT_CANCELLED);
+
+      expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+
+      // 客户端取消不降级。
+      await instance.act(actInput("@b"), observation());
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(2);
+      expect(runtime.requestOperatorApproval).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    "operator",
+    "agent-owned-auto",
+  ] as const)(
+    "e. 在途 act 期间 abort 不影响结果（%s）：返回 executed 且不撤销",
+    async (approvalMode) => {
+      const runtime = fakeRuntime();
+      const pendingAct = deferred<TrustedActResult>();
+      runtime.act.mockImplementationOnce(() => pendingAct.promise);
+      const controller = new AbortController();
+      const { instance } = broker(runtime, { approvalMode });
+
+      const result = instance.act(actInput(), observation(), {
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => {
+        expect(runtime.act).toHaveBeenCalledTimes(1);
+      });
+      controller.abort();
+      pendingAct.resolve({
+        status: "executed",
+        verification: RAW_VERIFICATION,
+        verificationAttempts: 1,
+      });
+
+      await expect(result).resolves.toEqual({
+        status: "executed",
+        effectClass: "unknown",
+      });
+      expect(runtime.cancelStrictClick).not.toHaveBeenCalled();
+      // act RPC 本身不携带 signal。
+      expect(runtime.act.mock.calls[0]).toHaveLength(1);
+    },
+  );
+
+  describe("f. operator 等待期间的 progress", () => {
+    it("每次 pending 后报告递增 progress，只含 progress 与固定 message", async () => {
+      const runtime = fakeRuntime([
+        "pending",
+        "pending",
+        "pending",
+        "approved",
+      ]);
+      const progress: ModelActProgress[] = [];
+      const { instance } = broker(runtime);
+
+      await instance.act(actInput(), observation(), {
+        onProgress: (item) => progress.push(item),
+      });
+
+      expect(progress).toEqual([
+        { progress: 1, message: MODEL_ACT_APPROVAL_PROGRESS_MESSAGE },
+        { progress: 2, message: MODEL_ACT_APPROVAL_PROGRESS_MESSAGE },
+        { progress: 3, message: MODEL_ACT_APPROVAL_PROGRESS_MESSAGE },
+      ]);
+      for (const item of progress) {
+        expect(Object.keys(item).sort()).toEqual(["message", "progress"]);
+      }
+      const text = JSON.stringify(progress);
+      for (const secret of [
+        "approval-1",
+        "uuid-",
+        "@a",
+        "act.test",
+        "rev-1",
+        "Fixture",
+        "total",
+      ]) {
+        expect(text).not.toContain(secret);
+      }
+    });
+
+    it("首轮即 approved 时不报告 progress", async () => {
+      const runtime = fakeRuntime(["approved"]);
+      const onProgress = vi.fn();
+      const { instance } = broker(runtime);
+
+      await instance.act(actInput(), observation(), { onProgress });
+
+      expect(onProgress).not.toHaveBeenCalled();
+    });
+
+    it("onProgress 抛错被吞，审批与执行照常完成", async () => {
+      const runtime = fakeRuntime(["pending", "pending", "approved"]);
+      const onProgress = vi.fn(() => {
+        throw new Error("client gone");
+      });
+      const { instance } = broker(runtime);
+
+      await expect(instance.act(actInput(), observation(), {
+        onProgress,
+      })).resolves.toEqual({ status: "executed", effectClass: "unknown" });
+
+      expect(onProgress).toHaveBeenCalledTimes(2);
+      expect(runtime.act).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).not.toHaveBeenCalled();
+    });
+
+    it("agent-owned-auto 路径不调用 onProgress", async () => {
+      const runtime = fakeRuntime();
+      const onProgress = vi.fn();
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      await instance.act(actInput(), observation(), { onProgress });
+
+      expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+      expect(onProgress).not.toHaveBeenCalled();
+    });
   });
 });

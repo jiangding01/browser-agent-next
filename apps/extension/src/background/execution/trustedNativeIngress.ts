@@ -64,10 +64,17 @@ async function handleRequest(
         observedRevision: request.observedRevision,
         ref: request.ref,
         ttlMs: request.ttlMs,
+        ...(request.approvalTtlMs !== undefined
+          ? { approvalTtlMs: request.approvalTtlMs }
+          : {}),
       });
     case "authorization.operator-approval-status":
       return service.operatorApprovalStatus(
         request.approvalRequestId,
+      );
+    case "authorization.cancel-strict-click":
+      return service.cancelStrictClickAuthorization(
+        request.authorizationId,
       );
     case "authorization.issue-enterprise-policy":
       return service.issueEnterprisePolicyAuthorization({

@@ -89,7 +89,17 @@ MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。M
 ### 已接受的残余风险
 
 - act 执行失败的 runtime code（`TARGET_OCCLUDED`、`DOCUMENT_CHANGED` 等）会原样保留，每次最多泄露约 1 bit 实时页面状态。该信道受三项约束：每连接预算（默认 16，上限 256）、同一 `(tab, revision, ref)` 至多执行一次、每次都需要授权（默认 operator approval）；
-- approval 超时后，扩展里仍遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它。计划在 Phase 6.6b 通过 cancel 解决。
+- 撤销是尽力而为：cancel RPC 不可达或失败（例如 native 通道已断开），或 tombstone 被驱逐后同 id 的 request 才迟到，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它；pending request 的有效期也已与 broker 等待时间对齐（`approvalTtlMs`）。
+
+### 取消与撤销（Phase 6.6b-A）
+
+- broker 生成 `authorizationId` 之后，只要 act 没有成功返回（授权超时、客户端取消、轮询出错、拒绝等终态、执行失败，含 `ACTION_OUTCOME_UNKNOWN` 与 RPC 超时），都会调用一次 `authorization.cancel-strict-click`。按 `authorizationId` 而不是 approval id 取消，request 的响应丢失时也能取消。
+- 扩展先记 tombstone（有界，默认 256 条，FIFO 驱逐），拒绝之后到达的同 id issue / request / 企业签发；再撤销同 id 的未消费 grant（任意来源）；最后把同 id 的 pending approval 记为 `cancelled`，已批准的 approval 只有在 grant 确实被撤销时才翻为 `cancelled`。
+- 撤销只减少能力。grant 在 policy gate 处就被消费，消费之后的撤销是 no-op，因此 cancel 成功不代表点击被阻止，broker 不会据此改变错误码或降级判断。
+- cancel 只能经 trusted 通道调用，不进入模型工具目录。持有 trusted token 的调用方可以撤销任意已知 id 的授权；它们本就能签发授权，属于同一信任域，撤销不构成提权面。
+- tombstone、pending approval 与 grant 都只存在于扩展 service worker 内存；service worker 重启时三者一起清空，整体仍 fail closed。
+- 客户端取消信号只在 act 发出之前生效，绝不中断在途 act RPC，避免把“点击可能已发生”伪装成客户端取消。
+- 等待审批期间的 MCP progress notification 只含递增计数与固定文本，不含 approval id、ref、origin、revision 或页面文本。
 
 ### 状态按连接计
 
@@ -138,7 +148,7 @@ sender.id  == current extension id
 sender.url == chrome-extension://<id>/operator-approval.html
 ```
 
-control-plane/native-host 只能创建 pending request 和读取状态，不能调用 approve。批准按钮触发后，pending request 会被单次消费，并在真正签发前重新验证 retained observation、ref、origin 与 assurance requirement。
+control-plane/native-host 只能创建 pending request、读取状态和撤销（只减少能力），不能调用 approve。批准按钮触发后，pending request 会被单次消费，并在真正签发前重新验证 retained observation、ref、origin 与 assurance requirement。
 
 这个边界表示“来自受信扩展审批 UI 的明确批准路径”，仍不应被描述成对拥有同 UID 任意桌面自动化、调试器或扩展代码修改能力的攻击者提供 OS 级硬隔离。更强部署仍应使用独立 OS 用户、宿主审批进程或企业策略服务。
 

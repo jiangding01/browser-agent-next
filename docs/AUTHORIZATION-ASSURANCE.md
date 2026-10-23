@@ -140,10 +140,11 @@ issueOperatorApproved()
 AuthorizationGrant(source=trusted-ui, assurance=operator-approved)
 ```
 
-control-plane 只拥有两种能力：
+control-plane 只拥有三种能力：
 
 - 创建 pending approval；
-- 查询 pending / approved / rejected / expired / invalidated 状态。
+- 查询 pending / approved / rejected / expired / invalidated / cancelled 状态；
+- 按 `authorizationId` 撤销（`authorization.cancel-strict-click`）：作废 pending approval 并撤销未消费的 grant。撤销只减少能力，不能产生或恢复批准。
 
 协议中不存在 control-plane 的 `approve` 操作。
 
