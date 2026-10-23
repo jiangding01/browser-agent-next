@@ -194,4 +194,53 @@ describe("isTrustedHostRequest", () => {
       origins: Array.from({ length: 101 }, (_, index) => "https://example" + index + ".test"),
     })).toBe(false);
   });
+
+  it("request-operator-approval 的 approvalTtlMs 必须是 1..120000 的整数，缺省合法", () => {
+    const base = {
+      type: "authorization.request-operator-approval",
+      requestId: "op",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      ttlMs: 1000,
+    };
+
+    expect(isTrustedHostRequest(base)).toBe(true);
+    expect(isTrustedHostRequest({ ...base, approvalTtlMs: 1 })).toBe(true);
+    expect(isTrustedHostRequest({ ...base, approvalTtlMs: 120_000 })).toBe(true);
+
+    for (const approvalTtlMs of [0, -1, 120_001, 1.5, "1000", null, Number.NaN]) {
+      expect(isTrustedHostRequest({ ...base, approvalTtlMs })).toBe(false);
+    }
+  });
+
+  it("authorization.cancel-strict-click 只接受 type/requestId/authorizationId", () => {
+    const base = {
+      type: "authorization.cancel-strict-click",
+      requestId: "cancel",
+      authorizationId: "auth-1",
+    };
+
+    expect(isTrustedHostRequest(base)).toBe(true);
+    expect(isTrustedHostRequest({
+      ...base,
+      authorizationId: "a".repeat(256),
+    })).toBe(true);
+
+    expect(isTrustedHostRequest({ ...base, authorizationId: "" })).toBe(false);
+    expect(isTrustedHostRequest({
+      ...base,
+      authorizationId: "a".repeat(257),
+    })).toBe(false);
+    expect(isTrustedHostRequest({ ...base, authorizationId: 1 })).toBe(false);
+    expect(isTrustedHostRequest({
+      type: base.type,
+      requestId: base.requestId,
+    })).toBe(false);
+    expect(isTrustedHostRequest({ ...base, extra: "x" })).toBe(false);
+    expect(isTrustedHostRequest({ ...base, tabId: 7 })).toBe(false);
+    expect(isTrustedHostRequest({ ...base, assurance: "operator-approved" })).toBe(false);
+    expect(isTrustedHostRequest({ ...base, requestId: "" })).toBe(false);
+  });
 });

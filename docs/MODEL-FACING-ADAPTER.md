@@ -50,7 +50,7 @@ browser.act                         side-effect tier，默认不暴露，需写�
 ```text
 policy.replace-autoact-origins      禁止
 authorization.issue-*              禁止
-authorization.request-operator-approval / operator-approval-status   禁止（仅 broker 内部使用）
+authorization.request-operator-approval / operator-approval-status / cancel-strict-click   禁止（仅 broker 内部使用）
 execution.execute-strict-click      禁止
 raw CDP                             禁止
 任意 trusted-host internal RPC      禁止
@@ -256,7 +256,8 @@ TrustedRuntimeHttpClient（同一实例）
       ├─ browser.act                  ← broker 专用
       ├─ authorization.issue-strict-click           ← broker 专用
       ├─ authorization.request-operator-approval    ← broker 专用
-      └─ authorization.operator-approval-status     ← broker 专用
+      ├─ authorization.operator-approval-status     ← broker 专用
+      └─ authorization.cancel-strict-click          ← broker 专用
       ↓
 http://127.0.0.1:<port>/trusted
       ↓
@@ -267,14 +268,14 @@ Extension High-level Runtime
 
 client 没有 public generic `callTrusted(type, payload)` API，各方法手工拼装自己的 type 字面量，因此 MCP 层无法借它调用 policy mutation、execution internal RPC 或其它未来新增 trusted 方法。
 
-公共能力分两组接口：`ModelBrowserRuntimeClient` 只有 `open / observe`，adapter 依赖它；`TrustedActBrokerRuntimeClient` 额外提供 `act / issueStrictClick / requestOperatorApproval / operatorApprovalStatus`，只注入给 Act broker。这四个方法不得出现在 adapter 的 runtime client 类型里。每个方法各有独立的响应校验器，只挑出所需字段：
+公共能力分两组接口：`ModelBrowserRuntimeClient` 只有 `open / observe`，adapter 依赖它；`TrustedActBrokerRuntimeClient` 额外提供 `act / issueStrictClick / requestOperatorApproval / operatorApprovalStatus / cancelStrictClick`，只注入给 Act broker。这五个方法不得出现在 adapter 的 runtime client 类型里。每个方法各有独立的响应校验器，只挑出所需字段：
 
 - `act` 在 client 层即丢弃 `freshRevision`、`postActionObservationError`、`execution` 细节，以及 verification evidence 中的 `observed`；
-- `issueStrictClick` 与 `requestOperatorApproval` 校验返回的 id 与请求一致；`operatorApprovalStatus` 校验返回的 `approvalRequestId` 与请求一致。
+- `issueStrictClick` 与 `requestOperatorApproval` 校验返回的 id 与请求一致；`operatorApprovalStatus` 校验返回的 `approvalRequestId` 与请求一致；`cancelStrictClick` 校验返回的 `authorizationId` 与请求一致。
 
 连接只允许显式 loopback host，并禁止 HTTP redirect，避免 trusted Bearer token 离开本机 trusted endpoint。token 默认从 native-host 已创建的 `~/.browser-agent-next/trusted-rpc.token` 只读获取；MCP 侧不会 mint token。
 
-响应必须满足 requestId 精确匹配、字节预算与最小结构验证。对于 `browser.open`，传输在请求发出后失败时无法证明 tab 是否已经创建，因此必须报告 `ACTION_OUTCOME_UNKNOWN`；`browser.observe` 没有副作用，同类失败使用 `STATE_INCOMPLETE`。`browser.act` 的传输失败、响应异形与 trusted 侧 `outcomeMayHaveChanged` 同样映射为 `ACTION_OUTCOME_UNKNOWN`；授权三个方法（issue / request approval / status）的传输失败或响应异形映射为 `AUTHORIZATION_REQUIRED`。
+响应必须满足 requestId 精确匹配、字节预算与最小结构验证。对于 `browser.open`，传输在请求发出后失败时无法证明 tab 是否已经创建，因此必须报告 `ACTION_OUTCOME_UNKNOWN`；`browser.observe` 没有副作用，同类失败使用 `STATE_INCOMPLETE`。`browser.act` 的传输失败、响应异形与 trusted 侧 `outcomeMayHaveChanged` 同样映射为 `ACTION_OUTCOME_UNKNOWN`；授权方法（issue / request approval / status / cancel）的传输失败或响应异形映射为 `AUTHORIZATION_REQUIRED`；cancel 的失败只在 broker 内部被吞掉，不会出现在返回给模型的错误里。
 
 ## MCP CLI / Operator Configuration
 
@@ -392,10 +393,16 @@ adapter 在投影后的 observation 上本地重算 verification
 
 broker 生成 `authorizationId`，grant TTL 固定为 30 秒（`MODEL_ACT_GRANT_TTL_MS = 30_000`），grant 精确绑定 tab + revision + ref：
 
-- **operator（默认）**：调用 `authorization.request-operator-approval` 创建 pending request，然后每 1 秒（`MODEL_ACT_APPROVAL_POLL_INTERVAL_MS = 1_000`）轮询 `authorization.operator-approval-status`。`approved` 才继续执行；`rejected / expired / invalidated / unknown` 与超过 `MODEL_APPROVAL_TIMEOUT_MS`（默认 60000，范围 1..120000）都返回 `AUTHORIZATION_REQUIRED`，message 区分原因。批准只能来自扩展的审批 UI，MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。
+- **operator（默认）**：调用 `authorization.request-operator-approval` 创建 pending request，然后每 1 秒（`MODEL_ACT_APPROVAL_POLL_INTERVAL_MS = 1_000`）轮询 `authorization.operator-approval-status`。请求带上 `approvalTtlMs = MODEL_APPROVAL_TIMEOUT_MS`，扩展里的审批有效期取它与扩展上限（120 秒）的较小值。`approved` 才继续执行；`rejected / expired / invalidated / cancelled / unknown` 与超过 `MODEL_APPROVAL_TIMEOUT_MS`（默认 60000，范围 1..120000）都返回 `AUTHORIZATION_REQUIRED`，message 区分原因。批准只能来自扩展的审批 UI，MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。
 - **agent-owned-auto**：仅当 `MODEL_ACT_APPROVAL=agent-owned-auto`、observation 的 `tab.ownedBySession === true`、且该 tab 未被降级时，直接调用 `authorization.issue-strict-click` 签发 control-plane grant。其余情况一律回落到 operator 路径。非 `ownedBySession` 的 tab 即使配置了 auto，也会被扩展以 `AUTHORIZATION_REQUIRED` 拒绝 control-plane grant，因此 broker 在 MCP 侧也不会走这条路径。
 
 默认路径是 operator，即使 tab 是 agent-owned 也是如此。auto 是 operator 的显式选择，而不是默认。
+
+### 取消、撤销与 progress（Phase 6.6b-A）
+
+- **撤销**：`authorizationId` 生成后，只要 act 没有成功返回（授权超时、客户端取消、status 出错、拒绝等终态、执行失败含 `ACTION_OUTCOME_UNKNOWN` 与 RPC 超时），broker 都调用一次 `authorization.cancel-strict-click`。撤销尽力而为，失败被吞掉，不覆盖原错误；撤销成功不代表点击被阻止。降级判断先于撤销 RPC 落定。
+- **客户端取消**：MCP `tools/call` 的取消信号（`ctx.mcpReq.signal`）经 adapter 传给 broker。入口已取消时不发起任何 RPC、不扣预算；等待审批期间取消会立即停止轮询并撤销；批准后、act 发出前取消则不执行并撤销。act 一旦发出，取消信号不再生效，绝不中断在途 act RPC。客户端取消返回 `AUTHORIZATION_REQUIRED`（固定文本）。
+- **progress**：客户端在 `_meta.progressToken` 里请求进度时，operator 路径每次轮询到 `pending` 后发一条 `notifications/progress`，`progress` 为 1、2、3… 的递增计数，`message` 为固定文本 `waiting for operator approval in the browser extension`，不带 `total`；不含 approval id、ref、origin、revision 或页面文本。未提供 token 或走 agent-owned-auto 路径时不发送。支持 progress 的客户端可以据此重置请求超时。
 
 ### ACTION_OUTCOME_UNKNOWN 后永久降级
 
@@ -446,19 +453,20 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 | tab 或目标 frame origin 不在 act allowlist | `ORIGIN_NOT_ALLOWED` |
 | 预算耗尽 / `(tab, revision, ref)` 重复 | `POLICY_BLOCKED` |
 | issue / approval / status 传输失败或响应异形 | `AUTHORIZATION_REQUIRED` |
-| operator 拒绝 / 过期 / invalidated / unknown / 超时 | `AUTHORIZATION_REQUIRED` |
+| operator 拒绝 / 过期 / invalidated / cancelled / unknown / 超时 | `AUTHORIZATION_REQUIRED` |
+| 客户端在 act 发出前取消 tools/call | `AUTHORIZATION_REQUIRED` |
 | act 传输失败 / 响应异形 / `outcomeMayHaveChanged` | `ACTION_OUTCOME_UNKNOWN`，并降级该 tab |
 | 扩展侧已知 runtime code | 保留 code，message 换成固定文本 |
 
 ### 已知限制
 
 - act 执行失败时扩展返回的 runtime code（`TARGET_OCCLUDED`、`DOCUMENT_CHANGED` 等）会原样保留，每次最多泄露约 1 bit 实时页面状态，受预算、单次执行与授权约束；
-- operator approval 超时后扩展里仍遗留 pending request，事后批准会产生一个无人消费的 grant（随机 id、单次使用、TTL 30 秒、绑定 `(tab, rev, ref)`）；
+- 撤销尽力而为：cancel RPC 不可达或失败，或 tombstone 被驱逐后同 id 的 request 才迟到时，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant（随机 id、单次使用、TTL 30 秒、绑定 `(tab, rev, ref)`）；
 - 上述两点的处置详见 `docs/SECURITY.md` 的「Model act broker 边界」。
 
 ## 后续工作
 
-Phase 6.6a 已交付 Act broker baseline。后续按 Roadmap 继续：
+Phase 6.6a 已交付 Act broker baseline，Phase 6.6b-A 已交付取消、撤销与 progress。后续按 Roadmap 继续：
 
-1. Phase 6.6b：扩展 badge、progress notification、popup 显示 TTL 倒计时并标注不可信页面文本、approval 超时后取消 pending request；
+1. Phase 6.6b-B：扩展 badge 显示待审批数、popup 显示 TTL 倒计时并标注不可信页面文本，以及对应的 Real Chromium E2E；
 2. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查。

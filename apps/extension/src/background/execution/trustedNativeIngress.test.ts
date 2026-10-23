@@ -385,4 +385,138 @@ describe("connectTrustedNativeIngress", () => {
     await Promise.resolve();
     await Promise.resolve();
   });
+
+  describe("cancel 与 approvalTtlMs 分发", () => {
+    function connectWithService(service: Record<string, unknown>) {
+      let listener: ((message: unknown) => void) | undefined;
+      const responses: any[] = [];
+
+      connectTrustedNativeIngress(
+        {
+          connectNative() {
+            return {
+              postMessage(message: unknown) {
+                responses.push(message);
+              },
+              disconnect() {},
+              onMessage: {
+                addListener(next: (message: unknown) => void) {
+                  listener = next;
+                },
+                removeListener() {},
+              },
+              onDisconnect: {
+                addListener() {},
+                removeListener() {},
+              },
+            };
+          },
+        },
+        service as never,
+      );
+
+      return {
+        responses,
+        send(message: unknown) {
+          listener?.(message);
+        },
+      };
+    }
+
+    async function flush() {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    it("authorization.cancel-strict-click 分发到 service.cancelStrictClickAuthorization 并返回结果", async () => {
+      const calls: string[] = [];
+      const { responses, send } = connectWithService({
+        cancelStrictClickAuthorization(authorizationId: string) {
+          calls.push(authorizationId);
+          return { authorizationId };
+        },
+      });
+
+      send({
+        type: "authorization.cancel-strict-click",
+        requestId: "cancel-1",
+        authorizationId: "auth-1",
+      });
+      await flush();
+
+      expect(calls).toEqual(["auth-1"]);
+      expect(responses).toContainEqual({
+        type: "trusted-host.result",
+        requestId: "cancel-1",
+        ok: true,
+        result: { authorizationId: "auth-1" },
+      });
+    });
+
+    it("cancel 请求夹带多余 key 时不会触达 service", async () => {
+      const calls: string[] = [];
+      const { responses, send } = connectWithService({
+        cancelStrictClickAuthorization(authorizationId: string) {
+          calls.push(authorizationId);
+          return { authorizationId };
+        },
+      });
+
+      send({
+        type: "authorization.cancel-strict-click",
+        requestId: "cancel-bad",
+        authorizationId: "auth-1",
+        extra: true,
+      });
+      await flush();
+
+      expect(calls).toEqual([]);
+      expect(responses.some(
+        (response) =>
+          response.requestId === "cancel-bad" && response.ok === false,
+      )).toBe(true);
+    });
+
+    it("approvalTtlMs 透传给 requestOperatorApproval，未提供时不出现该 key", async () => {
+      const inputs: Record<string, unknown>[] = [];
+      const { send } = connectWithService({
+        requestOperatorApproval(input: Record<string, unknown>) {
+          inputs.push(input);
+          return { approvalRequestId: "operator-1" };
+        },
+      });
+
+      const base = {
+        type: "authorization.request-operator-approval",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        ttlMs: 1_000,
+      };
+
+      send({ ...base, requestId: "with-ttl", approvalTtlMs: 30_000 });
+      send({ ...base, requestId: "without-ttl" });
+      await flush();
+
+      expect(inputs).toEqual([
+        {
+          authorizationId: "auth-1",
+          tabId: 7,
+          observedRevision: "rev-1",
+          ref: "@e_1",
+          ttlMs: 1_000,
+          approvalTtlMs: 30_000,
+        },
+        {
+          authorizationId: "auth-1",
+          tabId: 7,
+          observedRevision: "rev-1",
+          ref: "@e_1",
+          ttlMs: 1_000,
+        },
+      ]);
+      expect(inputs[1]).not.toHaveProperty("approvalTtlMs");
+    });
+  });
 });

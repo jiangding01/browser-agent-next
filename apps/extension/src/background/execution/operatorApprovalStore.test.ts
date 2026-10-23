@@ -7,7 +7,11 @@ import {
   OperatorApprovalStore,
 } from "./operatorApprovalStore.js";
 
-function setup() {
+function setup(
+  options: {
+    idFactory?: () => string;
+  } = {},
+) {
   let now = 100;
 
   const entries =
@@ -74,7 +78,8 @@ function setup() {
       {
         now: () => now,
         idFactory:
-          () => "operator-1",
+          options.idFactory ??
+          (() => "operator-1"),
         requestTtlMs: 200,
       },
     );
@@ -313,6 +318,492 @@ describe(
 
         expect(issued)
           .toEqual([]);
+      },
+    );
+    describe(
+      "cancelByAuthorizationId",
+      () => {
+        function sequentialIds() {
+          let n = 0;
+          return () => {
+            n += 1;
+            return `operator-${n}`;
+          };
+        }
+
+        it(
+          "cancel pending 记为 cancelled，之后 approve 失败且不签发 grant",
+          () => {
+            const {
+              store,
+              issued,
+              setNow,
+            } = setup();
+
+            store.request(input);
+            setNow(150);
+            store.cancelByAuthorizationId(
+              "auth-1",
+              false,
+            );
+
+            expect(
+              store.status(
+                "operator-1",
+              ),
+            ).toMatchObject({
+              state: "cancelled",
+              authorizationId:
+                "auth-1",
+              resolvedAt: 150,
+            });
+
+            expect(
+              store.listPending(),
+            ).toEqual([]);
+
+            expect(
+              () =>
+                store.approve(
+                  "operator-1",
+                ),
+            ).toThrow(
+              /missing or no longer pending/,
+            );
+
+            expect(issued)
+              .toEqual([]);
+          },
+        );
+
+        it(
+          "cancel approved 且 grantRevoked=true 记为 cancelled，resolvedAt 为取消时间且无 grantExpiresAt",
+          () => {
+            const {
+              store,
+              setNow,
+            } = setup();
+
+            store.request(input);
+            store.approve(
+              "operator-1",
+            );
+
+            expect(
+              store.status(
+                "operator-1",
+              ),
+            ).toMatchObject({
+              state: "approved",
+              grantExpiresAt:
+                1_100,
+            });
+
+            setNow(500);
+            store.cancelByAuthorizationId(
+              "auth-1",
+              true,
+            );
+
+            const status =
+              store.status(
+                "operator-1",
+              );
+
+            expect(status)
+              .toMatchObject({
+                approvalRequestId:
+                  "operator-1",
+                state: "cancelled",
+                authorizationId:
+                  "auth-1",
+                resolvedAt: 500,
+              });
+
+            expect(status)
+              .not.toHaveProperty(
+                "grantExpiresAt",
+              );
+          },
+        );
+
+        it(
+          "cancel approved 但 grantRevoked=false 保持 approved",
+          () => {
+            const {
+              store,
+              setNow,
+            } = setup();
+
+            store.request(input);
+            store.approve(
+              "operator-1",
+            );
+
+            setNow(500);
+            store.cancelByAuthorizationId(
+              "auth-1",
+              false,
+            );
+
+            expect(
+              store.status(
+                "operator-1",
+              ),
+            ).toMatchObject({
+              state: "approved",
+              grantExpiresAt:
+                1_100,
+            });
+          },
+        );
+
+        it(
+          "rejected 不被翻转（即使 grantRevoked=true）",
+          () => {
+            const {
+              store,
+            } = setup();
+
+            store.request(input);
+            store.reject(
+              "operator-1",
+            );
+
+            store.cancelByAuthorizationId(
+              "auth-1",
+              true,
+            );
+
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("rejected");
+          },
+        );
+
+        it(
+          "expired 与 invalidated 不被翻转",
+          () => {
+            const expired =
+              setup();
+            expired.store
+              .request(input);
+            expired.setNow(300);
+            expired.store
+              .cancelByAuthorizationId(
+                "auth-1",
+                true,
+              );
+
+            expect(
+              expired.store.status(
+                "operator-1",
+              ).state,
+            ).toBe("expired");
+
+            const invalidated =
+              setup();
+            invalidated.store
+              .request(input);
+            invalidated.store
+              .clearTab(7);
+            invalidated.store
+              .cancelByAuthorizationId(
+                "auth-1",
+                true,
+              );
+
+            expect(
+              invalidated.store
+                .status(
+                  "operator-1",
+                ).state,
+            ).toBe("invalidated");
+          },
+        );
+
+        it(
+          "不影响其他 authorizationId",
+          () => {
+            const {
+              store,
+            } = setup({
+              idFactory:
+                sequentialIds(),
+            });
+
+            store.request(input);
+            store.request({
+              ...input,
+              authorizationId:
+                "auth-2",
+            });
+
+            store.cancelByAuthorizationId(
+              "auth-1",
+              true,
+            );
+
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("cancelled");
+            expect(
+              store.status(
+                "operator-2",
+              ).state,
+            ).toBe("pending");
+          },
+        );
+
+        it(
+          "同一 authorizationId 的多条记录全量处理",
+          () => {
+            const {
+              store,
+            } = setup({
+              idFactory:
+                sequentialIds(),
+            });
+
+            // operator-1: approved
+            store.request(input);
+            store.approve(
+              "operator-1",
+            );
+            // operator-2: rejected
+            store.request(input);
+            store.reject(
+              "operator-2",
+            );
+            // operator-3: approved
+            store.request(input);
+            store.approve(
+              "operator-3",
+            );
+            // operator-4: pending
+            store.request(input);
+
+            store.cancelByAuthorizationId(
+              "auth-1",
+              true,
+            );
+
+            expect(
+              [
+                "operator-1",
+                "operator-2",
+                "operator-3",
+                "operator-4",
+              ].map(
+                (id) =>
+                  store.status(id)
+                    .state,
+              ),
+            ).toEqual([
+              "cancelled",
+              "rejected",
+              "cancelled",
+              "cancelled",
+            ]);
+          },
+        );
+
+        it(
+          "grant 已过期的历史 approved 不翻转，只翻转仍有效的那一条",
+          () => {
+            const {
+              store,
+              setNow,
+            } = setup({
+              idFactory:
+                sequentialIds(),
+            });
+
+            // operator-1：t=100 批准，grant 到期 1100。
+            store.request(input);
+            store.approve(
+              "operator-1",
+            );
+
+            // operator-2：t=1200 批准（operator-1 的 grant 已过期），到期 2200。
+            setNow(1_200);
+            store.request(input);
+            store.approve(
+              "operator-2",
+            );
+
+            store.cancelByAuthorizationId(
+              "auth-1",
+              true,
+            );
+
+            expect(
+              store.status("operator-1")
+                .state,
+            ).toBe("approved");
+            expect(
+              store.status("operator-2")
+                .state,
+            ).toBe("cancelled");
+          },
+        );
+      },
+    );
+
+    describe(
+      "approvalTtlMs",
+      () => {
+        it(
+          "较小的 approvalTtlMs 生效：expiresAt 提前并按时过期",
+          () => {
+            const {
+              store,
+              issued,
+              setNow,
+            } = setup();
+
+            const summary =
+              store.request({
+                ...input,
+                approvalTtlMs: 50,
+              });
+
+            // now=100, requestTtlMs=200
+            expect(
+              summary.expiresAt,
+            ).toBe(150);
+
+            setNow(149);
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("pending");
+
+            setNow(150);
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("expired");
+
+            expect(
+              () =>
+                store.approve(
+                  "operator-1",
+                ),
+            ).toThrow(
+              /no longer pending/,
+            );
+
+            expect(issued)
+              .toEqual([]);
+          },
+        );
+
+        it(
+          "较大的 approvalTtlMs 被截断到 requestTtlMs",
+          () => {
+            const {
+              store,
+              setNow,
+            } = setup();
+
+            const summary =
+              store.request({
+                ...input,
+                approvalTtlMs:
+                  10_000,
+              });
+
+            expect(
+              summary.expiresAt,
+            ).toBe(300);
+
+            setNow(299);
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("pending");
+
+            setNow(300);
+            expect(
+              store.status(
+                "operator-1",
+              ).state,
+            ).toBe("expired");
+          },
+        );
+
+        it(
+          "未提供 approvalTtlMs 时使用 requestTtlMs",
+          () => {
+            const { store } =
+              setup();
+
+            expect(
+              store.request(input)
+                .expiresAt,
+            ).toBe(300);
+          },
+        );
+
+        it.each([
+          0,
+          -1,
+          1.5,
+          Number.NaN,
+        ])(
+          "approvalTtlMs=%s 抛 AUTHORIZATION_REQUIRED",
+          (approvalTtlMs) => {
+            const { store } =
+              setup();
+
+            expect(
+              () =>
+                store.request({
+                  ...input,
+                  approvalTtlMs,
+                }),
+            ).toThrow(
+              /approval ttl must be a positive integer/,
+            );
+
+            expect(
+              store.listPending(),
+            ).toEqual([]);
+          },
+        );
+
+        it(
+          "approvalTtlMs 不出现在传给 issueOperatorApproved 的输入里",
+          () => {
+            const {
+              store,
+              issued,
+            } = setup();
+
+            store.request({
+              ...input,
+              approvalTtlMs: 50,
+            });
+            store.approve(
+              "operator-1",
+            );
+
+            expect(issued)
+              .toEqual([input]);
+            expect(issued[0])
+              .not.toHaveProperty(
+                "approvalTtlMs",
+              );
+          },
+        );
       },
     );
   },

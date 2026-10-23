@@ -88,6 +88,14 @@ export class StrictClickAuthorizationIssuanceService {
     return this.issue("enterprise-policy", input);
   }
 
+  /**
+   * 撤销任意来源的同 id grant；返回是否删除了一个仍有效的 grant。
+   * 撤销只减少能力，已消费的 grant 不受影响（点击可能已经发生）。
+   */
+  revoke(authorizationId: string): boolean {
+    return this.authorizations.revoke(authorizationId);
+  }
+
   private issue(
     source: AuthorizationGrant["source"],
     input: StrictClickAuthorizationInput,

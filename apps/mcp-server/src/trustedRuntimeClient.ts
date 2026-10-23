@@ -124,6 +124,7 @@ export type TrustedOperatorApprovalState =
   | "rejected"
   | "expired"
   | "invalidated"
+  | "cancelled"
   | "unknown";
 
 export interface TrustedOperatorApprovalStatus {
@@ -143,10 +144,18 @@ export interface TrustedActBrokerRuntimeClient {
   ): Promise<TrustedIssuedAuthorization>;
   requestOperatorApproval(
     input: TrustedStrictClickGrantInput,
+    approvalTtlMs?: number,
   ): Promise<TrustedOperatorApprovalRequest>;
   operatorApprovalStatus(
     approvalRequestId: string,
   ): Promise<TrustedOperatorApprovalStatus>;
+  /**
+   * 撤销 authorizationId 对应的 pending approval 与未消费 grant。
+   * 成功只表示撤销请求已被扩展处理，不代表点击被阻止。
+   */
+  cancelStrictClick(
+    authorizationId: string,
+  ): Promise<void>;
 }
 
 const MAX_TEXT = 2_048;
@@ -160,6 +169,7 @@ const APPROVAL_STATES = new Set<string>([
   "rejected",
   "expired",
   "invalidated",
+  "cancelled",
   "unknown",
 ]);
 
@@ -1192,6 +1202,7 @@ implements
 
   async requestOperatorApproval(
     input: TrustedStrictClickGrantInput,
+    approvalTtlMs?: number,
   ): Promise<TrustedOperatorApprovalRequest> {
     const result = await this.call(
       "authorize",
@@ -1205,6 +1216,9 @@ implements
           input.observedRevision,
         ref: input.ref,
         ttlMs: input.ttlMs,
+        ...(approvalTtlMs !== undefined
+          ? { approvalTtlMs }
+          : {}),
       },
     );
 
@@ -1248,6 +1262,32 @@ implements
     }
 
     return picked;
+  }
+
+  async cancelStrictClick(
+    authorizationId: string,
+  ): Promise<void> {
+    const result = record(
+      await this.call(
+        "authorize",
+        {
+          type:
+            "authorization.cancel-strict-click",
+          authorizationId,
+        },
+      ),
+    );
+
+    if (
+      !result ||
+      result.authorizationId !==
+        authorizationId
+    ) {
+      throw operationFailure(
+        "authorize",
+        "trusted Runtime returned a malformed authorization.cancel-strict-click result",
+      );
+    }
   }
 
   private async call(

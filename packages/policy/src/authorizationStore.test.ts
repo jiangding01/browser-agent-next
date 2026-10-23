@@ -136,4 +136,47 @@ describe("InMemoryAuthorizationStore", () => {
     now = 1100;
     expect(() => store.issue({ ...input, observedRevision: "rev-2", ref: "@e_2" })).not.toThrow();
   });
+  describe("revoke 返回值", () => {
+    const grantInput = {
+      id: "grant-1", tabId: 7, observedRevision: "rev-1", ref: "@e_1",
+      actionKind: "click" as const, effectClass: "unknown" as const,
+      assurance: "control-plane" as const, ttlMs: 100, source: "trusted-host" as const,
+    };
+    const consumeInput = {
+      id: "grant-1", tabId: 7, observedRevision: "rev-1", ref: "@e_1",
+      actionKind: "click" as const, effectClass: "unknown" as const,
+    };
+
+    it("撤销仍有效的 grant 返回 true，之后 consume 得 missing", () => {
+      const store = new InMemoryAuthorizationStore({ now: () => 1000 });
+      store.issue(grantInput);
+
+      expect(store.revoke("grant-1")).toBe(true);
+      expect(store.consume(consumeInput)).toEqual({ ok: false, reason: "missing" });
+    });
+
+    it("已消费的 grant 返回 false", () => {
+      const store = new InMemoryAuthorizationStore({ now: () => 1000 });
+      store.issue(grantInput);
+      expect(store.consume(consumeInput).ok).toBe(true);
+
+      expect(store.revoke("grant-1")).toBe(false);
+    });
+
+    it("已过期的 grant 返回 false", () => {
+      let now = 1000;
+      const store = new InMemoryAuthorizationStore({ now: () => now });
+      store.issue(grantInput);
+      now = 1100;
+
+      expect(store.revoke("grant-1")).toBe(false);
+      expect(store.consume(consumeInput)).toEqual({ ok: false, reason: "missing" });
+    });
+
+    it("不存在的 id 返回 false", () => {
+      const store = new InMemoryAuthorizationStore({ now: () => 1000 });
+
+      expect(store.revoke("nope")).toBe(false);
+    });
+  });
 });

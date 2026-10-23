@@ -501,6 +501,7 @@ function trustedRuntime(): TrustedActBrokerRuntimeClient & {
     })),
     requestOperatorApproval: vi.fn(),
     operatorApprovalStatus: vi.fn(),
+    cancelStrictClick: vi.fn(async () => {}),
   };
 }
 
@@ -737,6 +738,33 @@ describe("ModelFacingBrowserAdapter browser.act", () => {
     expect(result.verification.conclusive).toBe(false);
     expect(result.verificationAttempts).toBe(1);
     expect(JSON.stringify(result)).not.toContain("hidden.test");
+  });
+
+  it("tool call context（signal / onProgress）原样透传给 broker.act", async () => {
+    const broker = fakeBroker();
+    const { service } = actAdapter(sequencedRuntime(), broker);
+    await service.invoke("browser.observe", { tabId: 7 });
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+    const context = { signal: controller.signal, onProgress };
+
+    await service.invoke("browser.act", actRequest(), context);
+
+    expect(broker.act).toHaveBeenCalledTimes(1);
+    const passed = broker.act.mock.calls[0]![2] as typeof context;
+    expect(passed).toBe(context);
+    expect(passed.signal).toBe(controller.signal);
+    expect(passed.onProgress).toBe(onProgress);
+  });
+
+  it("未提供 context 时 broker.act 第三参数为 undefined", async () => {
+    const broker = fakeBroker();
+    const { service } = actAdapter(sequencedRuntime(), broker);
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    await service.invoke("browser.act", actRequest());
+
+    expect(broker.act.mock.calls[0]![2]).toBeUndefined();
   });
 
   it("broker 失败（未执行）时 act 直接报错，不进入本地验证", async () => {

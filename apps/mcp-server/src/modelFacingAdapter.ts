@@ -20,6 +20,7 @@ import { verifyObservation } from "@browser-agent-next/runtime";
 import type {
   ModelActBroker,
   ModelActExecution,
+  ModelToolCallContext,
 } from "./modelActBroker.js";
 import {
   ModelEgressProjector,
@@ -139,6 +140,7 @@ export class ModelFacingBrowserAdapter {
   async invoke(
     tool: string,
     input: unknown,
+    context?: ModelToolCallContext,
   ): Promise<ModelToolResult> {
     if (!this.options.tools.isExposed(tool)) {
       throw new BrowserRuntimeError(
@@ -159,7 +161,7 @@ export class ModelFacingBrowserAdapter {
       case "browser.wait":
         return this.wait(parseModelWaitInput(input));
       case "browser.act":
-        return this.act(input);
+        return this.act(input, context);
     }
   }
 
@@ -374,6 +376,7 @@ export class ModelFacingBrowserAdapter {
 
   private async act(
     rawInput: unknown,
+    context: ModelToolCallContext | undefined,
   ): Promise<ModelActResult> {
     const broker = this.options.actBroker;
     if (!broker) {
@@ -404,6 +407,7 @@ export class ModelFacingBrowserAdapter {
     const execution = await broker.act(
       input,
       observation,
+      context,
     );
 
     // 动作已执行：此后任何 observe 失败都只让 verification inconclusive。

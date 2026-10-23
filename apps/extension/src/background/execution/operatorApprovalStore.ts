@@ -18,10 +18,17 @@ export type OperatorApprovalState =
   | "approved"
   | "rejected"
   | "expired"
-  | "invalidated";
+  | "invalidated"
+  | "cancelled";
 
 export interface OperatorApprovalRequestInput
-  extends StrictClickAuthorizationInput {}
+  extends StrictClickAuthorizationInput {
+  /**
+   * 调用方愿意等待的时长；有效期取它与 store requestTtlMs 的较小值，
+   * 不参与 grant 签发。
+   */
+  approvalTtlMs?: number;
+}
 
 export interface OperatorApprovalSummary {
   approvalRequestId: string;
@@ -186,6 +193,19 @@ export class OperatorApprovalStore {
       );
     }
 
+    if (
+      input.approvalTtlMs !== undefined &&
+      (
+        !Number.isInteger(input.approvalTtlMs) ||
+        input.approvalTtlMs < 1
+      )
+    ) {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "operator approval ttl must be a positive integer",
+      );
+    }
+
     const stored = this.states.get(
       input.tabId,
       input.observedRevision,
@@ -251,16 +271,29 @@ export class OperatorApprovalStore {
         requestedAt,
         expiresAt:
           requestedAt +
-          this.requestTtlMs,
+          Math.min(
+            input.approvalTtlMs ??
+              this.requestTtlMs,
+            this.requestTtlMs,
+          ),
         authorizationTtlMs:
           input.ttlMs,
       };
 
+    // approvalTtlMs 只决定等待时长，不进入签发输入。
     this.pending.set(
       approvalRequestId,
       {
         ...summary,
-        input: { ...input },
+        input: {
+          authorizationId:
+            input.authorizationId,
+          tabId: input.tabId,
+          observedRevision:
+            input.observedRevision,
+          ref: input.ref,
+          ttlMs: input.ttlMs,
+        },
       },
     );
     this.trimPending();
@@ -408,6 +441,70 @@ export class OperatorApprovalStore {
         state: "unknown",
       }
     );
+  }
+
+  /**
+   * 按 authorizationId 取消（全量扫描 pending 与 outcomes）。
+   *
+   * pending 一律记为 cancelled；approved 只有在 grant 确实被撤销
+   * （grantRevoked=true，即尚未消费且未过期）时才翻转为 cancelled，
+   * 已消费的 grant 代表点击可能已经发生，保留 approved。其他终态不变。
+   * 同一 id 复用时，grant 已过期的历史 approved 不可能是被撤销的那一条，不翻转。
+   */
+  cancelByAuthorizationId(
+    authorizationId: string,
+    grantRevoked: boolean,
+  ): void {
+    this.expirePending();
+    const now = this.now();
+
+    for (
+      const [id, entry]
+      of this.pending
+    ) {
+      if (
+        entry.authorizationId !==
+        authorizationId
+      ) {
+        continue;
+      }
+
+      this.pending.delete(id);
+
+      this.recordOutcome({
+        approvalRequestId: id,
+        state: "cancelled",
+        authorizationId,
+        resolvedAt: now,
+      });
+    }
+
+    if (!grantRevoked) {
+      return;
+    }
+
+    for (
+      const outcome
+      of [...this.outcomes.values()]
+    ) {
+      if (
+        outcome.authorizationId !==
+          authorizationId ||
+        outcome.state !== "approved" ||
+        outcome.grantExpiresAt === undefined ||
+        outcome.grantExpiresAt <= now
+      ) {
+        continue;
+      }
+
+      this.recordOutcome({
+        approvalRequestId:
+          outcome.approvalRequestId,
+        state: "cancelled",
+        authorizationId,
+        resolvedAt: now,
+      });
+    }
   }
 
   clearTab(tabId: number): void {
