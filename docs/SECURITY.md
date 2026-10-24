@@ -82,14 +82,17 @@ MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。M
 
 ### 出境脱敏
 
-- 扩展返回的 verification、`verificationAttempts`、`freshRevision`、`postActionObservationError`、execution 细节与 evidence 中的 `observed` 全部在 trusted client 或 broker 层丢弃；模型可见的 verification 在投影后的 observation 上本地重算；
-- trusted Runtime 的错误只保留 code，message 换成固定文本；
+- 扩展返回的 verification、`verificationAttempts`、`freshRevision`、`postActionObservationError`、execution 细节与 evidence 中的 `observed`、`reason` 全部在 trusted client 或 broker 层丢弃；模型可见的 verification 在投影后的 observation 上本地重算；
+- trusted Runtime 的错误在所有 model-facing 路径（open / observe / extract / verify / wait / act / 授权）都只保留 code，message 换成固定文本（Phase 6.6c 起由 `TrustedRuntimeHttpClient` 统一处理，不再依赖扩展错误消息恰好是静态文本）；
 - 执行阶段固定 `verifyTimeoutMs=0`，act 耗时不随隐藏页面状态变化。
 
 ### 已接受的残余风险
 
 - act 执行失败的 runtime code（`TARGET_OCCLUDED`、`DOCUMENT_CHANGED` 等）会原样保留，每次最多泄露约 1 bit 实时页面状态。该信道受三项约束：每连接预算（默认 16，上限 256）、同一 `(tab, revision, ref)` 至多执行一次、每次都需要授权（默认 operator approval）；
-- 撤销是尽力而为：cancel RPC 不可达或失败（例如 native 通道已断开），或 tombstone 被驱逐后同 id 的 request 才迟到，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它；pending request 的有效期也已与 broker 等待时间对齐（`approvalTtlMs`）。
+- 撤销是尽力而为：cancel RPC 不可达或失败（例如 native 通道已断开），或 tombstone 被驱逐后同 id 的 request 才迟到，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它；pending request 的有效期也已与 broker 等待时间对齐（`approvalTtlMs`）；
+- 扩展的待审批池是全局共享的（上限 32），一个 MCP 连接高频发起审批可以把其它连接较早的待审批请求挤出为 `invalidated`。这只影响可用性（fail closed，不产生授权），尚未按连接分配配额；
+- 读路径（`browser.observe`、`browser.wait` 轮询）没有速率或预算限制，一次长 wait 可触发数百次完整采集，属于对用户浏览器的资源放大，不突破安全边界；
+- 同一 tab 上并发的两次 act，先结束的那次触发的降级对已经越过降级检查的另一次不生效；该窗口受预算与单次执行约束。
 
 ### 取消与撤销（Phase 6.6b-A）
 

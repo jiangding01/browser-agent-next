@@ -827,15 +827,13 @@ function pickVerificationEvidence(
   );
   if (!condition) return undefined;
 
-  // observed 是扩展在未投影 observation 上读到的真实页面数据，无类型与大小上界；
-  // 在 client 层即丢弃，避免任何后续消费者拿到未出境内容。
+  // observed 与 reason 都是扩展在未投影 observation 上产生的原文（observed 是真实
+  // 页面数据，reason 是扩展自由文本）；在 client 层即丢弃，避免任何后续消费者拿到
+  // 未出境内容。reason 仍做上界校验，异形响应照旧 fail closed。
   return {
     condition,
     pass: evidence.pass,
     conclusive: evidence.conclusive,
-    ...(evidence.reason !== undefined
-      ? { reason: evidence.reason }
-      : {}),
   };
 }
 
@@ -1395,6 +1393,8 @@ implements
         );
       }
 
+      // 扩展的错误原文可能描述未出境的页面状态，而这个 client 只服务
+      // model-facing MCP：所有路径都只保留 code，message 换成固定文本。
       if (!parsed.ok) {
         if (
           parsed.error
@@ -1403,7 +1403,9 @@ implements
         ) {
           throw new BrowserRuntimeError(
             "ACTION_OUTCOME_UNKNOWN",
-            parsed.error.message,
+            "trusted Runtime reported that the " +
+              operation +
+              " outcome may have changed",
           );
         }
 
@@ -1414,7 +1416,10 @@ implements
         ) {
           throw new BrowserRuntimeError(
             parsed.error.code,
-            parsed.error.message,
+            "trusted Runtime rejected the " +
+              operation +
+              " request: " +
+              parsed.error.code,
           );
         }
 

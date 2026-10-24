@@ -31,6 +31,8 @@ MCP stdio wire integration                  ✅ legacy handshake + tools
 PR #5 Final Adversarial Review              ✅
 Phase 6.6 PR-0 auto-act origins 配置文件下发 ✅
 Phase 6.6a Act broker + model-facing browser.act ✅ baseline（默认不暴露）
+Phase 6.6b 取消 / 撤销 / progress + 审批 UX    ✅
+Phase 6.6c side-effect wire + 端到端 + 最终审查 ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -307,10 +309,28 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E 12/12 ✅（新用例本地连续重复 5 次与 3 次均通过）
 - 方案经 think + check 审查（1 条 HIGH、4 条 MEDIUM 均在实现前并入方案）；代码经 check 审查与独立审查，无 HIGH / MEDIUM，LOW 已修复并复审 ✅
 
+## Phase 6.6c：side-effect 集成测试与最终对抗式审查
+
+- **wire 级集成测试**：新增 `sideEffect.wire.test.ts`（11 个用例）与测试 helper `src/testing/mcpWire.ts`、`src/testing/fakeTrustedRuntime.ts`；真实 MCP wire + 真实 CLI 组装 + 真实 HTTP 假 trusted RPC，覆盖暴露面、批准链路与 progress、出境脱敏、错误固定文本与撤销、客户端取消、预算与单次执行、act / frame origin plane、未出境 revision、降级、token 不出境、读路径错误原文；原 MCP 集成测试改用共享 helper；
+- **端到端**：MCP 子进程（`apps/mcp-server/dist/cli.js`）经 stdio 驱动真实 native host + 扩展 + Chromium，覆盖 operator 批准后真实点击并 Verify 通过、progress、客户端取消后不点击、stdout 无协议污染；fixture 补充 `/done.html`；
+- **最终对抗式审查**（范围 PR #11–#15）：无 CRITICAL / HIGH。修复：
+  - M-1：observe / open / wait 等读路径的 trusted 错误原文会直达模型（当前扩展消息都是静态文本，无实际泄露，但无守护）→ `TrustedRuntimeHttpClient` 在所有路径只保留 code、message 固定化；act verification evidence 的 `reason` 也在 client 层丢弃；
+  - L-1：frame 有效 origin 推导抽成 `frameOrigin.ts`，出境投影与 act broker 共用；
+  - L-4：审批页新增禁止 HTML 解析写入接口的静态测试；
+  - 未在本阶段处理、写入 SECURITY 已知限制：L-2 待审批池跨连接共享可被挤出、L-3 读路径无速率限制，以及审查 advisory 中同 tab 并发 act 的降级窗口；
+- 新增不变量 129、130。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（655 个）✅
+- Workspace build ✅
+- Real Chromium E2E 13/13 ✅（新用例本地重复运行通过）
+- 方案经 think + check 审查；代码经 check 审查与独立审查，无 HIGH / MEDIUM，LOW 已修复并复审 ✅
+
 ## 下一步
 
-1. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查；
-2. Phase 6.6 完成后再进入 Intelligence Layer。
+1. Phase 6.6 已全部完成，进入 Phase 7（Intelligence Layer）；开工前对照 `docs/ROADMAP.md` 与旧 browser-agent 的功能缺口重新规划。
 
 ## 文档
 

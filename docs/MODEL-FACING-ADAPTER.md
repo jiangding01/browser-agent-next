@@ -239,7 +239,7 @@ ModelFacingBrowserAdapter
 
 每个 stdio connection 必须在 factory 内创建新的 invoker/adapter，model-visible revision store 不能跨连接共享。
 
-工具结果只通过 JSON text content 返回，并受结果字节数上限约束。Runtime error 仅允许 code/message 出境，`details`、stack 和未知异常原文不进入模型。
+工具结果只通过 JSON text content 返回，并受结果字节数上限约束。Runtime error 仅允许 code 与固定文本 message 出境：trusted Runtime 返回的错误原文在 `TrustedRuntimeHttpClient` 中就被换成固定文本（Phase 6.6c 起覆盖所有路径），`details`、stack 和未知异常原文不进入模型。
 
 该 server/transport seam 已与 `TrustedRuntimeHttpClient` 组装为可执行的本地 MCP 进程；默认模型目录仍只包含 `browser.open`、`browser.observe`、`browser.extract`、`browser.verify`、`browser.wait`，`browser.act` 只有 operator 显式配置后才会出现在 `tools/list`。
 
@@ -440,7 +440,7 @@ Bounded Poll（窗口 = verifyTimeoutMs，默认 MODEL_ACT_DEFAULT_VERIFY_TIMEOU
 
 ### 错误出境
 
-trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的页面状态。broker 只保留 error code，message 换成固定文本（形如 `trusted Runtime rejected browser.act authorization: <code>`）。broker 自身产生的错误 message 是固定文案，不经过这一步。
+trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的页面状态。Phase 6.6c 起 `TrustedRuntimeHttpClient` 在所有路径上只保留 code、把 message 换成固定文本；broker 对授权与执行阶段的错误再做一次同样的替换（形如 `trusted Runtime rejected browser.act authorization: <code>`），作为纵深防御。broker 自身产生的错误 message 是固定文案，不经过这一步。
 
 ### 错误码
 
@@ -462,10 +462,13 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 
 - act 执行失败时扩展返回的 runtime code（`TARGET_OCCLUDED`、`DOCUMENT_CHANGED` 等）会原样保留，每次最多泄露约 1 bit 实时页面状态，受预算、单次执行与授权约束；
 - 撤销尽力而为：cancel RPC 不可达或失败，或 tombstone 被驱逐后同 id 的 request 才迟到时，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant（随机 id、单次使用、TTL 30 秒、绑定 `(tab, rev, ref)`）；
-- 上述两点的处置详见 `docs/SECURITY.md` 的「Model act broker 边界」。
+- 上述两点及其它已接受的残余风险详见 `docs/SECURITY.md` 的「Model act broker 边界」。
+
+### side-effect 集成测试（Phase 6.6c）
+
+- **wire 级（`apps/mcp-server/src/sideEffect.wire.test.ts`）**：真实 MCP JSON-RPC wire（SDK `StdioServerTransport` + 内存 pipe）+ 真实 CLI 组装（`loadModelFacingMcpConfig` → `createModelFacingInvoker`：adapter + broker + `TrustedRuntimeHttpClient`）+ 真实 HTTP（`src/testing/fakeTrustedRuntime.ts`，127.0.0.1 随机端口、Bearer 校验、与 native host 相同的响应信封）。覆盖：默认不暴露 act；operator 批准全链路与 progress；act / 授权路径出境脱敏；运行时错误固定文本并撤销；客户端取消只撤销、不执行；预算与单次执行；act origin 与子 frame origin plane（含 about:blank 继承）；未出境 revision；`ACTION_OUTCOME_UNKNOWN` 后降级；token 不出境；读路径错误原文不出境。
+- **端到端（`e2e/specs/trusted-execution.spec.ts`）**：以真实子进程运行构建产物 `apps/mcp-server/dist/cli.js`，经 stdin / stdout 走 MCP，连真实 native host、扩展与 Chromium：模型 open → observe → act，operator 在审批页批准后页面真实跳转、本地 Verify 通过并收到 progress；客户端取消时角标清零、卡片失效且页面未被点击；同时断言 stdout 没有非 JSON 行。
 
 ## 后续工作
 
-Phase 6.6a 已交付 Act broker baseline，Phase 6.6b-A 已交付取消、撤销与 progress，Phase 6.6b-B 已交付扩展侧审批体验（角标、倒计时、不可信文本标注、防误点刷新，见 `docs/SECURITY.md`「审批页展示规则」）。后续按 Roadmap 继续：
-
-1. Phase 6.6c：side-effect 的 MCP stdio wire 集成测试与最终对抗式审查。
+Phase 6.6 已全部完成：6.6a 交付 Act broker baseline，6.6b-A 交付取消、撤销与 progress，6.6b-B 交付扩展侧审批体验（见 `docs/SECURITY.md`「审批页展示规则」），6.6c 交付 side-effect 集成测试并完成最终对抗式审查。下一阶段按 Roadmap 进入 Phase 7（Intelligence Layer）。

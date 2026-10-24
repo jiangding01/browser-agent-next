@@ -266,7 +266,7 @@ describe("TrustedRuntimeHttpClient", () => {
     });
   });
 
-  it("trusted Runtime 已知错误码保持语义，未知错误码不透传", async () => {
+  it("trusted Runtime 已知错误码保持语义但 message 换成固定文本，未知错误码不透传", async () => {
     const known =
       new TrustedRuntimeHttpClient({
         token: TOKEN,
@@ -278,7 +278,7 @@ describe("TrustedRuntimeHttpClient", () => {
             ok: false,
             error: {
               code: "ORIGIN_NOT_ALLOWED",
-              message: "blocked",
+              message: "blocked https://secret.test/page-title",
             },
           }), { status: 200 }),
       });
@@ -289,7 +289,34 @@ describe("TrustedRuntimeHttpClient", () => {
       }),
     ).rejects.toMatchObject({
       code: "ORIGIN_NOT_ALLOWED",
-      message: "blocked",
+      message:
+        "trusted Runtime rejected the open request: ORIGIN_NOT_ALLOWED",
+    });
+
+    // observe / wait 走同一分支：扩展原文（可能含页面派生内容）不得出境。
+    const observeKnown =
+      new TrustedRuntimeHttpClient({
+        token: TOKEN,
+        requestId: () => "req-observe-known",
+        fetchImpl: async () =>
+          new Response(JSON.stringify({
+            type: "trusted-host.result",
+            requestId: "req-observe-known",
+            ok: false,
+            error: {
+              code: "DOCUMENT_CHANGED",
+              message: "SECRET-page-title changed",
+            },
+          }), { status: 200 }),
+      });
+
+    const observeError = await observeKnown
+      .observe({ tabId: 7 })
+      .catch((error: unknown) => error);
+    expect(observeError).toMatchObject({
+      code: "DOCUMENT_CHANGED",
+      message:
+        "trusted Runtime rejected the observe request: DOCUMENT_CHANGED",
     });
 
     const unknown =
@@ -655,7 +682,7 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
       );
   });
 
-  it("act 的 verification evidence 丢弃未投影的 observed 原值", async () => {
+  it("act 的 verification evidence 丢弃未投影的 observed 原值与扩展 reason 原文", async () => {
     const result = await respondWith(
       actResult(),
     ).act(ACT_INPUT);
@@ -663,6 +690,7 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
     expect(result.verification.evidence).toHaveLength(2);
     for (const evidence of result.verification.evidence) {
       expect(evidence).not.toHaveProperty("observed");
+      expect(evidence).not.toHaveProperty("reason");
     }
   });
 
@@ -1380,11 +1408,16 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
     ];
 
     for (const call of calls) {
-      await expect(call()).rejects
-        .toMatchObject({
-          code: "ACTION_OUTCOME_UNKNOWN",
-          message: "may have changed",
-        });
+      const error = await call().catch(
+        (caught: unknown) => caught,
+      );
+      expect(error).toMatchObject({
+        code: "ACTION_OUTCOME_UNKNOWN",
+      });
+      expect((error as Error).message)
+        .toMatch(/outcome may have changed$/);
+      expect((error as Error).message)
+        .not.toBe("may have changed");
     }
   });
 
@@ -1410,7 +1443,8 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
       client.act(ACT_INPUT),
     ).rejects.toMatchObject({
       code: "OBSERVATION_EXPIRED",
-      message: "gone",
+      message:
+        "trusted Runtime rejected the act request: OBSERVATION_EXPIRED",
     });
     await expect(
       client.issueStrictClick(
