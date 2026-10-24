@@ -11,6 +11,13 @@ const pages = new Map([
     <iframe id="child-frame" src="/child.html"></iframe>
   </body>
 </html>`],
+  ["/done.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Done Fixture</title></head>
+  <body>
+    <p id="done">Done</p>
+  </body>
+</html>`],
   ["/child.html", `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Child Fixture</title></head>

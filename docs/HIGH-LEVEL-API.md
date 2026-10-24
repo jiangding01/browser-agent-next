@@ -197,12 +197,7 @@ verifyTimeoutMs?     0..5000，默认 1500
 
 ## 当前未完成
 
-Phase 6.6a 已交付 scoped Act broker 与 model-facing `browser.act` baseline；Phase 6.6b-A 已交付按 `authorizationId` 取消审批与撤销 grant、审批有效期对齐、等待审批期间的 MCP progress notification 与客户端取消；Phase 6.6b-B 已交付扩展角标、审批页倒计时、不可信文本标注与防误点刷新。剩余工作：
-
-**Phase 6.6c（验收）**
-
-- side-effect 的 MCP stdio wire 集成测试；
-- 最终对抗式审查。
+Phase 6.6（model-facing side-effect authorization）已全部完成：6.6a 交付 scoped Act broker 与 model-facing `browser.act` baseline；6.6b-A 交付按 `authorizationId` 取消审批与撤销 grant、审批有效期对齐、等待审批期间的 MCP progress notification 与客户端取消；6.6b-B 交付扩展角标、审批页倒计时、不可信文本标注与防误点刷新；6.6c 交付 side-effect 的 MCP stdio wire 集成测试、经 MCP 子进程驱动真实 Chromium 的端到端测试，并完成最终对抗式审查。下一阶段是 Phase 7（Intelligence Layer）。
 
 以下能力属于 trusted control plane baseline 或 6.6a 交付范围，不能被理解为“任意模型可直接使用”：
 

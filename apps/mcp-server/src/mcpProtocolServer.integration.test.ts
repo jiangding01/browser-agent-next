@@ -1,7 +1,4 @@
 import {
-  PassThrough,
-} from "node:stream";
-import {
   StdioServerTransport,
 } from "@modelcontextprotocol/server/stdio";
 import {
@@ -18,136 +15,12 @@ import {
   MODEL_ACT_APPROVAL_PROGRESS_MESSAGE,
   type ModelToolCallContext,
 } from "./modelActBroker.js";
-
-type JsonRpcMessage =
-  Record<string, unknown>;
-
-function createWire() {
-  const input = new PassThrough();
-  const output = new PassThrough();
-  const queued: JsonRpcMessage[] = [];
-  const waiters: Array<
-    (message: JsonRpcMessage) => void
-  > = [];
-  let buffer = "";
-  let parseError:
-    Error | undefined;
-
-  output.on("data", (chunk) => {
-    buffer += Buffer
-      .from(chunk)
-      .toString("utf8");
-
-    while (true) {
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) break;
-
-      const line =
-        buffer.slice(0, newline).trim();
-      buffer =
-        buffer.slice(newline + 1);
-
-      if (!line) continue;
-
-      try {
-        const message =
-          JSON.parse(line) as
-            JsonRpcMessage;
-        const waiter =
-          waiters.shift();
-        if (waiter) {
-          waiter(message);
-        } else {
-          queued.push(message);
-        }
-      } catch (error) {
-        parseError =
-          error instanceof Error
-            ? error
-            : new Error(
-                "failed to parse MCP output",
-              );
-      }
-    }
-  });
-
-  return {
-    input,
-    output,
-    send(message: JsonRpcMessage) {
-      input.write(
-        JSON.stringify(message) +
-          "\n",
-      );
-    },
-    async next(
-      timeoutMs = 2_000,
-    ): Promise<JsonRpcMessage> {
-      if (parseError) {
-        throw parseError;
-      }
-
-      const ready = queued.shift();
-      if (ready) return ready;
-
-      return new Promise(
-        (resolve, reject) => {
-          const timer = setTimeout(
-            () => {
-              const index =
-                waiters.indexOf(
-                  onMessage,
-                );
-              if (index >= 0) {
-                waiters.splice(
-                  index,
-                  1,
-                );
-              }
-              reject(
-                new Error(
-                  "timed out waiting for MCP response",
-                ),
-              );
-            },
-            timeoutMs,
-          );
-
-          const onMessage = (
-            message:
-              JsonRpcMessage,
-          ): void => {
-            clearTimeout(timer);
-            resolve(message);
-          };
-
-          waiters.push(onMessage);
-        },
-      );
-    },
-    close() {
-      input.end();
-      output.end();
-    },
-  };
-}
-
-function resultOf(
-  message: JsonRpcMessage,
-): Record<string, unknown> {
-  const result = message.result;
-  if (
-    typeof result !== "object" ||
-    result === null ||
-    Array.isArray(result)
-  ) {
-    throw new Error(
-      "expected JSON-RPC result object",
-    );
-  }
-  return result as
-    Record<string, unknown>;
-}
+import {
+  collectUntilResponse,
+  createWire,
+  initializeWire,
+  resultOf,
+} from "./testing/mcpWire.js";
 
 describe(
   "model-facing MCP stdio integration",
@@ -396,26 +269,9 @@ async function startInitializedServer(
   await new Promise<void>(
     (resolve) => setImmediate(resolve),
   );
-  wire.send({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: {
-        name: "browser-agent-next-test",
-        version: "1.0.0",
-      },
-    },
-  });
-  const initialized = await wire.next();
+  const initialized =
+    await initializeWire(wire);
   expect(initialized.id).toBe(1);
-  wire.send({
-    jsonrpc: "2.0",
-    method: "notifications/initialized",
-    params: {},
-  });
 
   return {
     wire,
@@ -425,21 +281,6 @@ async function startInitializedServer(
       wire.close();
     },
   };
-}
-
-/** 读取消息直到拿到指定 id 的 response，返回期间收到的全部消息。 */
-async function collectUntilResponse(
-  wire: ReturnType<typeof createWire>,
-  id: number,
-): Promise<JsonRpcMessage[]> {
-  const messages: JsonRpcMessage[] = [];
-  while (true) {
-    const message = await wire.next();
-    messages.push(message);
-    if (message.id === id) {
-      return messages;
-    }
-  }
 }
 
 describe(

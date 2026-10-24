@@ -7,6 +7,7 @@ import {
 import type {
   ModelOriginAccessPolicy,
 } from "@browser-agent-next/policy";
+import { effectiveFrameUrl } from "./frameOrigin.js";
 
 export interface ModelEgressOptions {
   includeValues?: boolean;
@@ -107,48 +108,18 @@ export class ModelEgressProjector {
       );
     }
 
-    const frames = new Map(
-      observation.frames.map((frame) => [
-        frame.frameId,
-        frame,
-      ]),
-    );
+    // 与 act broker 共用 effectiveFrameUrl，read / act 两个 plane 的 frame 判定不会分叉。
     const allowed = new Map<string, boolean>();
-    const resolving = new Set<string>();
-
-    const frameAllowed = (frameId: string): boolean => {
-      const cached = allowed.get(frameId);
-      if (cached !== undefined) return cached;
-
-      const frame = frames.get(frameId);
-      if (!frame || resolving.has(frameId)) {
-        return false;
-      }
-      resolving.add(frameId);
-
-      let result: boolean;
-      if (frame.parentFrameId === undefined) {
-        result = this.origins.canRead(
-          frame.url ?? observation.tab.origin,
-        );
-      } else if (
-        frame.url === "about:blank" ||
-        frame.url === "about:srcdoc"
-      ) {
-        result = frameAllowed(frame.parentFrameId);
-      } else if (frame.url !== undefined) {
-        result = this.origins.canRead(frame.url);
-      } else {
-        result = false;
-      }
-
-      resolving.delete(frameId);
-      allowed.set(frameId, result);
-      return result;
-    };
 
     for (const frame of observation.frames) {
-      frameAllowed(frame.frameId);
+      const url = effectiveFrameUrl(
+        observation,
+        frame.frameId,
+      );
+      allowed.set(
+        frame.frameId,
+        url !== undefined && this.origins.canRead(url),
+      );
     }
 
     const blockedAccessibleFrames = new Set(
@@ -267,8 +238,8 @@ export class ModelEgressProjector {
           degraded: [...new Set([
             ...observation.coverage.frames.degraded
               .filter(
+                // allowed 只包含 observation 中存在的 frame。
                 (frameId) =>
-                  frames.has(frameId) &&
                   allowed.get(frameId) === true,
               ),
             ...[...blockedAccessibleFrames].map(

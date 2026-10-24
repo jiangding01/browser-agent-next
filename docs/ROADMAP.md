@@ -77,7 +77,7 @@
 - [x] safe scoped authorization broker（6.6a）
 - [x] browser.act model-facing policy（6.6a：side-effect tier、act origin plane ⊆ read、per-connection 预算与单次执行账本）
 - [x] operator-approved user confirmation integration（6.6a baseline：broker 创建 pending request 并轮询状态）
-- [ ] side-effect MCP integration tests（6.6c：stdio wire 集成测试与最终对抗式审查）
+- [x] side-effect MCP integration tests（6.6c：stdio wire 集成测试、MCP 子进程端到端与最终对抗式审查）
 - [x] 6.6b 扩展侧 approval UX
   - [x] 扩展 badge（6.6b-B）
   - [x] progress notification（6.6b-A）

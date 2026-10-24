@@ -4,6 +4,7 @@ import {
   type BrowserObservation,
 } from "@browser-agent-next/core";
 import { ExactOriginAllowlist } from "@browser-agent-next/policy";
+import { effectiveFrameUrl } from "./frameOrigin.js";
 import type { ModelActApprovalMode } from "./mcpConfig.js";
 import type { ModelActInput } from "./modelToolInput.js";
 import type {
@@ -114,44 +115,6 @@ function boundedOption(
   }
 
   return value;
-}
-
-/**
- * 解析 element 所在 frame 的有效 origin。
- *
- * 与 model-egress 投影相同：about:blank / about:srcdoc 继承父 frame，
- * 顶层 frame 缺 url 时回落到 tab origin；其余缺 url 的 frame 视为未知。
- */
-function elementFrameUrl(
-  observation: BrowserObservation,
-  frameId: string,
-): string | undefined {
-  const frames = new Map(
-    observation.frames.map((frame) => [
-      frame.frameId,
-      frame,
-    ]),
-  );
-  const seen = new Set<string>();
-  let current = frames.get(frameId);
-
-  while (current && !seen.has(current.frameId)) {
-    seen.add(current.frameId);
-
-    if (current.parentFrameId === undefined) {
-      return current.url ?? observation.tab.origin;
-    }
-    if (
-      current.url === "about:blank" ||
-      current.url === "about:srcdoc"
-    ) {
-      current = frames.get(current.parentFrameId);
-      continue;
-    }
-    return current.url;
-  }
-
-  return undefined;
 }
 
 /**
@@ -374,7 +337,7 @@ export function createModelActBroker(
     }
 
     // 1. act origin plane：顶层 tab 与目标 element 所在 frame 都必须在 act allowlist 内。
-    const frameUrl = elementFrameUrl(
+    const frameUrl = effectiveFrameUrl(
       observation,
       element.frameId,
     );

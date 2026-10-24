@@ -7,7 +7,12 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import {
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import net from "node:net";
+import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -3000,6 +3005,377 @@ test(
         timeout: 10_000,
       });
     } finally {
+      await host?.close().catch(() => undefined);
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+type JsonRpcMessage = Record<string, unknown>;
+
+interface McpProcessClient {
+  request(
+    method: string,
+    params: Record<string, unknown>,
+  ): { id: number; response: Promise<JsonRpcMessage> };
+  notify(method: string, params: Record<string, unknown>): void;
+  notifications: JsonRpcMessage[];
+  /** 结束子进程，返回 stdout 上出现过的非 JSON 行。 */
+  close(): Promise<string[]>;
+}
+
+const mcpCliPath = path.resolve("apps/mcp-server/dist/cli.js");
+
+// 以真实子进程运行构建产物，经 stdin / stdout 走 MCP JSON-RPC。
+function startMcpProcess(env: Record<string, string>): McpProcessClient {
+  if (!existsSync(mcpCliPath)) {
+    throw new Error(
+      "apps/mcp-server/dist/cli.js 不存在，请先运行 pnpm build",
+    );
+  }
+
+  const child: ChildProcessWithoutNullStreams = spawn(
+    process.execPath,
+    [mcpCliPath],
+    { env, stdio: ["pipe", "pipe", "pipe"] },
+  );
+  const pending = new Map<
+    number,
+    (message: JsonRpcMessage | undefined) => void
+  >();
+  const notifications: JsonRpcMessage[] = [];
+  const stderr: string[] = [];
+  const protocolErrors: string[] = [];
+  let nextId = 1;
+
+  child.stderr.on("data", (chunk) => {
+    stderr.push(String(chunk));
+  });
+
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    if (!line.trim()) return;
+
+    let message: JsonRpcMessage;
+    try {
+      message = JSON.parse(line) as JsonRpcMessage;
+    } catch {
+      // stdout 只属于 MCP wire，任何非 JSON 行都是协议污染。
+      protocolErrors.push(line.slice(0, 200));
+      return;
+    }
+
+    if (typeof message.id === "number" && pending.has(message.id)) {
+      pending.get(message.id)?.(message);
+      pending.delete(message.id);
+      return;
+    }
+    notifications.push(message);
+  });
+
+  let exitCode: number | null | undefined;
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", (code) => {
+      exitCode = code;
+      // 进程退出时一次性拒绝所有未完成请求，避免每个请求各挂一个 exit listener。
+      for (const [id, settle] of pending) {
+        pending.delete(id);
+        settle(undefined);
+      }
+      resolve();
+    });
+  });
+
+  function send(message: JsonRpcMessage): void {
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  }
+
+  return {
+    request(method, params) {
+      const id = nextId++;
+      const response = new Promise<JsonRpcMessage>((resolve, reject) => {
+        pending.set(id, (message) => {
+          if (message) {
+            resolve(message);
+            return;
+          }
+          reject(
+            new Error(
+              "MCP process exited (" + exitCode + "): " +
+                stderr.join("").slice(0, 1_000),
+            ),
+          );
+        });
+      });
+      send({ id, method, params });
+      return { id, response };
+    },
+    notify(method, params) {
+      send({ method, params });
+    },
+    notifications,
+    async close() {
+      child.stdin.end();
+      child.kill();
+      // SIGTERM 后 5 秒仍未退出就强制结束，避免把失败拖成用例超时。
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const forced = new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          resolve();
+        }, 5_000);
+      });
+      await Promise.race([exited, forced]);
+      clearTimeout(timer);
+      await exited;
+      return [...protocolErrors];
+    },
+  };
+}
+
+function toolPayload(message: JsonRpcMessage): {
+  isError: boolean;
+  value: Record<string, unknown>;
+} {
+  const result = message.result as {
+    isError?: boolean;
+    content?: Array<{ type: string; text: string }>;
+  };
+  const text = result?.content?.[0]?.text;
+  if (typeof text !== "string") {
+    throw new Error("unexpected tool result: " + JSON.stringify(message));
+  }
+  return {
+    isError: result.isError === true,
+    value: JSON.parse(text) as Record<string, unknown>,
+  };
+}
+
+test(
+  "模型经 MCP 子进程 stdio 发起 browser.act：operator 在审批页批准后真实点击；客户端取消则不点击",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+    test.setTimeout(90_000);
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    let host: TrustedHostBrowser | undefined;
+    let mcp: McpProcessClient | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home, () => {
+        writeAutoActOrigins(home);
+      });
+      const active = host;
+      const extensionId = await extensionIdOf(active.context);
+      const worker = active.context.serviceWorkers()[0];
+      if (!worker) throw new Error("extension service worker unavailable");
+      const badgeText = () =>
+        worker.evaluate(() =>
+          (globalThis as unknown as {
+            chrome: {
+              action: { getBadgeText(details: object): Promise<string> };
+            };
+          }).chrome.action.getBadgeText({})
+        );
+
+      // 不继承开发机上的 BROWSER_AGENT_NEXT_*，子进程配置只由下面显式给出。
+      const env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (
+          value !== undefined &&
+          !key.startsWith("BROWSER_AGENT_NEXT_")
+        ) {
+          env[key] = value;
+        }
+      }
+      Object.assign(env, {
+        HOME: home,
+        BROWSER_AGENT_NEXT_RPC_PORT: String(active.rpcPort),
+        BROWSER_AGENT_NEXT_RPC_TOKEN_PATH: path.join(
+          home,
+          ".browser-agent-next/trusted-rpc.token",
+        ),
+        BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_ACT_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_TOOLS:
+          "browser.open,browser.observe,browser.act,browser.verify",
+        BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL: "operator",
+        BROWSER_AGENT_NEXT_MODEL_APPROVAL_TIMEOUT_MS: "30000",
+      });
+
+      mcp = startMcpProcess(env);
+      const client = mcp;
+
+      const initialized = await client.request("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "browser-agent-next-e2e", version: "0.0.0" },
+      }).response;
+      expect(initialized.result).toBeTruthy();
+      client.notify("notifications/initialized", {});
+
+      const listed = await client.request("tools/list", {}).response;
+      const toolNames = (
+        (listed.result as { tools: Array<{ name: string }> }).tools
+      ).map((tool) => tool.name);
+      expect(toolNames).toContain("browser.act");
+
+      async function callTool(
+        name: string,
+        args: Record<string, unknown>,
+      ) {
+        const { response } = client.request("tools/call", {
+          name,
+          arguments: args,
+        });
+        const payload = toolPayload(await response);
+        expect(payload.isError, JSON.stringify(payload.value)).toBe(false);
+        return payload.value;
+      }
+
+      async function openAndObserve(suffix: string) {
+        const createdPage = active.context.waitForEvent("page");
+        const opened = await callTool("browser.open", {
+          url: mainUrl,
+          active: false,
+        });
+        const page = await createdPage;
+        await page.waitForLoadState("load");
+        // 点击 Save 后跳转到 done.html，作为真实副作用的证据。
+        await page.evaluate((marker) => {
+          document
+            .querySelector("#main-action")
+            ?.addEventListener("click", () => {
+              document.body.dataset.clicked = marker;
+              location.href = "/done.html";
+            });
+        }, suffix);
+
+        const tabId = opened.tabId as number;
+        const observed = await callTool("browser.observe", { tabId });
+        const elements = observed.elements as Array<{
+          ref: string;
+          semantic: { name?: string };
+        }>;
+        const save = elements.find(
+          (element) => element.semantic.name === "Save",
+        );
+        if (!save) throw new Error("Save ref unavailable");
+
+        return {
+          page,
+          tabId,
+          revision: (observed.revision as { id: string }).id,
+          ref: save.ref,
+        };
+      }
+
+      const popup = await active.context.newPage();
+      await popup.goto(
+        "chrome-extension://" + extensionId + "/operator-approval.html",
+      );
+
+      // 1. 批准路径：progress → 审批页批准 → 真实点击 → 本地 Verify 通过。
+      const approved = await openAndObserve("approved");
+      await popup.bringToFront();
+      const approveCall = client.request("tools/call", {
+        name: "browser.act",
+        arguments: {
+          tabId: approved.tabId,
+          observedRevision: approved.revision,
+          ref: approved.ref,
+          kind: "click",
+          verification: {
+            mode: "all",
+            conditions: [
+              {
+                type: "url_matches",
+                pattern: fixtureOrigin + "/done.html",
+              },
+            ],
+          },
+          verifyTimeoutMs: 5_000,
+        },
+        _meta: { progressToken: "act-approved" },
+      });
+
+      const pendingCard = popup.locator(".approval-card:not(.stale)");
+      await expect(pendingCard).toHaveCount(1, { timeout: 15_000 });
+      await expect.poll(badgeText).toBe("1");
+      await expect.poll(
+        () =>
+          client.notifications.filter(
+            (message) =>
+              message.method === "notifications/progress" &&
+              (message.params as { progressToken?: unknown })
+                .progressToken === "act-approved",
+          ).length,
+        { timeout: 10_000 },
+      ).toBeGreaterThan(0);
+
+      await pendingCard
+        .getByRole("button", { name: "批准一次" })
+        .click();
+
+      const actResult = toolPayload(await approveCall.response);
+      expect(actResult.isError, JSON.stringify(actResult.value)).toBe(false);
+      expect(actResult.value).toMatchObject({
+        status: "executed",
+        effectClass: "unknown",
+        verification: { verified: true },
+      });
+      await expect(approved.page).toHaveURL(fixtureOrigin + "/done.html");
+      await expect.poll(badgeText).toBe("");
+
+      // 2. 客户端取消：审批未决时取消 tools/call，不得发生点击。
+      const cancelled = await openAndObserve("cancelled");
+      await popup.bringToFront();
+      const cancelCall = client.request("tools/call", {
+        name: "browser.act",
+        arguments: {
+          tabId: cancelled.tabId,
+          observedRevision: cancelled.revision,
+          ref: cancelled.ref,
+          kind: "click",
+          verification: {
+            mode: "all",
+            conditions: [
+              {
+                type: "url_matches",
+                pattern: fixtureOrigin + "/done.html",
+              },
+            ],
+          },
+        },
+      });
+      // 被取消的请求可能不会收到响应，避免未处理的 rejection。
+      void cancelCall.response.catch(() => undefined);
+
+      await expect(pendingCard).toHaveCount(1, { timeout: 15_000 });
+      await expect.poll(badgeText).toBe("1");
+
+      client.notify("notifications/cancelled", {
+        requestId: cancelCall.id,
+        reason: "e2e client cancel",
+      });
+
+      await expect.poll(badgeText, { timeout: 10_000 }).toBe("");
+      await expect(pendingCard).toHaveCount(0, { timeout: 10_000 });
+      await expect(cancelled.page).toHaveURL(mainUrl);
+      expect(
+        await cancelled.page.evaluate(() => document.body.dataset.clicked),
+      ).toBeUndefined();
+
+      const protocolErrors = await client.close();
+      mcp = undefined;
+      expect(protocolErrors, "MCP stdout 出现非 JSON 行").toEqual([]);
+    } finally {
+      await mcp?.close().catch(() => undefined);
       await host?.close().catch(() => undefined);
       rmSync(home, { recursive: true, force: true });
     }
