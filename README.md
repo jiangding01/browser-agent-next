@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）全部完成。当前进行 Phase 7-0（Trace 与评测底座），7-0a 决策评测 harness 已交付。
+PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）。
 
 已经完成：
 
@@ -44,7 +44,8 @@ PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor�
 - native host 启动时从 `~/.browser-agent-next/autoact-origins.json` 下发 auto-act origin allowlist（Phase 6.6 PR-0，fail closed）；
 - model-facing `browser.act` 与 scoped Act broker（Phase 6.6a：side-effect tier 默认不暴露、独立 act origin plane、预算与单次执行、operator approval 默认、本地重验证）；
 - 审批取消 / 撤销、MCP progress、扩展角标与审批页体验，以及 side-effect wire 集成与端到端测试（Phase 6.6b / 6.6c）；
-- 离线决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture（Phase 7-0a）。
+- 离线决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture（Phase 7-0a）；
+- model-facing MCP 的脱敏、有界 JSONL trace 与离线汇总（Phase 7-0b，默认关闭）。
 
 真实 Chromium 已验证：
 

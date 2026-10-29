@@ -41,6 +41,8 @@ A task failure must be attributable to a layer:
 
 Do not collapse these into one "agent success rate".
 
+运行期的分层数据来自 model-facing MCP 的脱敏 trace（Phase 7-0b，默认关闭，配置 `BROWSER_AGENT_NEXT_TRACE_DIR` 开启）：每次 tool call 记录事件层（`observe / policy / preflight / action / verify`）、结果 code、候选数量与 coverage、延迟和 act 的审批结果。`packages/eval` 的 `parseTraceJsonl` / `summarizeTrace` 给出按层的结果计数、按 tool 的 p50 / p95 延迟、审批结果分布，以及由 seq 断档推出的丢弃数。trace 不含 observation，因此决策评测仍使用下文的 fixture。
+
 ## Candidate evaluation
 
 Two numbers must be separated:

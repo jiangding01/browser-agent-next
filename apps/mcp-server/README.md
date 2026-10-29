@@ -84,8 +84,12 @@ node apps/mcp-server/dist/cli.js
 - `BROWSER_AGENT_NEXT_RPC_TIMEOUT_MS`
 - `BROWSER_AGENT_NEXT_RPC_MAX_RESPONSE_BYTES`
 - `BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES`
+- `BROWSER_AGENT_NEXT_TRACE_DIR`：脱敏 trace 输出目录（Phase 7-0b），默认不设置即关闭；必须是已存在、属于当前用户、`mode & 0o077 === 0` 的真实目录（例如 `mkdir -m 700 ~/.browser-agent-next/traces`）。每个进程在其中新建 `trace-<runId>.jsonl`，从不写入已存在的文件；Windows 上设置即启动失败；
+- `BROWSER_AGENT_NEXT_TRACE_MAX_BYTES`：每个进程 trace 文件的上限，默认 16 MiB，范围 64 KiB..256 MiB；普通事件只能用其中 3/4，其余留给 `browser.act` 事件。
 
 trusted token 本身不接受环境变量明文配置；CLI 只读取 native-host token file。
+
+trace 只含运行时标识、枚举、数字与已通过 policy 的 origin，不含页面文本、字段值、URL path / query 或模型输入；失败调用不记录入参中的 tab / revision / ref。字段定义见 `docs/TRACE-EVAL-FOUNDATION.md`，离线汇总用 `@browser-agent-next/eval` 的 `parseTraceJsonl` / `summarizeTrace`。
 
 ## 启用 browser.act
 
