@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { TraceAuthorization } from "@browser-agent-next/core";
 import {
   BrowserRuntimeError,
   type BrowserObservation,
@@ -43,6 +44,12 @@ export interface ModelActProgress {
 export interface ModelToolCallContext {
   signal?: AbortSignal;
   onProgress?: (progress: ModelActProgress) => void;
+  /**
+   * 仅在开启 trace 时由 bridge 注入：act 进入授权阶段后，在 act 结束时回报一次
+   * 授权路径、授权阶段的最终审批状态与耗时（docs/TRACE-EVAL-FOUNDATION.md）。
+   * 回调异常不影响 act（不变量 135）。
+   */
+  onAuthorizationTrace?: (authorization: TraceAuthorization) => void;
 }
 
 /**
@@ -223,9 +230,27 @@ export function createModelActBroker(
     }
   }
 
+  function reportAuthorization(
+    context: ModelToolCallContext | undefined,
+    authorization: TraceAuthorization | undefined,
+  ): void {
+    if (authorization === undefined) return;
+    try {
+      context?.onAuthorizationTrace?.({ ...authorization });
+    } catch {
+      // trace 只是观测，不影响 act 结果。
+    }
+  }
+
+  /**
+   * 等待 operator 审批；authorization.approval 记录授权阶段的最终状态，
+   * 供 trace 使用（这些分支都返回 AUTHORIZATION_REQUIRED，无法从 code 区分）。
+   * 审批请求或状态轮询的 RPC 本身失败时不设置 approval。
+   */
   async function awaitOperatorApproval(
     grant: TrustedStrictClickGrantInput,
     context: ModelToolCallContext | undefined,
+    authorization: TraceAuthorization,
   ): Promise<void> {
     const signal = context?.signal;
     const deadline = now() + approvalTimeoutMs;
@@ -239,10 +264,12 @@ export function createModelActBroker(
 
     while (true) {
       if (signal?.aborted) {
+        authorization.approval = "client-cancelled";
         throw clientCancelled();
       }
       const remaining = deadline - now();
       if (remaining <= 0) {
+        authorization.approval = "timeout";
         throw new BrowserRuntimeError(
           "AUTHORIZATION_REQUIRED",
           "operator approval timed out",
@@ -256,6 +283,7 @@ export function createModelActBroker(
         signal,
       );
       if (signal?.aborted) {
+        authorization.approval = "client-cancelled";
         throw clientCancelled();
       }
 
@@ -266,7 +294,18 @@ export function createModelActBroker(
       );
       // status 往返期间客户端可能已取消：不再上报 progress，也不进入执行。
       if (signal?.aborted) {
+        authorization.approval = "client-cancelled";
         throw clientCancelled();
+      }
+      if (status.state !== "pending") {
+        authorization.approval =
+          status.state === "approved" ||
+          status.state === "rejected" ||
+          status.state === "expired" ||
+          status.state === "invalidated" ||
+          status.state === "cancelled"
+            ? status.state
+            : "unknown";
       }
       switch (status.state) {
         case "pending":
@@ -383,23 +422,39 @@ export function createModelActBroker(
       ttlMs: MODEL_ACT_GRANT_TTL_MS,
     };
 
+    // 只用于 trace：进入授权阶段后在 act 结束时回报一次。
+    let authorization: TraceAuthorization | undefined;
+
     try {
       // 4. 授权路径。
-      if (
+      const autoIssue =
         approvalMode === "agent-owned-auto" &&
         observation.tab.ownedBySession === true &&
-        !degradedTabs.has(input.tabId)
-      ) {
-        await authorizationCall(() =>
-          runtime.issueStrictClick(grant)
-        );
-      } else {
-        await awaitOperatorApproval(grant, context);
-      }
+        !degradedTabs.has(input.tabId);
+      const stage: TraceAuthorization = {
+        path: autoIssue ? "control-plane-auto" : "operator",
+      };
+      authorization = stage;
+      const authorizationStarted = now();
+      try {
+        if (autoIssue) {
+          await authorizationCall(() =>
+            runtime.issueStrictClick(grant)
+          );
+        } else {
+          await awaitOperatorApproval(grant, context, stage);
+        }
 
-      // act 之前最后一次检查；此后 signal 不再生效。
-      if (signal?.aborted) {
-        throw clientCancelled();
+        // act 之前最后一次检查；此后 signal 不再生效。
+        if (signal?.aborted) {
+          if (!autoIssue) stage.approval = "client-cancelled";
+          throw clientCancelled();
+        }
+      } finally {
+        stage.waitMs = Math.max(
+          0,
+          Math.round(now() - authorizationStarted),
+        );
       }
 
       // 5. 执行。verifyTimeoutMs 恒为 0：扩展只做一次验证、不轮询，
@@ -441,6 +496,8 @@ export function createModelActBroker(
       // 撤销成功不代表点击被阻止，错误码与降级判断保持不变。
       await bestEffortCancel(grant.authorizationId);
       throw error;
+    } finally {
+      reportAuthorization(context, authorization);
     }
   }
 

@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import {
+  randomUUID,
+} from "node:crypto";
+import {
   pathToFileURL,
 } from "node:url";
 import {
@@ -19,6 +22,14 @@ import {
 import {
   serveModelFacingMcpStdio,
 } from "./mcpProtocolServer.js";
+import {
+  createTraceRecorder,
+  type ModelTraceRecorder,
+} from "./modelTrace.js";
+import {
+  openTraceFileSink,
+  type TraceFileSink,
+} from "./traceFileSink.js";
 import {
   TrustedRuntimeHttpClient,
   readTrustedRpcToken,
@@ -85,6 +96,34 @@ export function createModelFacingInvoker(
   );
 }
 
+/**
+ * 配置了 trace 目录时创建进程级 recorder，并在目录中新建 `trace-<runId>.jsonl`。
+ *
+ * 目录或文件不满足要求时直接抛出，让进程启动失败（与其它配置一致）。
+ */
+export interface ModelFacingTrace {
+  readonly recorder: ModelTraceRecorder;
+  readonly sink: TraceFileSink;
+}
+
+export function createModelFacingTrace(
+  config: ModelFacingMcpConfig,
+): ModelFacingTrace | undefined {
+  if (config.traceDir === undefined) return undefined;
+
+  const runId = randomUUID();
+  const sink = openTraceFileSink({
+    directory: config.traceDir,
+    fileName: "trace-" + runId + ".jsonl",
+    maxBytes: config.traceMaxBytes,
+  });
+
+  return {
+    recorder: createTraceRecorder({ sink, runId }),
+    sink,
+  };
+}
+
 export function startModelFacingMcp(
   env: NodeJS.ProcessEnv =
     process.env,
@@ -98,6 +137,7 @@ export function startModelFacingMcp(
     readTrustedRpcToken(
       config.rpcTokenPath,
     );
+  const trace = createModelFacingTrace(config);
 
   return serveModelFacingMcpStdio(
     () =>
@@ -111,6 +151,9 @@ export function startModelFacingMcp(
       maxResultBytes:
         config.mcpMaxResultBytes,
       legacy: "serve",
+      ...(trace !== undefined
+        ? { trace: trace.recorder }
+        : {}),
     },
   );
 }
