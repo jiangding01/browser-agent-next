@@ -356,7 +356,7 @@ describe("runDecisionEvaluation", () => {
 
     expect(report.overall.decision.conditionalAccuracy.rate).toBe(0.5);
     // 快照是克隆：调用方的 fixture 不会被冻结。
-    expect(Object.isFrozen(smallSet[0]!.observation)).toBe(false);
+    expect(Object.isFrozen(callerFixtures[0]!.observation)).toBe(false);
     expect(Object.isFrozen(decisionFixtures[0]!.observation)).toBe(true);
   });
 
