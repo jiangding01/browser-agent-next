@@ -7,8 +7,16 @@ import {
   type ModelFacingToolName,
 } from "@browser-agent-next/policy";
 import {
+  isAbsolute,
+} from "node:path";
+import {
   DEFAULT_MCP_RESULT_MAX_BYTES,
 } from "./mcpProtocolServer.js";
+import {
+  DEFAULT_TRACE_MAX_BYTES,
+  MAX_TRACE_MAX_BYTES,
+  MIN_TRACE_MAX_BYTES,
+} from "./traceFileSink.js";
 import {
   DEFAULT_TRUSTED_RPC_HOST,
   DEFAULT_TRUSTED_RPC_MAX_RESPONSE_BYTES,
@@ -38,6 +46,8 @@ export const MCP_CONFIG_ENV = {
     "BROWSER_AGENT_NEXT_RPC_MAX_RESPONSE_BYTES",
   mcpMaxResultBytes:
     "BROWSER_AGENT_NEXT_MCP_MAX_RESULT_BYTES",
+  traceDir: "BROWSER_AGENT_NEXT_TRACE_DIR",
+  traceMaxBytes: "BROWSER_AGENT_NEXT_TRACE_MAX_BYTES",
 } as const;
 
 export type ModelActApprovalMode =
@@ -61,6 +71,9 @@ export interface ModelFacingMcpConfig {
   readonly rpcTimeoutMs: number;
   readonly rpcMaxResponseBytes: number;
   readonly mcpMaxResultBytes: number;
+  /** 未设置时不产生 trace（默认关闭）。 */
+  readonly traceDir?: string;
+  readonly traceMaxBytes: number;
 }
 
 function parseList(
@@ -324,6 +337,10 @@ export function loadModelFacingMcpConfig(
     );
   }
 
+  const traceDir = parseTraceDirectory(
+    env[MCP_CONFIG_ENV.traceDir],
+  );
+
   const config:
     ModelFacingMcpConfig = {
       readOrigins: Object.freeze(
@@ -434,7 +451,42 @@ export function loadModelFacingMcpConfig(
           1_024,
           1024 * 1024,
         ),
+      ...(traceDir !== undefined
+        ? { traceDir }
+        : {}),
+      traceMaxBytes: parseInteger(
+        env[MCP_CONFIG_ENV.traceMaxBytes],
+        MCP_CONFIG_ENV.traceMaxBytes,
+        DEFAULT_TRACE_MAX_BYTES,
+        MIN_TRACE_MAX_BYTES,
+        MAX_TRACE_MAX_BYTES,
+      ),
     };
 
   return Object.freeze(config);
+}
+
+/**
+ * trace 目录只来自 operator 进程环境（不变量 136）；
+ * 目录本身的权限与类型在打开 sink 时校验。
+ */
+function parseTraceDirectory(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+
+  const directory = value.trim();
+  if (
+    directory.length === 0 ||
+    directory.length > 4_096 ||
+    directory.includes("\0") ||
+    !isAbsolute(directory)
+  ) {
+    throw new Error(
+      MCP_CONFIG_ENV.traceDir +
+        " must be an absolute directory path",
+    );
+  }
+
+  return directory;
 }

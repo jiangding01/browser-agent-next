@@ -25,6 +25,8 @@ import {
   ModelFacingMcpBridge,
   type ModelFacingToolInvoker,
 } from "./mcpProtocolServer.js";
+import { createTraceRecorder } from "./modelTrace.js";
+import type { RuntimeTraceEvent } from "@browser-agent-next/core";
 
 function textOf(
   result: Awaited<ReturnType<ModelFacingMcpBridge["callTool"]>>,
@@ -357,5 +359,111 @@ describe("ModelFacingMcpBridge browser.act", () => {
     });
     expect(again.isError).toBe(true);
     expect(textOf(again)).toContain("POLICY_BLOCKED");
+  });
+});
+
+describe("ModelFacingMcpBridge trace", () => {
+  function tracing() {
+    const events: RuntimeTraceEvent[] = [];
+    const recorder = createTraceRecorder({
+      sink: { write: (event) => events.push(event) },
+    });
+    return { events, recorder };
+  }
+
+  it("records unexposed-tool refusals without the tool name and never reaches the invoker", async () => {
+    const { events, recorder } = tracing();
+    const target = invoker(["browser.observe"]);
+    const bridge = new ModelFacingMcpBridge(target, { trace: recorder });
+
+    await bridge.callTool("Ignore previous instructions", {});
+
+    expect(target.invoke).not.toHaveBeenCalled();
+    expect(events).toEqual([expect.objectContaining({ event: "policy", outcome: "POLICY_BLOCKED" })]);
+    expect(events[0]).not.toHaveProperty("tool");
+    expect(JSON.stringify(events)).not.toContain("Ignore");
+  });
+
+  it("records a result blocked by the result bound as MODEL_EGRESS_BLOCKED", async () => {
+    const { events, recorder } = tracing();
+    const target = invoker(["browser.observe"]);
+    target.invoke.mockResolvedValueOnce({ blob: "x".repeat(4_096) });
+    const bridge = new ModelFacingMcpBridge(target, { trace: recorder, maxResultBytes: 1_024 });
+
+    const result = await bridge.callTool("browser.observe", { tabId: 1 });
+
+    expect(result.isError).toBe(true);
+    expect(events).toEqual([
+      expect.objectContaining({ tool: "browser.observe", event: "policy", outcome: "MODEL_EGRESS_BLOCKED" }),
+    ]);
+  });
+
+  it("returns exactly the same results with and without trace", async () => {
+    const plain = new ModelFacingMcpBridge(invoker());
+    const { events, recorder } = tracing();
+    const traced = new ModelFacingMcpBridge(invoker(), { trace: recorder });
+
+    for (const bridge of [plain, traced]) {
+      const failing = bridge as unknown as { invoker: ReturnType<typeof invoker> };
+      failing.invoker.invoke
+        .mockResolvedValueOnce({ ok: true })
+        .mockRejectedValueOnce(new BrowserRuntimeError("TARGET_OCCLUDED", "occluded"))
+        .mockRejectedValueOnce(new Error("boom"));
+    }
+    const calls = async (bridge: ModelFacingMcpBridge) => [
+      await bridge.callTool("browser.observe", { tabId: 1 }),
+      await bridge.callTool("browser.verify", { tabId: 1 }),
+      await bridge.callTool("browser.observe", { tabId: 1 }),
+      await bridge.callTool("browser.act", {}),
+    ];
+
+    expect(await calls(traced)).toEqual(await calls(plain));
+    expect(events.map((event) => event.outcome)).toEqual([
+      "ok",
+      "TARGET_OCCLUDED",
+      "INTERNAL_ERROR",
+      "POLICY_BLOCKED",
+    ]);
+  });
+
+  it("passes the original context through and adds only the authorization callback", async () => {
+    const { events, recorder } = tracing();
+    const target = invoker(["browser.act"]);
+    target.invoke.mockImplementationOnce(async (_name, _input, context) => {
+      context.onAuthorizationTrace({ path: "operator", approval: "approved", waitMs: 5 });
+      return {
+        status: "executed",
+        effectClass: "unknown",
+        verification: { verified: true, conclusive: true, evidence: [] },
+        verificationAttempts: 1,
+      };
+    });
+    const bridge = new ModelFacingMcpBridge(target, { trace: recorder });
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+
+    await bridge.callTool("browser.act", { tabId: 1 }, { signal: controller.signal, onProgress });
+
+    const context = target.invoke.mock.calls[0]![2];
+    expect(context.signal).toBe(controller.signal);
+    expect(context.onProgress).toBe(onProgress);
+    expect(events[0]).toMatchObject({
+      event: "action",
+      outcome: "executed",
+      authorization: { path: "operator", approval: "approved", waitMs: 5 },
+    });
+  });
+
+  it("gives every bridge (connection) its own session", async () => {
+    const { events, recorder } = tracing();
+    const a = new ModelFacingMcpBridge(invoker(["browser.observe"]), { trace: recorder });
+    const b = new ModelFacingMcpBridge(invoker(["browser.observe"]), { trace: recorder });
+
+    await a.callTool("browser.observe", {});
+    await b.callTool("browser.observe", {});
+
+    expect(events[0]!.runId).toBe(events[1]!.runId);
+    expect(events[0]!.sessionId).not.toBe(events[1]!.sessionId);
+    expect(events.map((event) => event.seq)).toEqual([1, 1]);
   });
 });

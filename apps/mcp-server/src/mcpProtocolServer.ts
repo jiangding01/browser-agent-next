@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/server/stdio";
 import {
   BrowserRuntimeError,
+  type TraceAuthorization,
 } from "@browser-agent-next/core";
 import {
   ModelToolExposurePolicy,
@@ -21,6 +22,10 @@ import {
 import type {
   ModelToolCallContext,
 } from "./modelActBroker.js";
+import type {
+  ModelTraceRecorder,
+  ModelTraceSession,
+} from "./modelTrace.js";
 
 export const DEFAULT_MCP_RESULT_MAX_BYTES = 256 * 1024;
 
@@ -37,6 +42,11 @@ export interface ModelFacingMcpServerOptions {
   name?: string;
   version?: string;
   maxResultBytes?: number;
+  /**
+   * 进程级 trace recorder；未提供时不产生 trace，callTool 行为与关闭时完全一致。
+   * 每个 bridge（即每个 MCP 连接）在构造时开一个独立 session。
+   */
+  trace?: ModelTraceRecorder;
 }
 
 export interface ServeModelFacingMcpStdioOptions
@@ -122,6 +132,7 @@ export class ModelFacingMcpBridge {
   private readonly catalog: readonly Tool[];
   private readonly allowedTools: ReadonlySet<string>;
   private readonly maxResultBytes: number;
+  private readonly trace: ModelTraceSession | undefined;
 
   constructor(
     private readonly invoker: ModelFacingToolInvoker,
@@ -147,6 +158,7 @@ export class ModelFacingMcpBridge {
       "maxResultBytes",
       1024 * 1024,
     );
+    this.trace = options.trace?.session();
   }
 
   listTools(): readonly Tool[] {
@@ -159,10 +171,21 @@ export class ModelFacingMcpBridge {
     context?: ModelToolCallContext,
   ): Promise<CallToolResult> {
     if (!this.allowedTools.has(name)) {
+      this.trace?.recordRefusal("POLICY_BLOCKED");
       return toolError(
         "POLICY_BLOCKED",
         "model-facing tool is not exposed: " +
           name.slice(0, 128),
+      );
+    }
+
+    if (this.trace !== undefined) {
+      return this.tracedCallTool(
+        this.trace,
+        // allowedTools 来自经 exposure policy 过滤的工具目录。
+        name as ModelFacingToolName,
+        input,
+        context,
       );
     }
 
@@ -177,6 +200,61 @@ export class ModelFacingMcpBridge {
         this.maxResultBytes,
       );
     } catch (error) {
+      return normalizedToolError(error);
+    }
+  }
+
+  /**
+   * 与 callTool 相同的调用，额外记录一次 trace。
+   *
+   * 授权回调只做赋值；trace 记录同步、不抛出（不变量 135），返回值与关闭 trace 时一致。
+   */
+  private async tracedCallTool(
+    trace: ModelTraceSession,
+    tool: ModelFacingToolName,
+    input: unknown,
+    context: ModelToolCallContext | undefined,
+  ): Promise<CallToolResult> {
+    let authorization: TraceAuthorization | undefined;
+    const started = Date.now();
+    const tracedContext: ModelToolCallContext = {
+      ...context,
+      onAuthorizationTrace: (value) => {
+        authorization = value;
+      },
+    };
+    const authorizationField = () =>
+      authorization !== undefined ? { authorization } : {};
+
+    try {
+      const result = await this.invoker.invoke(
+        tool,
+        input,
+        tracedContext,
+      );
+      const output = jsonTextResult(
+        result,
+        this.maxResultBytes,
+      );
+      trace.recordToolCall({
+        tool,
+        input,
+        latencyMs: Date.now() - started,
+        ...authorizationField(),
+        outcome:
+          output.isError === true
+            ? { kind: "egress-blocked", value: result }
+            : { kind: "returned", value: result },
+      });
+      return output;
+    } catch (error) {
+      trace.recordToolCall({
+        tool,
+        input,
+        latencyMs: Date.now() - started,
+        ...authorizationField(),
+        outcome: { kind: "threw", error },
+      });
       return normalizedToolError(error);
     }
   }

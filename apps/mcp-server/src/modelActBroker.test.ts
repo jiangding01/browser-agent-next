@@ -1185,3 +1185,157 @@ describe("createModelActBroker 取消、撤销与 progress", () => {
     });
   });
 });
+
+describe("createModelActBroker 授权 trace 回报", () => {
+  function traced(signal?: AbortSignal) {
+    const reports: unknown[] = [];
+    return {
+      reports,
+      context: {
+        ...(signal !== undefined ? { signal } : {}),
+        onAuthorizationTrace: (authorization: unknown) => {
+          reports.push(authorization);
+        },
+      },
+    };
+  }
+
+  it("operator 批准后执行成功：回报一次 approved 与等待耗时", async () => {
+    const runtime = fakeRuntime(["pending", "approved"]);
+    const { instance } = broker(runtime);
+    const { reports, context } = traced();
+
+    await instance.act(actInput(), observation(), context);
+
+    expect(reports).toEqual([
+      {
+        path: "operator",
+        approval: "approved",
+        waitMs: 2 * MODEL_ACT_APPROVAL_POLL_INTERVAL_MS,
+      },
+    ]);
+  });
+
+  it("control-plane-auto 路径不带 approval", async () => {
+    const runtime = fakeRuntime();
+    const { instance } = broker(runtime, { approvalMode: "agent-owned-auto" });
+    const { reports, context } = traced();
+
+    await instance.act(actInput(), observation(), context);
+
+    expect(reports).toEqual([{ path: "control-plane-auto", waitMs: 0 }]);
+  });
+
+  it.each([
+    ["rejected", "rejected"],
+    ["expired", "expired"],
+    ["invalidated", "invalidated"],
+    ["cancelled", "cancelled"],
+    ["bogus", "unknown"],
+  ] as const)("状态 %s 回报为 %s", async (state, approval) => {
+    const runtime = fakeRuntime([state as TrustedOperatorApprovalState]);
+    const { instance } = broker(runtime);
+    const { reports, context } = traced();
+
+    await expect(instance.act(actInput(), observation(), context)).rejects.toMatchObject({
+      code: "AUTHORIZATION_REQUIRED",
+    });
+    expect(reports).toEqual([expect.objectContaining({ path: "operator", approval })]);
+  });
+
+  it("broker 自己的审批超时回报 timeout", async () => {
+    const runtime = fakeRuntime(["pending"]);
+    const { instance } = broker(runtime, { approvalTimeoutMs: 2_500 });
+    const { reports, context } = traced();
+
+    await expect(instance.act(actInput(), observation(), context)).rejects.toMatchObject({
+      code: "AUTHORIZATION_REQUIRED",
+    });
+    expect(reports).toEqual([{ path: "operator", approval: "timeout", waitMs: 2_500 }]);
+  });
+
+  it("等待中与批准后、执行前的客户端取消都回报 client-cancelled", async () => {
+    const waiting = new AbortController();
+    const runtimeA = fakeRuntime(["pending"]);
+    const a = broker(runtimeA, {}, {
+      onSleep: (call) => {
+        if (call === 2) waiting.abort();
+      },
+    });
+    const tracedA = traced(waiting.signal);
+    await expect(a.instance.act(actInput(), observation(), tracedA.context)).rejects.toMatchObject(
+      CLIENT_CANCELLED,
+    );
+
+    const afterApproval = new AbortController();
+    const runtimeB = fakeRuntime();
+    runtimeB.operatorApprovalStatus.mockImplementationOnce(async () => {
+      afterApproval.abort();
+      return { state: "approved" };
+    });
+    const b = broker(runtimeB);
+    const tracedB = traced(afterApproval.signal);
+    await expect(b.instance.act(actInput(), observation(), tracedB.context)).rejects.toMatchObject(
+      CLIENT_CANCELLED,
+    );
+
+    expect(tracedA.reports).toEqual([expect.objectContaining({ approval: "client-cancelled" })]);
+    expect(tracedB.reports).toEqual([expect.objectContaining({ approval: "client-cancelled" })]);
+  });
+
+  it("批准后执行失败仍回报 approved，错误不变", async () => {
+    const runtime = fakeRuntime();
+    runtime.act.mockRejectedValueOnce(new BrowserRuntimeError("TARGET_OCCLUDED", "x"));
+    const { instance } = broker(runtime);
+    const { reports, context } = traced();
+
+    await expect(instance.act(actInput(), observation(), context)).rejects.toMatchObject({
+      code: "TARGET_OCCLUDED",
+    });
+    expect(reports).toEqual([expect.objectContaining({ approval: "approved" })]);
+  });
+
+  it("审批请求 RPC 失败时不带 approval", async () => {
+    const runtime = fakeRuntime();
+    runtime.requestOperatorApproval.mockRejectedValueOnce(
+      new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "x"),
+    );
+    const { instance } = broker(runtime);
+    const { reports, context } = traced();
+
+    await expect(instance.act(actInput(), observation(), context)).rejects.toMatchObject({
+      code: "ACTION_OUTCOME_UNKNOWN",
+    });
+    expect(reports).toEqual([{ path: "operator", waitMs: 0 }]);
+  });
+
+  it("授权阶段之前被拦截的 act 不回报", async () => {
+    const runtime = fakeRuntime();
+    const { instance } = broker(runtime, { budget: 1 });
+    const { reports, context } = traced();
+
+    await expect(
+      instance.act(actInput(), observation({ origin: "https://read-only.test" }), context),
+    ).rejects.toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
+    await instance.act(actInput(), observation(), context);
+    await expect(instance.act(actInput("@b"), observation(), context)).rejects.toMatchObject({
+      code: "POLICY_BLOCKED",
+    });
+
+    expect(reports).toHaveLength(1);
+  });
+
+  it("回调抛错不改变 act 结果", async () => {
+    const runtime = fakeRuntime();
+    const { instance } = broker(runtime);
+
+    await expect(
+      instance.act(actInput(), observation(), {
+        onAuthorizationTrace: () => {
+          throw new Error("trace exploded");
+        },
+      }),
+    ).resolves.toEqual({ status: "executed", effectClass: "unknown" });
+    expect(runtime.act).toHaveBeenCalledTimes(1);
+  });
+});

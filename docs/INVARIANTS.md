@@ -143,3 +143,7 @@
 131. 决策评测必须把 Candidate Recall@K 与 Decision Conditional Accuracy 分开报告；acceptable target 不在候选集中的 fixture 归因为 candidate layer，不得计入 provider 的 conditional accuracy 分母。
 132. provider 返回不在其收到的候选集中的 CLICK ref 一律视为 invalid，即使该 ref 属于 acceptable targets 也不得计为正确，并计入 unsafeClickRate。
 133. CandidateBuilder 不得提升 coverage：候选集的 coverage 不能比 observation 的 actionable coverage 更完整，harness 必须逐 fixture 校验 builder 输出；actionable coverage 非 complete 的 fixture 必须把 ESCALATE 列为可接受答案。
+134. trace 事件只能包含运行时生成并经系统证实的标识（runId、sessionId，以及来自成功结果或已被模型可见 store 查到的 tabId / revision / ref）、枚举、数字、布尔与已通过 policy 的 exact origin；不得包含页面派生文本、字段值、URL path / query / fragment、模型输入文本、未经查表的模型入参、token、authorizationId、approval id 或 actionId。违反 schema 的事件必须整条丢弃。
+135. trace 不得成为授权、执行或验证的前置条件：未配置、队列满、文件满或写入失败时，工具结果、错误 code、授权与执行路径必须与关闭 trace 时一致；trace 内部的异常不得抛入工具路径。
+136. trace 对模型不可见：目录只能来自 operator 进程环境，且必须是当前用户拥有、非 symlink、`mode & 0o077 === 0` 的真实目录；trace 文件只能在该目录中以 `O_EXCL | O_NOFOLLOW` 新建为 `0600` 普通文件，绝不打开、追加或截断已存在的文件。
+137. trace 必须有界：内存队列、单条事件字段与文件总大小都有上限，达到上限只能停止写入，不得阻塞工具调用；act 事件必须有普通事件无法占用的保留容量。

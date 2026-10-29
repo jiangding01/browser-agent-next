@@ -429,4 +429,36 @@ describe("loadModelFacingMcpConfig", () => {
       );
     }
   });
+
+  it("trace 默认关闭；目录只接受绝对路径，大小上限严格解析", () => {
+    const defaults = loadModelFacingMcpConfig({});
+    expect(defaults.traceDir).toBeUndefined();
+    expect(defaults.traceMaxBytes).toBe(16 * 1024 * 1024);
+
+    const configured = loadModelFacingMcpConfig({
+      [MCP_CONFIG_ENV.traceDir]: "  /var/lib/ban/traces  ",
+      [MCP_CONFIG_ENV.traceMaxBytes]: String(64 * 1024),
+    });
+    expect(configured.traceDir).toBe("/var/lib/ban/traces");
+    expect(configured.traceMaxBytes).toBe(64 * 1024);
+
+    for (const traceDir of ["", "   ", "traces", "./traces", "/tmp/a\0b"]) {
+      expect(() =>
+        loadModelFacingMcpConfig({ [MCP_CONFIG_ENV.traceDir]: traceDir }),
+      ).toThrow(/BROWSER_AGENT_NEXT_TRACE_DIR/);
+    }
+    for (const traceMaxBytes of [
+      "0",
+      String(64 * 1024 - 1),
+      String(256 * 1024 * 1024 + 1),
+      "1e6",
+      "-1",
+    ]) {
+      expect(() =>
+        loadModelFacingMcpConfig({
+          [MCP_CONFIG_ENV.traceMaxBytes]: traceMaxBytes,
+        }),
+      ).toThrow(/BROWSER_AGENT_NEXT_TRACE_MAX_BYTES/);
+    }
+  });
 });

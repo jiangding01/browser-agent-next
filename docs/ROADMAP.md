@@ -86,7 +86,7 @@
 
 ## Phase 7-0 — Trace 与评测底座
 - [x] 7-0a 决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture
-- [ ] 7-0b model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭）
+- [x] 7-0b model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭）
 
 ## Phase 7 — Intelligence
 - [ ] deterministic router

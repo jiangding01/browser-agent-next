@@ -6,5 +6,6 @@ export * from "./authorization/types.js";
 export * from "./actions/types.js";
 export * from "./verification/types.js";
 export * from "./trace/types.js";
+export * from "./trace/validation.js";
 export * from "./errors/codes.js";
 export * from "./api/types.js";

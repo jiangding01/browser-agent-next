@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#16 已合并，Phase 0～6.6 全部完成；当前进行 Phase 7-0（Trace 与评测底座）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#17 已合并，Phase 0～6.6 与 Phase 7-0a 完成；Phase 7-0b（脱敏 trace）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -34,7 +34,7 @@ Phase 6.6a Act broker + model-facing browser.act ✅ baseline（默认不暴露�
 Phase 6.6b 取消 / 撤销 / progress + 审批 UX    ✅
 Phase 6.6c side-effect wire + 端到端 + 最终审查 ✅
 Phase 7-0a 决策评测 harness + 对抗 fixture      ✅
-Phase 7-0b 脱敏 trace + 有界 sink              ⏳ 待批准开工
+Phase 7-0b 脱敏 trace + 有界 sink              ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -350,9 +350,32 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 不变量 132 变异验证：把候选集外 ref 改判为合法后，对应 2 个 harness 用例变红 ✅
 - 代码经 check 审查与独立对抗式审查：8 条发现（2 MEDIUM：provider 返回值读取抛错会中断整轮评测、不变量 132 依赖未测试的冻结；4 LOW；2 advisory）全部修复，每条修复的回归用例均经变异验证由红转绿 ✅
 
+## Phase 7-0b：model-facing 脱敏 trace
+
+方案见 `docs/TRACE-EVAL-FOUNDATION.md` 7-0b 节（对照代码细化后经独立对抗式审查，1 HIGH、2 MEDIUM、4 LOW、2 advisory 在实现前并入方案）。
+
+- core：`RuntimeTraceEvent` 收紧为 schema v1（删除自由形式 `diagnostics` 与字符串 `outcome`），新增 `validateTraceEvent` 与格式判断函数；
+- mcp-server：
+  - 埋点在 `ModelFacingMcpBridge.callTool`，能看到结果超限与未暴露工具这两类 bridge 层拒绝；每次 tool call 一条事件，executed 的 act 另加一条动作后 verify；
+  - 标识只记录系统已证实的值：失败调用不记录任何入参标识，open 的 origin 取已过 navigation policy 的入参 URL；
+  - broker 通过 `ModelToolCallContext.onAuthorizationTrace` 回报授权路径、授权阶段最终审批状态与耗时，回调异常不影响 act；
+  - 文件 sink 只在私有目录中以 `O_EXCL | O_NOFOLLOW` 新建 `trace-<runId>.jsonl`，有队列与大小上限，act 事件有保留容量；Windows 上拒绝开启；
+  - 新增 `BROWSER_AGENT_NEXT_TRACE_DIR` / `BROWSER_AGENT_NEXT_TRACE_MAX_BYTES`，默认关闭；
+- eval：`parseTraceJsonl` / `summarizeTrace`（分层计数、按 tool 的 p50 / p95、审批分布、seq 断档推出的丢弃数）；
+- 新增不变量 134～137，SECURITY 新增「Model-facing trace 边界」。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（749 个）✅
+- Workspace build ✅
+- Real Chromium E2E：本 PR 未改 E2E（trace 默认关闭），由 CI browser-e2e 覆盖
+- 变异验证：失败调用记录入参标识、open origin 改用 Runtime 回传值、去掉 `O_EXCL`、去掉 act 保留容量、broker 回调不加保护、validator 放过未知 key、recorder 不吞异常、bridge 把结果超限记为成功，8 种变异均被对应测试抓到 ✅
+- 代码经 check 审查与独立对抗式审查：1 HIGH（预算之前就失败的 act 调用会占用 act 保留容量，模型可借此挤掉真实 act 的记录）、3 LOW（目录末尾斜杠绕过 symlink 检查、文件尾部丢弃不形成 seq 断档、写入失败路径无测试）与 5 条 advisory 已处理；保留档判定与末尾斜杠两处修复经变异验证由红转绿 ✅
+
 ## 下一步
 
-1. Phase 7-0b：model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭），方案见 `docs/TRACE-EVAL-FOUNDATION.md`，待批准后开工。
+1. Phase 7-0 完成后进入 Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run），开工前再与 Strict 写入类动作（setValue / selectOption / pressKey）的优先级一起确认。
 
 ## 文档
 
