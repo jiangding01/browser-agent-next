@@ -1,10 +1,10 @@
 # 实现进度
 
-最后更新：2026-10-16
+最后更新：2026-10-29
 
 ## 当前基线
 
-PR #7 已合并；Strict Click 时序修复已完成并通过全量验收。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#16 已合并，Phase 0～6.6 全部完成；当前进行 Phase 7-0（Trace 与评测底座）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -33,6 +33,8 @@ Phase 6.6 PR-0 auto-act origins 配置文件下发 ✅
 Phase 6.6a Act broker + model-facing browser.act ✅ baseline（默认不暴露）
 Phase 6.6b 取消 / 撤销 / progress + 审批 UX    ✅
 Phase 6.6c side-effect wire + 端到端 + 最终审查 ✅
+Phase 7-0a 决策评测 harness + 对抗 fixture      ✅
+Phase 7-0b 脱敏 trace + 有界 sink              ⏳ 待批准开工
 ```
 
 ## PR #5 第一阶段已完成
@@ -328,9 +330,29 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E 13/13 ✅（新用例本地重复运行通过）
 - 方案经 think + check 审查；代码经 check 审查与独立审查，无 HIGH / MEDIUM，LOW 已修复并复审 ✅
 
+## Phase 7-0a：决策评测 harness
+
+方案见 `docs/TRACE-EVAL-FOUNDATION.md`（think 编写、check 审查一轮，6 条发现已在实现前并入方案）。
+
+- `packages/eval` 新增 `DecisionFixture` / `validateDecisionFixtures`：kebab-case 唯一名称、有界 microGoal、操作空间限定为 `CLICK / HANDOFF_FORM / HANDOFF_VERIFY / ESCALATE`、CLICK target 必须可见启用可点击、element frame 必须已声明、actionable coverage 非 complete 时必须接受 ESCALATE；
+- 参考 `observationOrderCandidateBuilder`：可见、启用、带 click capability 的元素按 observation 顺序，超过上限标 `truncated`，coverage 绝不提升；
+- `runDecisionEvaluation`：先校验 fixture 与 ks，串行运行，输入深冻结；builder 输出逐 fixture 校验；报告 Recall@K、complete-action-space rate、conditional accuracy（click / nonClick）、safeFallback、unsafeClickRate 与按 tag 指标，空分母为 `null`；每个 fixture 按第一个失败的层归因；
+- 第一批 14 个合成对抗 fixture，覆盖同名元素、替换节点、遮挡、禁用、截断、prompt 注入文本、破坏性相邻按钮、中英混排、child frame、表单与验证 handoff；
+- 新增不变量 131～133；纯离线包，不改变任何运行期行为。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests（692 个）✅
+- Workspace build ✅
+- Real Chromium E2E：本 PR 未改 E2E，由 CI browser-e2e 覆盖
+- 不变量 132 变异验证：把候选集外 ref 改判为合法后，对应 2 个 harness 用例变红 ✅
+- 代码经 check 审查与独立对抗式审查：8 条发现（2 MEDIUM：provider 返回值读取抛错会中断整轮评测、不变量 132 依赖未测试的冻结；4 LOW；2 advisory）全部修复，每条修复的回归用例均经变异验证由红转绿 ✅
+
 ## 下一步
 
-1. Phase 6.6 已全部完成，进入 Phase 7（Intelligence Layer）；开工前对照 `docs/ROADMAP.md` 与旧 browser-agent 的功能缺口重新规划。
+1. Phase 7-0b：model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭），方案见 `docs/TRACE-EVAL-FOUNDATION.md`，待批准后开工。
 
 ## 文档
 

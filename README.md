@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已合并，Strict Click 时序修复已完成并通过全量验收。
+PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）全部完成。当前进行 Phase 7-0（Trace 与评测底座），7-0a 决策评测 harness 已交付。
 
 已经完成：
 
@@ -42,7 +42,9 @@ PR #1～#6 已合并；PR #7 **OOPIF + Child-frame Actuation** 已合并，Stric
 - child-frame → top-level viewport 坐标投影；
 - Real Chromium OOPIF / nested child-frame Strict Click 执行闭环（含 `mouseMoved` 时序修复）；
 - native host 启动时从 `~/.browser-agent-next/autoact-origins.json` 下发 auto-act origin allowlist（Phase 6.6 PR-0，fail closed）；
-- model-facing `browser.act` 与 scoped Act broker（Phase 6.6a：side-effect tier 默认不暴露、独立 act origin plane、预算与单次执行、operator approval 默认、本地重验证）。
+- model-facing `browser.act` 与 scoped Act broker（Phase 6.6a：side-effect tier 默认不暴露、独立 act origin plane、预算与单次执行、operator approval 默认、本地重验证）；
+- 审批取消 / 撤销、MCP progress、扩展角标与审批页体验，以及 side-effect wire 集成与端到端测试（Phase 6.6b / 6.6c）；
+- 离线决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture（Phase 7-0a）。
 
 真实 Chromium 已验证：
 
@@ -113,3 +115,4 @@ pnpm e2e
 - [PR #5 最终审查](./docs/PR5-FINAL-REVIEW.md)
 - [PR #6 最终审查](./docs/PR6-FINAL-REVIEW.md)
 - [PR #7 最终审查](./docs/PR7-FINAL-REVIEW.md)
+- [Phase 7-0 Trace 与评测底座](./docs/TRACE-EVAL-FOUNDATION.md)
