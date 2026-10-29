@@ -25,6 +25,7 @@ import {
   TRACE_QUEUE_LIMIT,
   openTraceFileSink,
   usesActReserve,
+  writeFully,
 } from "./traceFileSink.js";
 
 const FILE_NAME = "trace-0b6f9d2e-1c4a-4f7e-9a3b-5d8c2e1f0a4b.jsonl";
@@ -55,6 +56,24 @@ function executedAct(seq: number): RuntimeTraceEvent {
     authorization: { path: "control-plane-auto", waitMs: 1 },
   });
 }
+
+describe("writeFully", () => {
+  it("treats a short write as a failure instead of splitting the line", async () => {
+    const short = ((_fd: number, buffer: Buffer, _offset: number, _length: number, _position: null, callback: (error: Error | null, written: number) => void) => {
+      callback(null, buffer.length - 1);
+    }) as unknown as Parameters<typeof writeFully>[2];
+    const failing = ((_fd: number, _buffer: Buffer, _offset: number, _length: number, _position: null, callback: (error: Error | null, written: number) => void) => {
+      callback(new Error("EIO"), 0);
+    }) as unknown as Parameters<typeof writeFully>[2];
+    const full = ((_fd: number, buffer: Buffer, _offset: number, _length: number, _position: null, callback: (error: Error | null, written: number) => void) => {
+      callback(null, buffer.length);
+    }) as unknown as Parameters<typeof writeFully>[2];
+
+    await expect(writeFully(3, Buffer.from("abc\n"), short)).rejects.toThrow(/short trace write/);
+    await expect(writeFully(3, Buffer.from("abc\n"), failing)).rejects.toThrow(/EIO/);
+    await expect(writeFully(3, Buffer.from("abc\n"), full)).resolves.toBeUndefined();
+  });
+});
 
 describe("usesActReserve", () => {
   it("reserves capacity only for act events that reached authorization or executed", () => {
@@ -143,32 +162,24 @@ describe.runIf(process.platform !== "win32")("openTraceFileSink", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it("goes silent after a failed or short write, without throwing", async () => {
-    for (const failure of ["error", "short"] as const) {
-      const name = failure === "error"
-        ? FILE_NAME
-        : FILE_NAME.replace("0b6f9d2e", "1b6f9d2e");
-      let calls = 0;
-      const sink = openTraceFileSink({
-        directory: dir,
-        fileName: name,
-        log,
-        writer: async () => {
-          calls += 1;
-          throw new Error(failure === "error" ? "EIO" : "short trace write");
-        },
-      });
+  it("goes silent after a failed write, without throwing", async () => {
+    let calls = 0;
+    const sink = openTraceFileSink({
+      directory: dir,
+      fileName: FILE_NAME,
+      log,
+      writer: async () => {
+        calls += 1;
+        throw new Error("EIO");
+      },
+    });
 
-      sink.write(event(1));
-      await sink.flush();
-      expect(() => sink.write(event(2))).not.toThrow();
-      await sink.close();
-      expect(calls).toBe(1);
-    }
-    expect(logs).toEqual([
-      "write failed; further events are dropped",
-      "write failed; further events are dropped",
-    ]);
+    sink.write(event(1));
+    await sink.flush();
+    expect(() => sink.write(event(2))).not.toThrow();
+    await sink.close();
+    expect(calls).toBe(1);
+    expect(logs).toEqual(["write failed; further events are dropped"]);
   });
 
   it("refuses a directory readable or writable by others", () => {

@@ -128,12 +128,14 @@ function boundedMaxBytes(value: number): number {
   return value;
 }
 
-function writeFully(
+/** 一次 write 写完整条事件；短写视为失败（不重试，避免一行被拆开）。 */
+export function writeFully(
   fd: number,
   buffer: Buffer,
+  writeImpl: typeof write = write,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    write(fd, buffer, 0, buffer.length, null, (error, written) => {
+    writeImpl(fd, buffer, 0, buffer.length, null, (error, written) => {
       if (error) {
         reject(error);
       } else if (written !== buffer.length) {
