@@ -140,3 +140,6 @@
 128. 审批页必须把页面派生文本（目标名称、role、页面标题）放在明确标注为不可信的区域，并与浏览器提供的 origin 分开展示；显示前必须删除控制字符、格式字符（含 bidi 覆盖 / 隔离与零宽字符）与变体选择符，且只能经 `textContent` 写入。自动刷新不得让已有卡片在 operator 点击时移位而按钮仍可用：已有卡片不重排、新卡片只追加并延迟启用、消失的卡片先原位禁用再移除。扩展角标只能显示待审批数量。
 129. model-facing MCP 的 trusted Runtime client 在所有路径上都只能把 trusted 错误的 code 交给模型，message 必须换成固定文本；扩展返回的 verification evidence 中的 `observed` 与 `reason` 必须在 client 层丢弃。安全性不得依赖扩展错误消息恰好是静态文本。
 130. read plane（出境投影）与 act plane（act broker）对 frame 有效 origin 的判定必须共用同一实现：顶层 frame 缺 url 回落 tab origin，about:blank / about:srcdoc 继承父 frame，其余缺 url、找不到或父链成环一律 fail closed。
+131. 决策评测必须把 Candidate Recall@K 与 Decision Conditional Accuracy 分开报告；acceptable target 不在候选集中的 fixture 归因为 candidate layer，不得计入 provider 的 conditional accuracy 分母。
+132. provider 返回不在其收到的候选集中的 CLICK ref 一律视为 invalid，即使该 ref 属于 acceptable targets 也不得计为正确，并计入 unsafeClickRate。
+133. CandidateBuilder 不得提升 coverage：候选集的 coverage 不能比 observation 的 actionable coverage 更完整，harness 必须逐 fixture 校验 builder 输出；actionable coverage 非 complete 的 fixture 必须把 ESCALATE 列为可接受答案。

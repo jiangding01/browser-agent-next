@@ -60,7 +60,7 @@ Otherwise a CandidateBuilder failure is incorrectly blamed on the model.
 
 ## Fixture format
 
-A future decision fixture should contain:
+Phase 7-0a 起由 `packages/eval` 实现（`DecisionFixture` / `validateDecisionFixtures`），设计见 `docs/TRACE-EVAL-FOUNDATION.md`。基本形态：
 
 ```ts
 interface DecisionFixture {
@@ -76,6 +76,21 @@ interface DecisionFixture {
 ```
 
 Use a set of acceptable targets rather than one exact target where the UI admits multiple valid next steps.
+
+实际实现把 `acceptableOperations` 收窄为 Jev 初始操作空间（`CLICK / HANDOFF_FORM / HANDOFF_VERIFY / ESCALATE`），`tags` 收窄为固定枚举；fixture 校验要求 CLICK target 可见、启用、带 click capability，actionable coverage 非 complete 时必须接受 ESCALATE。
+
+## Decision evaluation harness
+
+`runDecisionEvaluation({ fixtures, builder, provider, ks })`（`packages/eval/src/decisionHarness.ts`）：
+
+- 先校验 fixture 与 ks，再串行运行；provider / builder 收到深冻结的克隆，报告可 JSON 序列化且确定；
+- builder 输出逐 fixture 校验（ref 唯一且存在、coverage 不提升、`totalKnown ≥ refs.length`），不合法直接失败；
+- 报告 Recall@K、complete-action-space rate、conditional accuracy（含 click / nonClick 子总体）、candidate miss 下的 safeFallback、unsafeClickRate，以及按 tag 的同一组指标；分母为 0 时比例为 `null`；
+- 每个 fixture 按第一个失败的层归因：`provider-error / candidate-miss / decision-invalid / decision-wrong / ok`。
+
+参考 builder `observationOrderCandidateBuilder` 表示“模型今天直接看到的 action space”，作为后续 CandidateBuilder 的对照基线。第一批 14 个 fixture 是 harness 正确性与覆盖面检查，不是质量基准。
+
+暂未覆盖的 fixture 家族：SPA navigation 与 disabled→enabled 转换（需要多步序列，归 offline replay）、virtualized lists（需要 scoped / paged observation）、WebMCP tool-description injection（Phase 8）。
 
 ## Required adversarial fixture families
 

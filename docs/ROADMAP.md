@@ -84,6 +84,10 @@
   - [x] popup 显示 TTL 倒计时，并标注页面文本不可信（6.6b-B，含防误点增量刷新）
   - [x] approval 超时 / 客户端取消 / 执行失败后撤销 pending approval request 与未消费 grant（6.6b-A）
 
+## Phase 7-0 — Trace 与评测底座
+- [x] 7-0a 决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture
+- [ ] 7-0b model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭）
+
 ## Phase 7 — Intelligence
 - [ ] deterministic router
 - [ ] Jev CandidateBuilder

@@ -10,6 +10,9 @@ export interface ObservationFixtureOptions {
   url?: string;
   elements?: ElementState[];
   actionableCoverage?: BrowserObservation["coverage"]["actionable"];
+  frames?: BrowserObservation["frames"];
+  overlays?: BrowserObservation["overlays"];
+  dialogs?: BrowserObservation["dialogs"];
 }
 
 export function fixtureButton(
@@ -19,12 +22,23 @@ export function fixtureButton(
     frameId?: string;
     enabled?: boolean;
     visible?: boolean;
+    role?: string;
+    description?: string;
+    hitTestable?: boolean;
+    kind?: ElementState["kind"];
+    capabilities?: ElementState["capabilities"];
   } = {},
 ): ElementState {
   return {
     ref,
-    kind: "element",
-    semantic: { role: "button", name },
+    kind: options.kind ?? "element",
+    semantic: {
+      role: options.role ?? "button",
+      name,
+      ...(options.description !== undefined
+        ? { description: options.description }
+        : {}),
+    },
     state: {
       visible: options.visible ?? true,
       enabled: options.enabled ?? true,
@@ -33,10 +47,10 @@ export function fixtureButton(
     geometry: {
       rect: { x: 100, y: 100, width: 120, height: 36 },
       inViewport: true,
-      hitTestable: true,
+      hitTestable: options.hitTestable ?? true,
     },
     frameId: options.frameId ?? "main",
-    capabilities: [{ kind: "click" }],
+    capabilities: options.capabilities ?? [{ kind: "click" }],
     provenance: { ax: true, dom: true },
   };
 }
@@ -84,8 +98,16 @@ export function fixtureObservation(
       scrollWidth: 1280,
       scrollHeight: 720,
     },
-    frames: [{ frameId: "main", documentEpoch, accessible: true }],
+    frames: options.frames ?? [
+      { frameId: "main", documentEpoch, accessible: true },
+    ],
     elements,
+    ...(options.overlays !== undefined
+      ? { overlays: options.overlays }
+      : {}),
+    ...(options.dialogs !== undefined
+      ? { dialogs: options.dialogs }
+      : {}),
   };
 }
 
