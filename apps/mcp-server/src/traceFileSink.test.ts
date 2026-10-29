@@ -24,11 +24,16 @@ import {
   TRACE_ACT_QUEUE_RESERVE,
   TRACE_QUEUE_LIMIT,
   openTraceFileSink,
+  usesActReserve,
 } from "./traceFileSink.js";
 
 const FILE_NAME = "trace-0b6f9d2e-1c4a-4f7e-9a3b-5d8c2e1f0a4b.jsonl";
 
-function event(seq: number, tool?: RuntimeTraceEvent["tool"]): RuntimeTraceEvent {
+function event(
+  seq: number,
+  tool?: RuntimeTraceEvent["tool"],
+  overrides: Partial<RuntimeTraceEvent> = {},
+): RuntimeTraceEvent {
   return {
     schemaVersion: 1,
     ts: 1_761_700_000_000 + seq,
@@ -38,8 +43,37 @@ function event(seq: number, tool?: RuntimeTraceEvent["tool"]): RuntimeTraceEvent
     event: "observe",
     outcome: "ok",
     ...(tool !== undefined ? { tool } : {}),
+    ...overrides,
   };
 }
+
+/** 真正进入授权阶段并执行的 act 事件。 */
+function executedAct(seq: number): RuntimeTraceEvent {
+  return event(seq, "browser.act", {
+    event: "action",
+    outcome: "executed",
+    authorization: { path: "control-plane-auto", waitMs: 1 },
+  });
+}
+
+describe("usesActReserve", () => {
+  it("reserves capacity only for act events that reached authorization or executed", () => {
+    expect(usesActReserve(executedAct(1))).toBe(true);
+    expect(usesActReserve(event(1, "browser.act", { event: "verify", outcome: "verified" }))).toBe(true);
+    expect(
+      usesActReserve(event(1, "browser.act", {
+        event: "policy",
+        outcome: "AUTHORIZATION_REQUIRED",
+        authorization: { path: "operator", approval: "rejected" },
+      })),
+    ).toBe(true);
+    // 预算之前就失败的 act 调用不受预算约束，不能占用保留容量。
+    for (const outcome of ["POLICY_BLOCKED", "MODEL_EGRESS_BLOCKED", "REF_NOT_IN_OBSERVATION"] as const) {
+      expect(usesActReserve(event(1, "browser.act", { event: "policy", outcome }))).toBe(false);
+    }
+    expect(usesActReserve(event(1, "browser.observe"))).toBe(false);
+  });
+});
 
 function lines(path: string): RuntimeTraceEvent[] {
   return readFileSync(path, "utf8")
@@ -97,14 +131,44 @@ describe.runIf(process.platform !== "win32")("openTraceFileSink", () => {
     expect(readFileSync(target, "utf8")).toBe("private key\n");
   });
 
-  it("refuses a symlinked directory", () => {
+  it("refuses a symlinked directory, with or without a trailing separator", () => {
     const linked = join(root, "linked");
     symlinkSync(dir, linked);
 
-    expect(() => openTraceFileSink({ directory: linked, fileName: FILE_NAME, log })).toThrow(
-      /not a symlink/,
-    );
+    for (const directory of [linked, linked + "/", linked + "//"]) {
+      expect(() => openTraceFileSink({ directory, fileName: FILE_NAME, log })).toThrow(
+        /not a symlink/,
+      );
+    }
     expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("goes silent after a failed or short write, without throwing", async () => {
+    for (const failure of ["error", "short"] as const) {
+      const name = failure === "error"
+        ? FILE_NAME
+        : FILE_NAME.replace("0b6f9d2e", "1b6f9d2e");
+      let calls = 0;
+      const sink = openTraceFileSink({
+        directory: dir,
+        fileName: name,
+        log,
+        writer: async () => {
+          calls += 1;
+          throw new Error(failure === "error" ? "EIO" : "short trace write");
+        },
+      });
+
+      sink.write(event(1));
+      await sink.flush();
+      expect(() => sink.write(event(2))).not.toThrow();
+      await sink.close();
+      expect(calls).toBe(1);
+    }
+    expect(logs).toEqual([
+      "write failed; further events are dropped",
+      "write failed; further events are dropped",
+    ]);
   });
 
   it("refuses a directory readable or writable by others", () => {
@@ -157,12 +221,16 @@ describe.runIf(process.platform !== "win32")("openTraceFileSink", () => {
       }
       await sink.flush();
     }
-    sink.write(event(seq + 1, "browser.act"));
+    // 预算之前就失败的 act 调用与普通事件同档：此时已写不进去。
+    sink.write(event(seq + 1, "browser.act", { event: "policy", outcome: "POLICY_BLOCKED" }));
+    sink.write(executedAct(seq + 2));
     await sink.close();
 
     const written = lines(sink.path);
     expect(written.filter((item) => item.tool === undefined)).toHaveLength(normalCapacity);
-    expect(written.at(-1)).toMatchObject({ seq: seq + 1, tool: "browser.act" });
+    expect(written.filter((item) => item.tool === "browser.act")).toEqual([
+      expect.objectContaining({ seq: seq + 2, outcome: "executed" }),
+    ]);
     expect(statSync(sink.path).size).toBeLessThanOrEqual(MIN_TRACE_MAX_BYTES);
     expect(logs).toEqual([
       "file reached its size limit for non-act events; they are dropped",
@@ -174,8 +242,12 @@ describe.runIf(process.platform !== "win32")("openTraceFileSink", () => {
     for (let seq = 1; seq <= TRACE_QUEUE_LIMIT + 50; seq += 1) {
       sink.write(event(seq));
     }
+    // 大量无效 act 调用不能挤占 act 保留容量。
+    for (let seq = 1; seq <= 200; seq += 1) {
+      sink.write(event(50_000 + seq, "browser.act", { event: "policy", outcome: "POLICY_BLOCKED" }));
+    }
     for (let seq = 1; seq <= TRACE_ACT_QUEUE_RESERVE; seq += 1) {
-      sink.write(event(100_000 + seq, "browser.act"));
+      sink.write(executedAct(100_000 + seq));
     }
     await sink.close();
 
@@ -183,9 +255,10 @@ describe.runIf(process.platform !== "win32")("openTraceFileSink", () => {
     const normal = written.filter((item) => item.tool === undefined);
     expect(normal.length).toBeGreaterThanOrEqual(TRACE_QUEUE_LIMIT);
     expect(normal.length).toBeLessThan(TRACE_QUEUE_LIMIT + 50);
-    expect(written.filter((item) => item.tool === "browser.act")).toHaveLength(
+    expect(written.filter((item) => item.outcome === "executed")).toHaveLength(
       TRACE_ACT_QUEUE_RESERVE,
     );
+    expect(written.filter((item) => item.outcome === "POLICY_BLOCKED")).toEqual([]);
     expect(logs).toEqual(["queue is full; events are being dropped"]);
   });
 

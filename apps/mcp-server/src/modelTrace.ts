@@ -43,10 +43,11 @@ export interface ModelTraceSession {
 }
 
 export interface ModelTraceRecorder {
-  /** 每个 MCP 连接一个 session：runId 共享，sessionId 与 seq 独立。 */
+  /**
+   * 每个 MCP 连接一个 session：runId 共享，sessionId 与 seq 独立。
+   * seq 在校验之前分配，因此被 validateTraceEvent 丢弃的事件会留下 seq 断档。
+   */
   session(): ModelTraceSession;
-  /** 被 validateTraceEvent 拒绝或构造失败而丢弃的事件数。 */
-  droppedCount(): number;
 }
 
 export interface TraceRecorderOptions {
@@ -324,7 +325,20 @@ function eventsFor(call: TracedToolCall): EventBody[] {
       break;
     }
     case "egress-blocked":
-      events = [failureEvent(call.tool, "MODEL_EGRESS_BLOCKED", latencyMs)];
+      // act 已经执行、只是结果超过出境上限：先如实记录执行，再记录拦截，
+      // 不能把一次真实点击记成单纯的 policy 拦截。
+      events =
+        call.tool === "browser.act"
+          ? [
+              ...successEvents(call.tool, input, call.outcome.value, latencyMs),
+              {
+                source: "llm",
+                tool: call.tool,
+                event: "policy",
+                outcome: "MODEL_EGRESS_BLOCKED",
+              },
+            ]
+          : [failureEvent(call.tool, "MODEL_EGRESS_BLOCKED", latencyMs)];
       break;
   }
 
@@ -346,7 +360,6 @@ export function createTraceRecorder(
   const now = options.now ?? Date.now;
   const uuid = options.uuid ?? randomUUID;
   const runId = options.runId ?? uuid();
-  let dropped = 0;
 
   return {
     session() {
@@ -363,10 +376,7 @@ export function createTraceRecorder(
           seq,
           ...body,
         };
-        if (!validateTraceEvent(event)) {
-          dropped += 1;
-          return;
-        }
+        if (!validateTraceEvent(event)) return;
         options.sink.write(event);
       };
 
@@ -375,20 +385,17 @@ export function createTraceRecorder(
           try {
             for (const body of eventsFor(call)) emit(body);
           } catch {
-            dropped += 1;
+            // trace 内部异常不得进入工具路径（不变量 135）。
           }
         },
         recordRefusal(code) {
           try {
             emit({ source: "llm", event: "policy", outcome: code });
           } catch {
-            dropped += 1;
+            // 同上。
           }
         },
       };
-    },
-    droppedCount() {
-      return dropped;
     },
   };
 }

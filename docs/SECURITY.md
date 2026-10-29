@@ -115,7 +115,7 @@ trace 默认关闭，只有 operator 设置 `BROWSER_AGENT_NEXT_TRACE_DIR` 才�
 - **内容**：每次 tool call 一条事件（executed 的 act 另加一条动作后 verify），只包含 runId / sessionId / seq、事件层、结果 code、计数与延迟、act 的授权路径与审批结果，以及系统已证实的 tabId / revision / ref 与已通过 policy 的 exact origin。失败调用的入参标识没有经过任何查表，是模型自己选的字符串，合法字符集同样能拼出敏感数据，因此一律不记录。core 的 `validateTraceEvent`（exact-key + 格式白名单）是第二道防线，不合法的事件整条丢弃。
 - **对模型不可见**：没有任何 tool 读取 trace，trace 内容不进入 MCP 结果；目录只来自进程环境。
 - **文件**：只在当前用户拥有、`mode & 0o077 === 0` 的真实目录中以 `O_EXCL | O_NOFOLLOW` 新建 `0600` 文件，打开后用 fstat 与 dev/ino 复核；绝不打开、追加或截断已存在的文件，因此把目录配错也无法写坏 token、私钥或其它文件。Windows 上没有 `O_NOFOLLOW`，直接拒绝开启。
-- **有界**：队列与每进程文件大小都有上限；`browser.act` 事件有普通事件无法占用的保留容量（act 本身受每连接预算约束），模型无法先用廉价调用撑满再执行不被记录的 act。丢弃表现为同一 session 的 seq 断档。
+- **有界**：队列与每进程文件大小都有上限；进入授权阶段或已执行的 `browser.act` 事件有普通事件无法占用的保留容量（它们都发生在每连接预算扣减之后），在预算之前就失败的 act 调用与普通事件同档，因此模型无法先用廉价调用撑满再执行不被记录的 act。丢弃表现为同一 session 的 seq 断档；文件写满或写入失败后的尾部丢弃没有断档，只在 stderr 提示一次。
 - **不是前置条件**：trace 的任何失败（未配置、队列满、文件满、写入失败、构造异常、授权回调异常）都不改变工具结果、错误 code、授权或执行路径。
 
 已接受的残余：trace 记录访问过的 origin（都在 operator 已配置的 allowlist 内）与操作时间线；trace 文件的访问控制依赖 OS 用户隔离，与 trusted token 相同；模型输入校验失败在 adapter 里同为 `POLICY_BLOCKED`，会计入 policy 层；进程退出时队列中未写出的事件会丢失。

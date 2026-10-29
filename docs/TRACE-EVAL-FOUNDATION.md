@@ -309,11 +309,11 @@ export interface RuntimeTraceEvent {
 | `revision` | 仅成功调用：observe 取结果 `revision.id`；extract 取结果 `revision`；wait 取结果 `observation.revision.id`；verify / act 取已查表的入参 `observedRevision`。act 的动作后 verify 事件不带 revision（动作后的 revision 不会回到 bridge，动作前的那个不是它验证的对象） |
 | `ref` | 仅成功的 act，取已查表的入参 `ref` |
 | `origin` | 仅成功调用：open 取入参 `url` 的 origin（它在调用 Runtime 之前已通过 navigation policy；Runtime 返回的 `requestedUrl` 不再经过 policy，不用）；observe 取结果 `tab.origin`；wait 取结果 `observation.tab.origin`（两者都已通过 read policy 投影） |
-| `outcome` | open / observe / extract 成功为 `ok`；verify 为 `verified` / `not-verified` / `inconclusive`；wait 为 `verified` / `timed-out`；act 成功为 `executed`；失败为 `BrowserRuntimeError.code`，其余异常为 `INTERNAL_ERROR`；序列化或大小上限拦截为 `MODEL_EGRESS_BLOCKED` |
+| `outcome` | open / observe / extract 成功为 `ok`；verify 为 `verified` / `not-verified` / `inconclusive`；wait 为 `verified` / `timed-out`；act 成功为 `executed`；失败为 `BrowserRuntimeError.code`，其余异常为 `INTERNAL_ERROR`；序列化或大小上限拦截为 `MODEL_EGRESS_BLOCKED`。act 已执行但结果被拦截时，先照常记录 `executed` 与动作后 verify，再加一条不带 metrics 的 `policy / MODEL_EGRESS_BLOCKED`，不把真实点击记成单纯的拦截 |
 | `metrics` | 所有调用都有 `latencyMs`（整次调用耗时；act 包含审批等待与动作后验证）；observe：`candidateCount = elements.length`（模型实际看到的数量）、`candidateTotalKnown`（投影后 observation 声明的总数，模型同样可见，可能大于前者）、`candidateCoverage`；extract：`candidateCount = items.length`、`candidateCoverage`；wait：`attempts` |
 | `authorization` | 仅 act，来自 broker 的 `onAuthorizationTrace` |
 
-`ts` 是事件记录时刻（调用结束时），`seq` 是同一 session 内的记录顺序；并发调用的 seq 顺序是完成顺序，开始时刻可由 `ts - latencyMs` 得到。**seq 断档表示该 session 有事件被丢弃**（校验失败、队列或文件满），这是唯一的丢弃标记，不另写哨兵行。
+`ts` 是事件记录时刻（调用结束时），`seq` 是同一 session 内的记录顺序；并发调用的 seq 顺序是完成顺序，开始时刻可由 `ts - latencyMs` 得到。**seq 断档表示该 session 有事件被丢弃**（seq 在校验之前分配，因此校验失败、队列或文件满都会留下断档），不另写哨兵行。断档只能暴露“后面还有记录”的丢弃：文件写满或写入失败后该 session 尾部的事件全部丢失，不会形成断档，这种情况由 sink 写到 stderr 的一行提示。
 
 事件类型：open → `action`；observe / extract → `observe`；verify / wait → `verify`；act 成功 → `action`（`executed`）再加一条 `verify`（动作后本地验证，带 `attempts`）。失败时按 code 分层：`POLICY_BLOCKED / ORIGIN_NOT_ALLOWED / AUTHORIZATION_REQUIRED / MODEL_EGRESS_BLOCKED / REF_NOT_IN_OBSERVATION` → `policy`；`OBSERVATION_EXPIRED / REF_NOT_FOUND / REF_STALE / DOCUMENT_CHANGED / FRAME_CHANGED / TARGET_*` → `preflight`；其余 → 该 tool 本身的事件类型。映射错误只影响归因，不影响任何执行结果。已知的混淆：模型输入校验失败在 adapter 里也是 `POLICY_BLOCKED`，因此会计入 `policy`；区分它需要改动现有错误 code，不在本 PR 范围。
 
@@ -339,10 +339,10 @@ broker 只在 act 进入授权阶段（budget 与单次执行账本之后）时�
 ### 文件 sink
 
 - 启动时打开（任何问题直接启动失败，与其它配置一致；错误只写 stderr）；
-- 目录要求：真实目录（非 symlink）、属于当前用户、`mode & 0o077 === 0`（与 trusted token 目录相同）；
+- 目录要求（先 `path.resolve` 去掉末尾分隔符，因为 `lstat("link/")` 会跟随 symlink）：真实目录（非 symlink）、属于当前用户、`mode & 0o077 === 0`（与 trusted token 目录相同）；
 - 文件：`<dir>/trace-<runId>.jsonl`，`O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_NOFOLLOW`、mode `0600`——**只新建、从不打开已存在的文件**；打开后 `fstat` 要求普通文件、`nlink === 1`、属于当前用户、`mode & 0o077 === 0`，并复核目录与文件的 dev/ino 与打开前后的 `lstat` 一致（防止检查与打开之间路径被替换），不满足时关闭 fd、删除刚建的文件并启动失败；
 - `write()` 同步入队、立即返回；后台单一在途异步写；
-- 容量分两档：普通事件受队列 1024 条与 `maxBytes × 3/4` 限制；act 与其授权事件（`tool === "browser.act"`）另有 512 条队列余量，并可使用剩下的 1/4 文件容量。act 本身受每连接预算（≤ 256）约束，因此模型无法用廉价调用挤掉 act 的记录；
+- 容量分两档：普通事件受队列 1024 条与 `maxBytes × 3/4` 限制；**进入授权阶段或已执行的 act 事件**（`tool === "browser.act"` 且带 authorization、outcome 为 `executed`，或是动作后 verify）另有 512 条队列余量，并可使用剩下的 1/4 文件容量。这些事件都发生在每连接预算（≤ 256）扣减之后，数量有界；格式错误、revision 未知、ref 不存在等在预算之前就失败的 act 调用不受预算约束，与普通事件同档——否则模型可以用它们撑满保留容量，再执行不被记录的 act；
 - 到达上限只停止对应档位的写入，每档各写一行 stderr，不轮转；
 - 运行期写入失败：关闭 sink、stderr 一行，之后静默丢弃；
 - 进程退出时未刷出的事件允许丢失（best-effort）；测试通过 `flush()` 等待队列写完。
@@ -359,7 +359,7 @@ broker 只在 act 进入授权阶段（budget 与单次执行账本之后）时�
 | T6 | 多个 MCP 进程写同一文件导致行交错或大小上限失效 | 每个进程一个以 runId 命名的新文件 |
 | T7 | trace 含可关联授权的标识 | 不记录 authorizationId、approval id、actionId、token；ref / revision 只在符合运行时格式时记录 |
 | T8 | 模型把数据编码进 ref / revision / tabId 入参（合法字符集同样能拼出敏感数据） | 入参标识只在已被模型可见 store 查到的成功调用中记录；失败调用一律省略；格式白名单是第二道防线，不是这条的依据 |
-| T9 | 字段不满足格式导致整条事件被丢弃（如 about:blank 的 origin 为 `null`），归因数据静默缺失 | 构造层对可选字段先判格式，不满足只省略该字段；validator 丢弃只作为构造 bug 的兜底，并计数 |
+| T9 | 字段不满足格式导致整条事件被丢弃（如 about:blank 的 origin 为 `null`），归因数据静默缺失 | 构造层对可选字段先判格式，不满足只省略该字段；validator 丢弃只作为构造 bug 的兜底，并留下 seq 断档 |
 
 已接受的残余：trace 记录访问过的 origin（都在 operator 已配置的 read / navigation allowlist 内）与操作时间线；trace 文件的访问控制依赖 OS 用户隔离，与 trusted token 相同。
 

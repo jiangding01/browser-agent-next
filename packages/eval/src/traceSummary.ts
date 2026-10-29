@@ -24,7 +24,12 @@ export interface TraceSummary {
   latencyByTool: Record<string, LatencySummary>;
   /** act 授权阶段的最终审批状态分布；control-plane-auto 路径计为 "auto"。 */
   authorization: Record<string, number>;
-  /** 由 seq 断档推出的丢弃事件数：seq 是唯一的丢弃标记。 */
+  /**
+   * 由 seq 断档推出的丢弃事件数。
+   *
+   * 只能看到“之后还有记录”的丢弃：文件写满或写入失败后 session 尾部的丢弃
+   * 不形成断档（sink 会在 stderr 提示），因此这是下限而不是总数。
+   */
   droppedBySeqGap: number;
 }
 

@@ -230,7 +230,7 @@ describe("createTraceRecorder", () => {
   });
 
   it("never records unverified model input, even when it matches the runtime formats", () => {
-    const { session, events, recorder } = harness();
+    const { session, events } = harness();
     // 合法字符集同样能拼出敏感数据：失败调用的入参从未被查表，一律不记录。
     session.recordToolCall(call({
       tool: "browser.act",
@@ -255,7 +255,7 @@ describe("createTraceRecorder", () => {
     expect(events[0]).not.toHaveProperty("ref");
     expect(events[1]).not.toHaveProperty("origin");
     expect(events[1]).toMatchObject({ tabId: 3, revision: "rt9x:g4:t3" });
-    expect(recorder.droppedCount()).toBe(0);
+    expect(events.map((item) => item.seq)).toEqual([1, 2]);
     expect(JSON.stringify(events)).not.toMatch(/hunter2|HUNTER2|1234567/);
   });
 
@@ -284,7 +284,9 @@ describe("createTraceRecorder", () => {
   });
 
   it("never throws when the sink throws", () => {
-    const { session, recorder } = harness(() => {
+    let writes = 0;
+    const { session } = harness(() => {
+      writes += 1;
       throw new Error("disk on fire");
     });
 
@@ -292,6 +294,43 @@ describe("createTraceRecorder", () => {
     expect(() =>
       session.recordToolCall(call({ tool: "browser.observe", outcome: { kind: "returned", value: observation } })),
     ).not.toThrow();
-    expect(recorder.droppedCount()).toBe(2);
+    expect(writes).toBe(2);
+  });
+
+  it("drops schema-invalid events silently, leaving them out of the sink", () => {
+    const events: RuntimeTraceEvent[] = [];
+    const recorder = createTraceRecorder({
+      sink: { write: (event) => events.push(event) },
+      uuid: () => "not-a-uuid",
+    });
+
+    expect(() => recorder.session().recordRefusal("POLICY_BLOCKED")).not.toThrow();
+    expect(events).toEqual([]);
+  });
+
+  it("records an executed act whose result was blocked by the result bound as both executed and blocked", () => {
+    const { session, events } = harness();
+    session.recordToolCall(call({
+      tool: "browser.act",
+      input: { tabId: 3, observedRevision: "rt9x:g4:t3", ref: "@e_1A" },
+      authorization: { path: "control-plane-auto", waitMs: 1 },
+      outcome: {
+        kind: "egress-blocked",
+        value: {
+          status: "executed",
+          effectClass: "unknown",
+          verification: { verified: true, conclusive: true, evidence: [] },
+          verificationAttempts: 1,
+        },
+      },
+    }));
+
+    expect(events.map((item) => [item.event, item.outcome])).toEqual([
+      ["action", "executed"],
+      ["verify", "verified"],
+      ["policy", "MODEL_EGRESS_BLOCKED"],
+    ]);
+    expect(events[0]).toMatchObject({ authorization: { path: "control-plane-auto" } });
+    expect(events[2]).not.toHaveProperty("metrics");
   });
 });

@@ -11,6 +11,7 @@ import {
 import {
   isAbsolute,
   join,
+  resolve,
 } from "node:path";
 import type {
   RuntimeTraceEvent,
@@ -44,6 +45,27 @@ export interface TraceFileSinkOptions {
   maxBytes?: number;
   /** 诊断只写 stderr；默认 console.error。 */
   log?: (message: string) => void;
+  /** 测试注入点：替换单条写入，用于覆盖写入失败路径。 */
+  writer?: (fd: number, buffer: Buffer) => Promise<void>;
+}
+
+/**
+ * 是否使用 act 保留容量。
+ *
+ * 只有真正进入授权阶段（带 authorization）或已执行（executed 及其动作后 verify）的
+ * act 事件才算：这些都发生在每连接预算扣减之后，数量有界。格式错误、revision 未知、
+ * ref 不存在等在预算之前失败的 act 调用不受预算约束，必须和普通事件同档，
+ * 否则模型可以用它们撑满保留容量（不变量 137）。
+ */
+export function usesActReserve(event: RuntimeTraceEvent): boolean {
+  return (
+    event.tool === "browser.act" &&
+    (
+      event.authorization !== undefined ||
+      event.outcome === "executed" ||
+      event.event === "verify"
+    )
+  );
 }
 
 type Tier = "normal" | "act";
@@ -106,7 +128,7 @@ function boundedMaxBytes(value: number): number {
   return value;
 }
 
-function writeAll(
+function writeFully(
   fd: number,
   buffer: Buffer,
 ): Promise<void> {
@@ -139,7 +161,8 @@ export function openTraceFileSink(
     );
   }
 
-  const { directory, fileName } = options;
+  const { fileName } = options;
+  const writeEvent = options.writer ?? writeFully;
   const maxBytes = boundedMaxBytes(
     options.maxBytes ?? DEFAULT_TRACE_MAX_BYTES,
   );
@@ -150,12 +173,14 @@ export function openTraceFileSink(
   });
 
   if (
-    !isAbsolute(directory) ||
-    directory.length > 4_096 ||
-    directory.includes("\0")
+    !isAbsolute(options.directory) ||
+    options.directory.length > 4_096 ||
+    options.directory.includes("\0")
   ) {
     throw new Error("trace directory must be an absolute path");
   }
+  // 去掉末尾分隔符：lstat("link/") 会跟随 symlink，让 symlink 目录通过检查。
+  const directory = resolve(options.directory);
   if (!FILE_NAME_PATTERN.test(fileName)) {
     throw new Error("trace file name is invalid");
   }
@@ -197,6 +222,7 @@ export function openTraceFileSink(
   const queue: Array<{ tier: Tier; buffer: Buffer }> = [];
   const full: Record<Tier, boolean> = { normal: false, act: false };
   let state: "open" | "failed" | "closed" = "open";
+  let closing = false;
   let normalQueued = 0;
   let overflowLogged = false;
   let size = 0;
@@ -224,7 +250,7 @@ export function openTraceFileSink(
         continue;
       }
       try {
-        await writeAll(fd, item.buffer);
+        await writeEvent(fd, item.buffer);
         size += item.buffer.length;
       } catch {
         state = "failed";
@@ -246,8 +272,8 @@ export function openTraceFileSink(
   return {
     path,
     write(event) {
-      const tier: Tier = event.tool === "browser.act" ? "act" : "normal";
-      if (state !== "open" || full[tier]) return;
+      const tier: Tier = usesActReserve(event) ? "act" : "normal";
+      if (state !== "open" || closing || full[tier]) return;
 
       const limit =
         tier === "act"
@@ -278,6 +304,8 @@ export function openTraceFileSink(
       }
     },
     async close() {
+      // 开始关闭后不再接受写入，否则持续写入会无限推迟关闭。
+      closing = true;
       while (pumping !== undefined) {
         await pumping;
       }

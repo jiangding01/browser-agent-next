@@ -118,6 +118,11 @@ export function createModelFacingTrace(
     maxBytes: config.traceMaxBytes,
   });
 
+  // stdout 属于 MCP wire；trace 文件位置只写 stderr，便于 operator 找到它。
+  console.error(
+    "[browser-agent-next/mcp] trace: writing to " + sink.path,
+  );
+
   return {
     recorder: createTraceRecorder({ sink, runId }),
     sink,

@@ -367,10 +367,11 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 ### 门禁
 
 - TypeScript typecheck ✅
-- Unit / integration tests（744 个）✅
+- Unit / integration tests（748 个）✅
 - Workspace build ✅
 - Real Chromium E2E：本 PR 未改 E2E（trace 默认关闭），由 CI browser-e2e 覆盖
 - 变异验证：失败调用记录入参标识、open origin 改用 Runtime 回传值、去掉 `O_EXCL`、去掉 act 保留容量、broker 回调不加保护、validator 放过未知 key、recorder 不吞异常、bridge 把结果超限记为成功，8 种变异均被对应测试抓到 ✅
+- 代码经 check 审查与独立对抗式审查：1 HIGH（预算之前就失败的 act 调用会占用 act 保留容量，模型可借此挤掉真实 act 的记录）、3 LOW（目录末尾斜杠绕过 symlink 检查、文件尾部丢弃不形成 seq 断档、写入失败路径无测试）与 5 条 advisory 已处理；保留档判定与末尾斜杠两处修复经变异验证由红转绿 ✅
 
 ## 下一步
 
