@@ -344,10 +344,11 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 - `pnpm install --frozen-lockfile` ✅
 - TypeScript typecheck ✅
-- Unit / integration tests（688 个）✅
+- Unit / integration tests（692 个）✅
 - Workspace build ✅
 - Real Chromium E2E：本 PR 未改 E2E，由 CI browser-e2e 覆盖
 - 不变量 132 变异验证：把候选集外 ref 改判为合法后，对应 2 个 harness 用例变红 ✅
+- 代码经 check 审查与独立对抗式审查：8 条发现（2 MEDIUM：provider 返回值读取抛错会中断整轮评测、不变量 132 依赖未测试的冻结；4 LOW；2 advisory）全部修复，每条修复的回归用例均经变异验证由红转绿 ✅
 
 ## 下一步
 

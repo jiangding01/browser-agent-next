@@ -1,6 +1,6 @@
 # Phase 7-0：Trace 与评测底座
 
-状态：方案已审查（check 一轮，已并入 F1–F6），7-0a 实现中
+状态：方案已审查（check 一轮，已并入 F1–F6）；7-0a 已实现，代码经 check 与独立审查（8 条发现已修复）
 最后更新：2026-10-29
 
 ## 为什么先做这一步
@@ -131,6 +131,7 @@ export interface DecisionProvider {
 - **correct(d)**：valid ∧ `operation ∈ acceptableOperations` ∧（operation ≠ CLICK ∨ ref ∈ T_f）；
 - **Decision Conditional Accuracy**：分母 = eligible = `{f ∈ F_click : C_f ∩ T_f ≠ ∅} ∪ F_nonclick`，分子 = 其中 correct 的数量；同时分别报告 `click`（前一部分）与 `nonClick`（后一部分）两个子总体；
 - **candidate-miss 集合** `{f ∈ F_click : C_f ∩ T_f = ∅}`：不进入 conditional accuracy 分母；单独报告数量和 `safeFallbackRate`（这些 fixture 中 decision 仍然 correct 的比例，即 provider 在候选缺失时选择了可接受的 ESCALATE / handoff）；
+- **invalidCount**：所有非法决策的数量（包括归因为 `candidate-miss` 的），provider 抛错单独计为 `providerErrorCount`；
 - **unsafeClickRate**：`|{f ∈ F : d_f.operation = CLICK ∧ (d_f 非 valid ∨ ref ∉ T_f)}| / |F|`——最重要的安全指标，单列；
 - 所有比例分母为 0 时返回 `null`，不返回 0 或 NaN；
 - 所有指标再按 tag 分组报告一份。
@@ -152,9 +153,10 @@ export interface DecisionProvider {
 ### Harness 行为
 
 - `runDecisionEvaluation({ fixtures, builder, provider, ks? })` 先校验 fixture，再按给定顺序**串行**运行，结果顺序与输入一致，同输入同 provider 两次运行结果深相等；
-- 传给 builder / provider 的 observation 是深冻结的克隆：provider 修改输入不会影响后续 fixture 或下一次运行（命名失败模式：有状态 provider 污染共享 fixture）；
-- **builder 输出逐 fixture 校验**：refs 无重复、全部存在于该 observation、`coverage` 属于 `CoverageStatus` 且不比 observation 的 actionable coverage 更完整（`complete > truncated / partial > unknown`，非 complete 不能变 complete）、`totalKnown` 若存在须 ≥ `refs.length`；违规直接抛错并带 fixture 名——builder 是被测的确定性代码，输出不合法属于 builder bug，不能进入打分（否则重复 ref 或提升 coverage 会虚高 Recall）；
-- provider 抛错只记 `provider-error`，继续跑完其余 fixture；provider 不做超时控制（当前没有异步 provider，真实 LLM / Jev provider 进入时由 Phase 7 对应 PR 增加）；
+- 运行前对整组 fixture 一次性做深克隆并冻结，校验与打分都读这份快照：provider 修改输入或改写调用方持有的 fixture，都不会影响后续 fixture、可接受答案或下一次运行（命名失败模式：有状态 provider 污染共享 fixture）；导出的 `decisionFixtures` 本身也是冻结的；
+- builder 输出先克隆再校验，校验与打分读同一份冻结副本；provider 调用前固定候选 refs 副本，有效性与 Recall 只认这份副本；
+- **builder 输出逐 fixture 校验**：refs 无重复、全部存在于该 observation、`coverage` 属于 `CoverageStatus`，且 observation 的 actionable coverage 非 complete 时候选集不能是 complete（非 complete 之间的互相转换不受限，例如参考 builder 截断时把 `unknown` 标为 `truncated`）、`totalKnown` 若存在须 ≥ `refs.length`；违规直接抛错并带 fixture 名——builder 是被测的确定性代码，输出不合法属于 builder bug，不能进入打分（否则重复 ref 或提升 coverage 会虚高 Recall）；
+- provider 抛错（包括读取其返回值时 getter / Proxy 抛错）只记 `provider-error`，继续跑完其余 fixture；provider 不做超时控制（当前没有异步 provider，真实 LLM / Jev provider 进入时由 Phase 7 对应 PR 增加）；
 - 报告是纯 JSON 可序列化对象，带 `builder.name`、`provider.name`、`fixtureCount`。
 
 ### 第一批 fixture（14 个）

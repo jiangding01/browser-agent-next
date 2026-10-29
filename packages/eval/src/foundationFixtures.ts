@@ -11,6 +11,7 @@ export interface ObservationFixtureOptions {
   elements?: ElementState[];
   actionableCoverage?: BrowserObservation["coverage"]["actionable"];
   frames?: BrowserObservation["frames"];
+  forms?: BrowserObservation["forms"];
   overlays?: BrowserObservation["overlays"];
   dialogs?: BrowserObservation["dialogs"];
 }
@@ -61,6 +62,10 @@ export function fixtureObservation(
   const elements = options.elements ?? [fixtureButton("@e_1", "Continue")];
   const revision = options.revision ?? "r1";
   const documentEpoch = options.documentEpoch ?? "doc-a";
+  const frames = options.frames ?? [
+    { frameId: "main", documentEpoch, accessible: true },
+  ];
+  const forms = options.forms ?? [];
 
   return {
     schemaVersion: 1,
@@ -84,9 +89,19 @@ export function fixtureObservation(
         returned: elements.length,
         totalKnown: elements.length,
       },
-      forms: { status: "complete", returned: 0, totalKnown: 0 },
+      forms: {
+        status: "complete",
+        returned: forms.length,
+        totalKnown: forms.length,
+      },
       text: { status: "unknown", returned: 0 },
-      frames: { discovered: 1, accessible: 1, degraded: [] },
+      frames: {
+        discovered: frames.length,
+        accessible: frames.filter((frame) => frame.accessible).length,
+        degraded: frames
+          .filter((frame) => !frame.accessible)
+          .map((frame) => frame.frameId),
+      },
       shadowDom: { openRootsCovered: true, closedRootsUnknown: true },
       canvas: { present: false, semanticallyCovered: true },
     },
@@ -98,10 +113,9 @@ export function fixtureObservation(
       scrollWidth: 1280,
       scrollHeight: 720,
     },
-    frames: options.frames ?? [
-      { frameId: "main", documentEpoch, accessible: true },
-    ],
+    frames,
     elements,
+    ...(options.forms !== undefined ? { forms } : {}),
     ...(options.overlays !== undefined
       ? { overlays: options.overlays }
       : {}),

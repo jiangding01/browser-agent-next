@@ -1,3 +1,4 @@
+import { deepFreeze } from "./deepFreeze.js";
 import type { DecisionFixture } from "./decisionFixture.js";
 import {
   fixtureButton,
@@ -10,7 +11,7 @@ import {
  * 全部是合成文本。这批 fixture 用来检查 harness 正确性与覆盖面，
  * 不是质量基准，不能作为任何 auto-act 放行依据。
  */
-export const decisionFixtures: readonly DecisionFixture[] = [
+export const decisionFixtures: readonly DecisionFixture[] = deepFreeze([
   {
     name: "duplicate-name-disambiguated",
     microGoal: "Delete the draft named Quarterly report",
@@ -209,6 +210,14 @@ export const decisionFixtures: readonly DecisionFixture[] = [
         }),
         fixtureButton("@e_1", "Continue"),
       ],
+      forms: [
+        {
+          ref: "@r_1",
+          title: "Shipping address",
+          fieldRefs: ["@f_1", "@f_2"],
+          actionRefs: ["@e_1"],
+        },
+      ],
     }),
     acceptableOperations: ["HANDOFF_FORM"],
     tags: ["form-handoff"],
@@ -229,4 +238,4 @@ export const decisionFixtures: readonly DecisionFixture[] = [
     acceptableOperations: ["HANDOFF_VERIFY"],
     tags: ["verify-handoff"],
   },
-];
+]);

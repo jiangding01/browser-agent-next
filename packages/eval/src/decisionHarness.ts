@@ -7,6 +7,7 @@ import type {
   CandidateBuilder,
   CandidateSet,
 } from "./candidateBuilder.js";
+import { deepFreeze } from "./deepFreeze.js";
 import {
   DECISION_OPERATIONS,
   FIXTURE_TAGS,
@@ -119,16 +120,6 @@ interface FixtureRecord {
   targets: Ref[];
 }
 
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) {
-      deepFreeze(child);
-    }
-  }
-  return value;
-}
-
 function validateKs(ks: readonly number[]): number[] {
   if (
     ks.length === 0 ||
@@ -145,13 +136,16 @@ function validateKs(ks: readonly number[]): number[] {
 /**
  * builder 是被测的确定性代码：输出不合法属于 builder bug，直接失败，
  * 不能进入打分（重复 ref 或提升 coverage 会虚高 Recall）。
+ *
+ * 先克隆再校验，返回冻结的克隆：校验与打分读取的是同一份数据，
+ * builder 的 getter 无法在校验后改变结果。
  */
-function validateCandidateSet(
-  candidates: CandidateSet,
+function snapshotCandidateSet(
+  built: unknown,
   observation: BrowserObservation,
   builder: string,
   fixture: string,
-): void {
+): CandidateSet {
   const fail = (message: string): never => {
     throw new Error(
       "invalid candidate set from builder " +
@@ -162,6 +156,17 @@ function validateCandidateSet(
         message,
     );
   };
+
+  let cloned: unknown;
+  try {
+    cloned = structuredClone(built);
+  } catch {
+    fail("candidate set must be structured-cloneable");
+  }
+  if (cloned === null || typeof cloned !== "object") {
+    fail("candidate set must be an object");
+  }
+  const candidates = cloned as CandidateSet;
 
   if (
     !Array.isArray(candidates.refs) ||
@@ -193,6 +198,8 @@ function validateCandidateSet(
   ) {
     fail("totalKnown must be an integer no smaller than refs.length");
   }
+
+  return deepFreeze(candidates);
 }
 
 /**
@@ -320,9 +327,12 @@ function summarize(
         countWhere(records, (record) => record.outcome.unsafeClick),
         records.length,
       ),
+      // 包括归因为 candidate-miss 的非法决策；provider 抛错单独计数。
       invalidCount: countWhere(
         records,
-        (record) => record.outcome.attribution === "decision-invalid",
+        (record) =>
+          !record.outcome.valid &&
+          record.outcome.attribution !== "provider-error",
       ),
       providerErrorCount: countWhere(
         records,
@@ -332,57 +342,71 @@ function summarize(
   };
 }
 
+function providerError(
+  base: Omit<FixtureOutcome, "decision" | "valid" | "correct" | "unsafeClick" | "attribution">,
+): FixtureOutcome {
+  return {
+    ...base,
+    decision: null,
+    valid: false,
+    correct: false,
+    unsafeClick: false,
+    attribution: "provider-error",
+  };
+}
+
+/** fixture 来自运行前冻结的快照，observation 可直接交给 builder / provider。 */
 async function evaluateFixture(
   fixture: DecisionFixture,
   builder: CandidateBuilder,
   provider: DecisionProvider,
 ): Promise<FixtureRecord> {
-  // 深冻结的克隆：provider / builder 修改输入不会污染后续 fixture 或下一次运行。
-  const observation = deepFreeze(structuredClone(fixture.observation));
-  const built = builder.build(observation, fixture.microGoal);
-  validateCandidateSet(built, observation, builder.name, fixture.name);
-  const candidates = deepFreeze(structuredClone(built));
+  const observation = fixture.observation;
+  const candidates = snapshotCandidateSet(
+    builder.build(observation, fixture.microGoal),
+    observation,
+    builder.name,
+    fixture.name,
+  );
+  // provider 调用前固定候选 refs：有效性与 Recall 只认这份副本（不变量 132）。
+  const candidateRefs = [...candidates.refs];
 
-  const targets = fixture.acceptableTargets ?? [];
+  const targets = [...(fixture.acceptableTargets ?? [])];
   const clickFixture = fixture.acceptableOperations.includes("CLICK");
   const rankIndex = clickFixture
-    ? candidates.refs.findIndex((ref) => targets.includes(ref))
+    ? candidateRefs.findIndex((ref) => targets.includes(ref))
     : -1;
   const included = rankIndex >= 0;
 
   const base = {
     name: fixture.name,
     tags: [...fixture.tags],
-    candidateCount: candidates.refs.length,
+    candidateCount: candidateRefs.length,
     candidateCoverage: candidates.coverage,
     targetRank: included ? rankIndex + 1 : null,
   };
+  const record = (outcome: FixtureOutcome): FixtureRecord => ({
+    outcome,
+    clickFixture,
+    included,
+    candidateRefs,
+    targets,
+  });
 
-  let raw: unknown;
+  let sanitized: ReturnType<typeof sanitizeDecision>;
   try {
-    raw = await provider.decide({
+    const raw: unknown = await provider.decide({
       observation,
       microGoal: fixture.microGoal,
       candidates,
     });
+    // 读取返回值本身也可能抛错（getter / Proxy），同样归为 provider 失败。
+    sanitized = sanitizeDecision(raw, candidateRefs);
   } catch {
-    return {
-      outcome: {
-        ...base,
-        decision: null,
-        valid: false,
-        correct: false,
-        unsafeClick: false,
-        attribution: "provider-error",
-      },
-      clickFixture,
-      included,
-      candidateRefs: [...candidates.refs],
-      targets,
-    };
+    return record(providerError(base));
   }
 
-  const { decision, valid, rawClick } = sanitizeDecision(raw, candidates.refs);
+  const { decision, valid, rawClick } = sanitized;
   const correct =
     valid &&
     decision !== null &&
@@ -402,35 +426,32 @@ async function evaluateFixture(
     attribution = "ok";
   }
 
-  return {
-    outcome: {
-      ...base,
-      decision,
-      valid,
-      correct,
-      unsafeClick,
-      attribution,
-    },
-    clickFixture,
-    included,
-    candidateRefs: [...candidates.refs],
-    targets,
-  };
+  return record({
+    ...base,
+    decision,
+    valid,
+    correct,
+    unsafeClick,
+    attribution,
+  });
 }
 
 /**
  * 离线决策评测：Candidate Recall@K 与 Decision Conditional Accuracy 分开统计。
  *
- * 先校验整组 fixture 与 ks，再按输入顺序串行运行；同输入同 provider 的报告深相等。
+ * 先校验 ks 与整组 fixture，再按输入顺序串行运行；同输入同 provider 的报告深相等。
  */
 export async function runDecisionEvaluation(
   input: RunDecisionEvaluationInput,
 ): Promise<DecisionEvaluationReport> {
   const ks = validateKs(input.ks ?? DEFAULT_RECALL_KS);
-  validateDecisionFixtures(input.fixtures);
+  // 运行前一次性快照并冻结整组 fixture：校验与打分读取同一份数据，
+  // provider 即使持有调用方的 fixture 引用也无法在运行中改写可接受答案。
+  const fixtures = deepFreeze(structuredClone([...input.fixtures]));
+  validateDecisionFixtures(fixtures);
 
   const records: FixtureRecord[] = [];
-  for (const fixture of input.fixtures) {
+  for (const fixture of fixtures) {
     records.push(await evaluateFixture(fixture, input.builder, input.provider));
   }
 

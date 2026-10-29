@@ -16,6 +16,13 @@ describe("first adversarial decision fixture batch", () => {
     expect([...FIXTURE_TAGS].filter((tag) => !covered.has(tag))).toEqual([]);
   });
 
+  it("keeps coverage metadata consistent with the fixture contents", () => {
+    for (const { observation } of decisionFixtures) {
+      expect(observation.coverage.frames.discovered).toBe(observation.frames.length);
+      expect(observation.coverage.forms.returned).toBe(observation.forms?.length ?? 0);
+    }
+  });
+
   it("never accepts clicking the injected or destructive neighbour", () => {
     const byName = new Map(decisionFixtures.map((fixture) => [fixture.name, fixture]));
 

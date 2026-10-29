@@ -251,6 +251,8 @@ describe("runDecisionEvaluation", () => {
       denominator: 2,
       rate: 0.5,
     });
+    // click-a 的候选外 CLICK 归因 candidate-miss，但仍计入非法决策数。
+    expect(report.overall.decision.invalidCount).toBe(1);
   });
 
   it("records provider errors and keeps evaluating the remaining fixtures", async () => {
@@ -275,6 +277,89 @@ describe("runDecisionEvaluation", () => {
     expect(report.overall.decision.providerErrorCount).toBe(1);
   });
 
+  it("records decisions whose properties throw as provider errors", async () => {
+    const throwingGetter = {
+      get operation(): string {
+        throw new Error("getter exploded");
+      },
+    };
+    const throwingKeys = new Proxy(
+      { operation: "ESCALATE" },
+      {
+        ownKeys() {
+          throw new Error("ownKeys exploded");
+        },
+      },
+    );
+
+    const report = await runDecisionEvaluation({
+      fixtures: smallSet,
+      builder,
+      provider: sequenceProvider([
+        throwingGetter,
+        throwingKeys,
+        { operation: "ESCALATE" },
+        { operation: "HANDOFF_FORM" },
+      ]),
+    });
+
+    expect(report.fixtures.map((outcome) => outcome.attribution)).toEqual([
+      "provider-error",
+      "provider-error",
+      "ok",
+      "ok",
+    ]);
+  });
+
+  it("scores against the candidate refs fixed before the provider ran", async () => {
+    const report = await runDecisionEvaluation({
+      fixtures: [smallSet[0]!],
+      builder: droppingBuilder(["@e_2"]),
+      provider: provider("injecting", ({ candidates }) => {
+        try {
+          (candidates.refs as string[]).unshift("@e_2");
+        } catch {
+          // 冻结的候选集拒绝修改；无论修改是否成功，打分都不能受影响。
+        }
+        return { operation: "CLICK", ref: "@e_2" };
+      }),
+    });
+
+    expect(report.fixtures[0]).toMatchObject({
+      targetRank: null,
+      valid: false,
+      correct: false,
+      unsafeClick: true,
+      attribution: "candidate-miss",
+    });
+    expect(report.overall.candidate.recallAtK["1"]?.rate).toBe(0);
+  });
+
+  it("scores against a fixture snapshot taken before the run", async () => {
+    const callerFixtures = structuredClone(smallSet);
+    let first = true;
+    const rewriting = provider("rewriting", () => {
+      if (first) {
+        first = false;
+        for (const fixture of callerFixtures) {
+          fixture.acceptableOperations.push("ESCALATE");
+        }
+      }
+      return { operation: "ESCALATE" };
+    });
+
+    const report = await runDecisionEvaluation({
+      fixtures: callerFixtures,
+      builder,
+      provider: rewriting,
+    });
+
+    expect(report.overall.decision.conditionalAccuracy.rate).toBe(0.5);
+    // 快照是克隆：调用方的 fixture 不会被冻结。
+    expect(Object.isFrozen(smallSet[0]!.observation)).toBe(false);
+    expect(Object.isFrozen(decisionFixtures[0]!.observation)).toBe(true);
+  });
+
   it("rejects structurally invalid decisions", async () => {
     const invalid: unknown[] = [
       { operation: "CLICK", ref: "@e_2", confidence: 1.5 },
@@ -296,6 +381,17 @@ describe("runDecisionEvaluation", () => {
     ]);
     expect(report.fixtures[0]?.unsafeClick).toBe(true);
     expect(report.fixtures[3]?.decision).toBeNull();
+
+    const nonStringRef = await runDecisionEvaluation({
+      fixtures: [smallSet[1]!],
+      builder,
+      provider: sequenceProvider([{ operation: "CLICK", ref: 42 }]),
+    });
+    expect(nonStringRef.fixtures[0]).toMatchObject({
+      decision: null,
+      valid: false,
+      unsafeClick: true,
+    });
   });
 
   it("keeps valid confidence values in the decision copy", async () => {
@@ -373,17 +469,23 @@ describe("runDecisionEvaluation", () => {
     expect(calls).toBe(0);
   });
 
-  it("rejects invalid ks before running", async () => {
+  it("rejects invalid ks before calling the provider", async () => {
+    let calls = 0;
+    const counting = provider("counting", () => {
+      calls += 1;
+      return { operation: "ESCALATE" };
+    });
     for (const ks of [[], [0], [1, 1], [501], [1.5]]) {
       await expect(
         runDecisionEvaluation({
           fixtures: smallSet,
           builder,
-          provider: alwaysEscalate,
+          provider: counting,
           ks,
         }),
       ).rejects.toThrow(/ks must be/);
     }
+    expect(calls).toBe(0);
   });
 
   it("rejects invalid builder output with the fixture name", async () => {
@@ -391,7 +493,11 @@ describe("runDecisionEvaluation", () => {
       () => ({ refs: ["@e_1", "@e_1"], coverage: "complete" }),
       () => ({ refs: ["@e_404"], coverage: "complete" }),
       () => ({ refs: ["@e_1"], coverage: "complete", totalKnown: 0 }),
+      () => ({ refs: ["@e_1"], coverage: "complete", totalKnown: 1.5 }),
       () => ({ refs: ["@e_1"], coverage: "bogus" as never }),
+      () => ({ refs: [1 as never], coverage: "complete" }),
+      () => null as never,
+      () => ({ refs: ["@e_1"], coverage: "complete", extra: () => 1 }) as never,
     ];
 
     for (const build of invalidSets) {
@@ -420,6 +526,24 @@ describe("runDecisionEvaluation", () => {
         provider: alwaysEscalate,
       }),
     ).rejects.toThrow(/must not be upgraded/);
+
+    // getter 只在快照时读取一次：校验与报告看到同一个 coverage。
+    let reads = 0;
+    const flipping = await runDecisionEvaluation({
+      fixtures: [truncatedFixture],
+      builder: {
+        name: "flipping",
+        build: (observation) => ({
+          refs: observation.elements.map((element) => element.ref),
+          get coverage(): "truncated" | "complete" {
+            reads += 1;
+            return reads === 1 ? "truncated" : "complete";
+          },
+        }),
+      },
+      provider: alwaysEscalate,
+    });
+    expect(flipping.fixtures[0]?.candidateCoverage).toBe("truncated");
   });
 
   it("reports per-tag metrics only for tags present in the fixture set", async () => {
