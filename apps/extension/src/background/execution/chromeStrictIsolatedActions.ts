@@ -723,6 +723,10 @@ export class IsolatedWorldStrictActionRunner implements StrictIsolatedActionRunn
           );
         case "pressKey":
           return await this.pressKey(target, args.key, call);
+        default: {
+          const unknownKind: never = args;
+          throw beforeAction("strict action kind is not supported: " + String(unknownKind));
+        }
       }
     } finally {
       try {

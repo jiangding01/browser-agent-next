@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeExecutionContext } from "../chrome/chromeDebuggerTransport.js";
 import {
-  IsolatedWorldStrictValueWriter,
+  IsolatedWorldStrictActionRunner,
   STRICT_SET_VALUE_FUNCTION,
   interpretWriteResult,
-} from "./chromeStrictValueWriter.js";
+} from "./chromeStrictIsolatedActions.js";
 
 const EXTENSION_ORIGIN = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 const SECRET_VALUE = "value-CANARY-42";
@@ -57,7 +57,7 @@ function harness(options: Options = {}) {
   };
   return {
     calls,
-    writer: new IsolatedWorldStrictValueWriter(transport, EXTENSION_ORIGIN),
+    writer: new IsolatedWorldStrictActionRunner(transport, EXTENSION_ORIGIN),
     writeCalls: () =>
       calls.filter((call) => call.params?.functionDeclaration === STRICT_SET_VALUE_FUNCTION),
   };
@@ -72,11 +72,11 @@ async function failure(promise: Promise<unknown>): Promise<{ code: string; messa
   throw new Error("expected failure");
 }
 
-describe("IsolatedWorldStrictValueWriter", () => {
+describe("IsolatedWorldStrictActionRunner（setValue）", () => {
   it("writes through the single extension isolated world, passing value only as an argument", async () => {
     const { writer, writeCalls, calls } = harness();
 
-    await expect(writer.write(target, SECRET_VALUE)).resolves.toEqual({ valueMatched: true });
+    await expect(writer.run(target, { kind: "setValue", value: SECRET_VALUE })).resolves.toEqual({ valueMatched: true });
     expect(writeCalls()).toHaveLength(1);
     expect(writeCalls()[0]?.params).toMatchObject({
       objectId: "bridge-1",
@@ -98,7 +98,7 @@ describe("IsolatedWorldStrictValueWriter", () => {
     ];
     for (const contexts of cases) {
       const { writer, writeCalls } = harness({ contexts });
-      const error = await failure(writer.write(target, SECRET_VALUE));
+      const error = await failure(writer.run(target, { kind: "setValue", value: SECRET_VALUE }));
       expect(error.code).toBe("TARGET_IDENTITY_MISMATCH");
       expect(writeCalls()).toHaveLength(0);
     }
@@ -112,7 +112,7 @@ describe("IsolatedWorldStrictValueWriter", () => {
       { meta: { result: { value: { version: 2, frameEpoch: "epoch-1" } } } },
     ]) {
       const { writer, writeCalls } = harness(options);
-      const error = await failure(writer.write(target, SECRET_VALUE));
+      const error = await failure(writer.run(target, { kind: "setValue", value: SECRET_VALUE }));
       expect(error.code, JSON.stringify(options)).toBe("TARGET_IDENTITY_MISMATCH");
       expect(writeCalls()).toHaveLength(0);
     }
@@ -127,7 +127,7 @@ describe("IsolatedWorldStrictValueWriter", () => {
       () => ({ result: { value: { status: "written" } } }),
     ]) {
       const { writer } = harness({ write });
-      const error = await failure(writer.write(target, SECRET_VALUE));
+      const error = await failure(writer.run(target, { kind: "setValue", value: SECRET_VALUE }));
       expect(error.code).toBe("ACTION_OUTCOME_UNKNOWN");
       expect(error.message).not.toContain(SECRET_VALUE);
     }
@@ -167,7 +167,7 @@ describe("interpretWriteResult", () => {
     const focusAt = STRICT_SET_VALUE_FUNCTION.indexOf("element.focus(");
     const activeCheckAt = STRICT_SET_VALUE_FUNCTION.indexOf("activeElement !== element");
     const recheckAt = STRICT_SET_VALUE_FUNCTION.indexOf("if (check() !== undefined)");
-    const insertAt = STRICT_SET_VALUE_FUNCTION.indexOf('execCommand("insertText"');
+    const insertAt = STRICT_SET_VALUE_FUNCTION.indexOf('"insertText"');
 
     expect(focusAt).toBeGreaterThan(0);
     expect(activeCheckAt).toBeGreaterThan(focusAt);

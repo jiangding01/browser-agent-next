@@ -170,13 +170,22 @@ describe("isTrustedHostRequest", () => {
     })).toBe(false);
   });
 
-  it("browser.act 当前拒绝非 click action", () => {
+  it("browser.act 接受 S2 动作，拒绝未支持的 kind 与非法参数组合", () => {
     const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
-    expect(isTrustedHostRequest({
-      type: "browser.act", requestId: "a", tabId: 7,
-      action: { actionId: "a1", kind: "submit", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth" },
-      verification,
-    })).toBe(false);
+    const act = (extra: Record<string, unknown>) =>
+      isTrustedHostRequest({
+        type: "browser.act", requestId: "a", tabId: 7,
+        action: { actionId: "a1", observedRevision: "rev-1", ref: "@e_1", authorizationId: "auth", ...extra },
+        verification,
+      });
+    expect(act({ kind: "submit" })).toBe(true);
+    expect(act({ kind: "selectOption", label: "北京" })).toBe(true);
+    expect(act({ kind: "pressKey", key: "Tab" })).toBe(true);
+    expect(act({ kind: "check" })).toBe(false);
+    expect(act({ kind: "pressKey", key: "Enter" })).toBe(false);
+    expect(act({ kind: "submit", label: "x" })).toBe(false);
+    expect(act({ kind: "selectOption", value: "x" })).toBe(false);
+    expect(act({ kind: "click", key: "Tab" })).toBe(false);
   });
 
   it("拒绝空 verification，避免执行后没有独立 postcondition", () => {

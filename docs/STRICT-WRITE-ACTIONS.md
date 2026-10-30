@@ -490,13 +490,15 @@ S2 不改变 click 与 setValue 的行为；新增的 `submit` capability 只是
 - 感知：`submit` capability（只给“字段自身所在、无任何提交按钮”的表单中的字段，表单属性经原型访问）、敏感 `<select>`，及单测（`submit` capability 无 DOM 单测环境，靠 E2E 覆盖）；
 - preflight：几何检查扩展到所有 strict 动作（不变量 150）及单测；
 - resolver：白名单扩展到五种动作及单测；
-- `chromeStrictValueWriter.ts` 已 `git mv` 为 `chromeStrictIsolatedActions.ts`（测试文件同），内容重写为 `IsolatedWorldStrictActionRunner`：四个页面函数（setValue 保持 S1 语义、`execCommand` 改经原型；selectOption；submit；pressKey 的 A / B 两个函数）、各自的结果映射、按 tab 串行队列。**尚未编译验证、尚无单测。**
+- `chromeStrictValueWriter.ts` 已 `git mv` 为 `chromeStrictIsolatedActions.ts`（测试文件同），内容重写为 `IsolatedWorldStrictActionRunner`：四个页面函数（setValue 保持 S1 语义、`execCommand` 改经原型；selectOption；submit；pressKey 的 A / B 两个函数）、各自的结果映射、按 tab 串行队列。可编译，S1 的 setValue 单测已迁移并通过；**S2 页面函数尚无单测，也未在真实浏览器中运行过**；
+- 执行器：`PolicyGatedStrictClickExecutor` 对所有非 click 动作走 `executeIsolatedAction`（以 `args.kind` 与规范参数消费 grant，`valueMatched` 只在执行器返回时带上），第六个构造参数为 `StrictIsolatedActionRunner`；`background/index.ts` 已改接线；新增单测证明 S2 动作不会走 click dispatch；
+- 当前状态：`pnpm typecheck` 通过，`pnpm test` 796 个全部通过；E2E 未跑。
 
 未完成（按顺序）：
 
-1. **执行器泛化（关键）**：`policyGatedStrictClick.ts` 目前只把 `setValue` 分给写入器，其余 kind 会落进 click 路径。把第六个构造参数改为 `StrictIsolatedActionRunner`，`execute` 对所有非 click 动作走 `executeSetValue` 的同一路径（重命名为 `executeIsolatedAction`，consume 用 `args.kind` 与 `canonicalStrictActionArgs(args)`，结果只在 setValue / selectOption 带 `valueMatched`），并补每种 kind 的单测；
-2. `background/index.ts`：import 改为 `IsolatedWorldStrictActionRunner` from `./execution/chromeStrictIsolatedActions.js`；
-3. `chromeStrictIsolatedActions.test.ts`：改 import 名；S1 用例里查找 `execCommand("insertText"` 的顺序断言改为查找 `"insertText"`；新增 selectOption / submit / pressKey 的结果映射、pressKey 的 A → 按键 → B 调用顺序与失败映射、同 tab 串行、页面函数中表单访问都经原型的断言；
+1. （已完成）执行器泛化与接线；
+2. （已完成）`chromeStrictIsolatedActions.test.ts` 的改名迁移；
+3. `chromeStrictIsolatedActions.test.ts` 新增 selectOption / submit / pressKey 的结果映射、pressKey 的 A → 按键 → B 调用顺序与失败映射、同 tab 串行、页面函数中表单访问都经原型的断言；
 4. `authorizationIssuanceService.ts` 的 `assertStrictActionTarget`：按「签发前的早期拒绝」表实现 selectOption / submit / pressKey，并补单测（审批入队复用同一函数）；
 5. 审批页 `operator-approval/display.ts` / `index.ts`：`approvalTitle` 与内容区改为穷举 switch，三种新卡片内容，未知 kind 不渲染批准按钮，及单测；
 6. E2E：按「测试计划（S2）」扩展 `e2e/server.mjs` 的 fixture 与 `e2e/specs/trusted-execution.spec.ts`；
