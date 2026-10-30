@@ -276,3 +276,76 @@ describe(
     );
   },
 );
+
+describe("StrictClickAuthorizationIssuanceService 写入类动作", () => {
+  function fieldSetup(fieldState: Record<string, unknown> = {}) {
+    const states = new TabStateStore();
+    const base = observation(true);
+    states.put({
+      ...base,
+      elements: [{
+        ref: "@e_1",
+        kind: "field",
+        semantic: { role: "textbox", name: "Name" },
+        state: { visible: true, enabled: true, focused: false, ...fieldState },
+        frameId: "web:0",
+        capabilities: [{ kind: "setValue", valueType: "text" }, { kind: "focus" }],
+        provenance: { dom: true, ax: true },
+      }],
+    });
+    const authorizations = new InMemoryAuthorizationStore({ now: () => 100 });
+    const origins = new MutableExactOriginAllowlist();
+    origins.replace(["https://fixture.test"]);
+    return {
+      authorizations,
+      service: new StrictClickAuthorizationIssuanceService(states, authorizations, origins),
+    };
+  }
+
+  const setValue = { kind: "setValue" as const, value: "张三" };
+
+  it("签发的 grant 绑定 setValue 与参数，只能按同一参数消费", () => {
+    const { service, authorizations } = fieldSetup();
+    service.issueControlPlane({ ...input, action: setValue });
+
+    const consume = (actionArgs: string) =>
+      authorizations.consume({
+        id: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        actionKind: "setValue",
+        actionArgs,
+        effectClass: "unknown",
+      });
+
+    expect(consume(JSON.stringify({ kind: "setValue", value: "李四" }))).toMatchObject({
+      ok: false,
+      reason: "binding-mismatch",
+    });
+    expect(consume(JSON.stringify(setValue))).toMatchObject({ ok: true });
+  });
+
+  it("敏感字段在签发前被拒绝且不产生 grant", () => {
+    const { service, authorizations } = fieldSetup({ sensitive: true });
+    expect(() => service.issueControlPlane({ ...input, action: setValue })).toThrow(
+      expect.objectContaining({ code: "POLICY_BLOCKED" }),
+    );
+    expect(authorizations.size()).toBe(0);
+  });
+
+  it("enterprise-policy 只签发 click", () => {
+    const { service, authorizations } = fieldSetup();
+    expect(() => service.issueEnterprisePolicy({ ...input, action: setValue })).toThrow(
+      expect.objectContaining({ code: "AUTHORIZATION_REQUIRED" }),
+    );
+    expect(authorizations.size()).toBe(0);
+  });
+
+  it("click 签发不受写入类检查影响", () => {
+    const { service } = setup(true);
+    expect(service.issueControlPlane({ ...input, action: { kind: "click" } })).toMatchObject({
+      id: "auth-1",
+    });
+  });
+});

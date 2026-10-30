@@ -4,6 +4,7 @@ import type {
   Rect,
   ViewportState,
 } from "@browser-agent-next/core";
+import { SENSITIVE_AUTOCOMPLETE_PATTERN } from "../protocol/sensitiveFields.js";
 
 export interface DomFrameElement {
   stableId: string;
@@ -247,6 +248,18 @@ function enabled(element: Element): boolean {
   return true;
 }
 
+// 凭据与支付类 autocomplete token；写入类动作在签发前据此拒绝。
+const SENSITIVE_AUTOCOMPLETE = new RegExp(SENSITIVE_AUTOCOMPLETE_PATTERN);
+
+/** 凭据 / 支付字段：只产生布尔标记，绝不读取值。 */
+export function isSensitiveField(element: Element): boolean {
+  if (!(element instanceof HTMLInputElement)) return false;
+  if (element.type.toLowerCase() === "password") return true;
+  return SENSITIVE_AUTOCOMPLETE.test(
+    (element.getAttribute("autocomplete") ?? "").toLowerCase(),
+  );
+}
+
 function stateFor(element: Element, win: Window): ElementState["state"] {
   const checked =
     element instanceof HTMLInputElement &&
@@ -288,6 +301,7 @@ function stateFor(element: Element, win: Window): ElementState["state"] {
     ...(pressed !== undefined ? { pressed } : {}),
     ...(required !== undefined ? { required } : {}),
     ...(readonly !== undefined ? { readonly } : {}),
+    ...(isSensitiveField(element) ? { sensitive: true as const } : {}),
   };
 }
 

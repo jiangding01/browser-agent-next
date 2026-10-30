@@ -143,18 +143,19 @@ export function evaluateStrictPreflight(
     return failure("TARGET_DISABLED", "the live target is disabled");
   }
 
-  if (actionKind === "click") {
+  // 用户点不到的字段，调用方也不应能写：setValue 与 click 使用相同的几何要求。
+  if (actionKind === "click" || actionKind === "setValue") {
     if (!live.geometry?.inViewport) {
       return failure(
         "TARGET_OUT_OF_VIEWPORT",
-        "strict click requires the live target to be in the viewport",
+        "strict " + actionKind + " requires the live target to be in the viewport",
       );
     }
 
     if (!live.geometry.hitTestable) {
       return failure(
         "TARGET_OCCLUDED",
-        "strict click hit testing does not resolve to the live target",
+        "strict " + actionKind + " hit testing does not resolve to the live target",
       );
     }
   }

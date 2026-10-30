@@ -102,7 +102,7 @@ E2E 增加一条版本错配用例：向扩展发送带 `action` 字段的旧 cl
 
 ### 签发与审批
 
-`StrictClickAuthorizationIssuanceService` 改名为 `StrictActionAuthorizationIssuanceService`，签发输入增加 `action: StrictActionArgs`：
+`StrictClickAuthorizationIssuanceService`（保留历史名称，避免与本变更无关的重命名）的签发输入增加 `action?: StrictActionArgs`（缺省为 click）：
 
 - control-plane 与 operator-approved 两条路径都接受 setValue；enterprise-policy 路径仍只签发 click；
 - **签发前（也是审批请求入队前）按 retained observation 提前拒绝**，在 grant 被消耗或审批页显示任何值之前：

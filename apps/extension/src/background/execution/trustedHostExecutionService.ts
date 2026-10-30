@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  type StrictActionArgs,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
@@ -42,6 +43,8 @@ export interface TrustedExecuteAndVerifyInput {
   ref: string;
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
+  /** 缺省为 click。 */
+  action?: StrictActionArgs;
 }
 
 export interface TrustedExecuteAndVerifyResult {
@@ -307,6 +310,9 @@ export class TrustedHostExecutionService {
         ref: input.ref,
         authorizationId:
           input.authorizationId,
+        ...(input.action !== undefined
+          ? { action: input.action }
+          : {}),
       });
 
     const requestedTimeout =

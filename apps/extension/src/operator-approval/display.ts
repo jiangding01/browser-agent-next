@@ -33,6 +33,39 @@ export function untrustedDisplayText(
     : cleaned;
 }
 
+/** 审批卡片标题：按将要执行的动作区分。 */
+export function approvalTitle(
+  action: { kind: string },
+): string {
+  return action.kind === "setValue"
+    ? "待批准的填写"
+    : "待批准的点击";
+}
+
+export interface WriteValueDisplay {
+  /** 原样显示的值（入口已拒绝不可见字符，不做任何清理或截断）。 */
+  text: string;
+  /** 字符数与空格提示：截断或空白差异不能逃过人工审查（不变量 142）。 */
+  caption: string;
+}
+
+/**
+ * 写入值的展示：完整显示，不清理、不截断；空值显示为清空说明；
+ * 首尾空格与连续空格在说明里明确标出（pre-wrap 下它们不显眼）。
+ */
+export function writeValueDisplay(value: string): WriteValueDisplay {
+  if (value === "") {
+    return { text: "（清空该字段）", caption: "共 0 个字符" };
+  }
+
+  const notes = ["共 " + Array.from(value).length + " 个字符"];
+  if (value.startsWith(" ")) notes.push("开头有空格");
+  if (value.endsWith(" ")) notes.push("结尾有空格");
+  if (value.includes("  ")) notes.push("含连续空格");
+
+  return { text: value, caption: notes.join("；") };
+}
+
 /** 倒计时文案：< 60 秒显示秒，否则显示分秒；到期显示“已过期”。 */
 export function formatRemaining(
   expiresAt: number,

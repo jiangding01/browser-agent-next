@@ -244,3 +244,97 @@ describe("isTrustedHostRequest", () => {
     expect(isTrustedHostRequest({ ...base, requestId: "" })).toBe(false);
   });
 });
+
+describe("isTrustedHostRequest strict-action 消息", () => {
+  const setValue = { kind: "setValue", value: "张三" };
+  const verification = { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] };
+  const issue = {
+    type: "authorization.issue-strict-action",
+    requestId: "r",
+    authorizationId: "auth-1",
+    tabId: 7,
+    observedRevision: "rev-1",
+    ref: "@e_1",
+    ttlMs: 1_000,
+    action: setValue,
+  };
+  const approval = {
+    ...issue,
+    type: "authorization.request-strict-action-approval",
+    approvalTtlMs: 30_000,
+  };
+  const execute = {
+    type: "execution.execute-strict-action",
+    requestId: "r",
+    actionId: "a-1",
+    authorizationId: "auth-1",
+    tabId: 7,
+    observedRevision: "rev-1",
+    ref: "@e_1",
+    action: setValue,
+    verification,
+  };
+
+  it("接受合法的三条新消息，click 也可走同一入口", () => {
+    for (const message of [issue, approval, execute]) {
+      expect(isTrustedHostRequest(message), message.type).toBe(true);
+      expect(isTrustedHostRequest({ ...message, action: { kind: "click" } }), message.type).toBe(true);
+    }
+  });
+
+  it("exact-key：多余字段、缺少 action 或非法 action 一律拒绝", () => {
+    for (const message of [issue, approval, execute]) {
+      expect(isTrustedHostRequest({ ...message, assurance: "operator-approved" })).toBe(false);
+      expect(isTrustedHostRequest({ ...message, source: "trusted-ui" })).toBe(false);
+      const { action: _action, ...withoutAction } = message;
+      expect(isTrustedHostRequest(withoutAction)).toBe(false);
+      for (const action of [
+        { kind: "type", value: "x" },
+        { kind: "setValue" },
+        { kind: "setValue", value: "line\nbreak" },
+        { kind: "setValue", value: "zero​width" },
+        { kind: "setValue", value: "x".repeat(1_025) },
+        { kind: "click", value: "x" },
+      ]) {
+        expect(isTrustedHostRequest({ ...message, action }), JSON.stringify(action)).toBe(false);
+      }
+    }
+  });
+
+  it("旧 click 消息携带 action 时拒绝，不会被当成 click 执行", () => {
+    for (const message of [
+      { ...issue, type: "authorization.issue-strict-click" },
+      { ...approval, type: "authorization.request-operator-approval" },
+      { ...execute, type: "execution.execute-strict-click" },
+    ]) {
+      expect(isTrustedHostRequest(message), message.type).toBe(false);
+      const { action: _action, ...legacy } = message;
+      expect(isTrustedHostRequest(legacy), message.type).toBe(true);
+    }
+  });
+
+  it("browser.act 的 setValue 必须带合法值，click 不得带值", () => {
+    const act = (action: Record<string, unknown>) =>
+      isTrustedHostRequest({
+        type: "browser.act",
+        requestId: "r",
+        tabId: 7,
+        action: {
+          actionId: "a-1",
+          observedRevision: "rev-1",
+          ref: "@e_1",
+          authorizationId: "auth-1",
+          ...action,
+        },
+        verification,
+      });
+
+    expect(act({ kind: "setValue", value: "张三" })).toBe(true);
+    expect(act({ kind: "setValue", value: "" })).toBe(true);
+    expect(act({ kind: "setValue" })).toBe(false);
+    expect(act({ kind: "setValue", value: "a‮b" })).toBe(false);
+    expect(act({ kind: "click" })).toBe(true);
+    expect(act({ kind: "click", value: "x" })).toBe(false);
+    expect(act({ kind: "selectOption", value: "x" })).toBe(false);
+  });
+});

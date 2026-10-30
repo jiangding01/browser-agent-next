@@ -156,6 +156,7 @@ export function mergePerceptionCandidates(
       "pressed",
       "required",
       "readonly",
+      "sensitive",
     ] as const;
 
     for (const key of stateKeys) {

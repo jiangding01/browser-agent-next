@@ -68,6 +68,41 @@ async function handleRequest(
           ? { approvalTtlMs: request.approvalTtlMs }
           : {}),
       });
+    case "authorization.issue-strict-action":
+      return service.issueStrictClickAuthorization({
+        authorizationId: request.authorizationId,
+        tabId: request.tabId,
+        observedRevision: request.observedRevision,
+        ref: request.ref,
+        ttlMs: request.ttlMs,
+        action: request.action,
+      });
+
+    case "authorization.request-strict-action-approval":
+      return service.requestOperatorApproval({
+        authorizationId: request.authorizationId,
+        tabId: request.tabId,
+        observedRevision: request.observedRevision,
+        ref: request.ref,
+        ttlMs: request.ttlMs,
+        action: request.action,
+        ...(request.approvalTtlMs !== undefined
+          ? { approvalTtlMs: request.approvalTtlMs }
+          : {}),
+      });
+
+    case "execution.execute-strict-action":
+      return service.executeStrictClickAndVerify({
+        actionId: request.actionId,
+        authorizationId: request.authorizationId,
+        tabId: request.tabId,
+        observedRevision: request.observedRevision,
+        ref: request.ref,
+        action: request.action,
+        verification: request.verification,
+        ...(request.verifyTimeoutMs !== undefined ? { verifyTimeoutMs: request.verifyTimeoutMs } : {}),
+      });
+
     case "authorization.operator-approval-status":
       return service.operatorApprovalStatus(
         request.approvalRequestId,
