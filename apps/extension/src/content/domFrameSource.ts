@@ -251,13 +251,28 @@ function enabled(element: Element): boolean {
 // 凭据与支付类 autocomplete token；写入类动作在签发前据此拒绝。
 const SENSITIVE_AUTOCOMPLETE = new RegExp(SENSITIVE_AUTOCOMPLETE_PATTERN);
 
-/** 凭据 / 支付字段：只产生布尔标记，绝不读取值。 */
-export function isSensitiveField(element: Element): boolean {
-  if (!(element instanceof HTMLInputElement)) return false;
-  if (element.type.toLowerCase() === "password") return true;
-  return SENSITIVE_AUTOCOMPLETE.test(
-    (element.getAttribute("autocomplete") ?? "").toLowerCase(),
-  );
+/**
+ * 凭据 / 支付字段：只产生布尔标记，绝不读取值。
+ *
+ * password 类型、凭据 / 支付 autocomplete（input 与 textarea 都看），以及用
+ * `-webkit-text-security` 遮盖输入的字段（“显示密码”切换或自绘密码框）。
+ */
+export function isSensitiveField(element: Element, win?: Window): boolean {
+  const isInput = element instanceof HTMLInputElement;
+  if (!isInput && !(element instanceof HTMLTextAreaElement)) return false;
+  if (isInput && element.type.toLowerCase() === "password") return true;
+  if (
+    SENSITIVE_AUTOCOMPLETE.test(
+      (element.getAttribute("autocomplete") ?? "").toLowerCase(),
+    )
+  ) {
+    return true;
+  }
+  const masking = win
+    ?.getComputedStyle(element)
+    .getPropertyValue("-webkit-text-security")
+    .trim();
+  return masking !== undefined && masking !== "" && masking !== "none";
 }
 
 function stateFor(element: Element, win: Window): ElementState["state"] {
@@ -301,7 +316,7 @@ function stateFor(element: Element, win: Window): ElementState["state"] {
     ...(pressed !== undefined ? { pressed } : {}),
     ...(required !== undefined ? { required } : {}),
     ...(readonly !== undefined ? { readonly } : {}),
-    ...(isSensitiveField(element) ? { sensitive: true as const } : {}),
+    ...(isSensitiveField(element, win) ? { sensitive: true as const } : {}),
   };
 }
 

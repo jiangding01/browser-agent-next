@@ -37,18 +37,19 @@ describe("parseStrictActionArgs", () => {
       "tab\there",
       "cr\r",
       "nul\u0000",
-      "zero​width",
-      "joiner‍",
-      "bidi‮evil",
-      "isolate⁦x⁩",
-      "bom﻿",
-      "soft­hyphen",
-      "variation️",
-      "hangulㅤfiller",
-      "nbsp space",
-      "ideographic　space",
-      "line sep",
-      "para sep",
+      "zero\u200Bwidth",
+      "joiner\u200D",
+      "bidi\u202Eevil",
+      "isolate\u2066x\u2069",
+      "bom\uFEFF",
+      "soft\u00ADhyphen",
+      "variation\uFE0F",
+      "hangul\u3164filler",
+      "nbsp\u00A0space",
+      "ideographic\u3000space",
+      "line\u2028sep",
+      "para\u2029sep",
+      "braille\u2800blank",
       "lone\uD800",
       "lone\uDC00",
     ];
@@ -62,7 +63,7 @@ describe("parseStrictActionArgs", () => {
 
   it("never echoes the value in its error message", () => {
     try {
-      parseStrictActionArgs({ kind: "setValue", value: "secret​" });
+      parseStrictActionArgs({ kind: "setValue", value: "secret\u200B" });
       throw new Error("expected rejection");
     } catch (error) {
       expect(String((error as Error).message)).not.toContain("secret");

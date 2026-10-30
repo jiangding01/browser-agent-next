@@ -18,16 +18,47 @@ describe("isSensitiveField", () => {
     constructor(
       readonly type: string,
       private readonly autocomplete: string | null = null,
+      readonly textSecurity = "",
     ) {}
     getAttribute(name: string): string | null {
       return name === "autocomplete" ? this.autocomplete : null;
     }
   }
+  class FakeTextArea extends FakeInput {}
+
+  const win = {
+    getComputedStyle: (element: FakeInput) => ({
+      getPropertyValue: (name: string) =>
+        name === "-webkit-text-security" ? element.textSecurity : "",
+    }),
+  } as unknown as Window;
+
+  function withFakes(run: () => void): void {
+    const scope = globalThis as { HTMLInputElement?: unknown; HTMLTextAreaElement?: unknown };
+    const previous = [scope.HTMLInputElement, scope.HTMLTextAreaElement];
+    scope.HTMLInputElement = FakeInput;
+    scope.HTMLTextAreaElement = FakeTextArea;
+    try {
+      run();
+    } finally {
+      [scope.HTMLInputElement, scope.HTMLTextAreaElement] = previous;
+    }
+  }
+
+  it("checks autocomplete on textareas and treats text-security masking as sensitive", () => {
+    withFakes(() => {
+      const sensitive = (input: FakeInput) => isSensitiveField(input as unknown as Element, win);
+      expect(sensitive(new FakeTextArea("textarea", "one-time-code"))).toBe(true);
+      expect(sensitive(new FakeTextArea("textarea", "cc-number"))).toBe(true);
+      expect(sensitive(new FakeTextArea("textarea", "street-address"))).toBe(false);
+      expect(sensitive(new FakeInput("text", null, "disc"))).toBe(true);
+      expect(sensitive(new FakeTextArea("textarea", null, "square"))).toBe(true);
+      expect(sensitive(new FakeInput("text", null, "none"))).toBe(false);
+    });
+  });
 
   it("flags password and credential / payment autocomplete inputs only", () => {
-    const previous = (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement;
-    (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = FakeInput;
-    try {
+    withFakes(() => {
       const sensitive = (input: FakeInput) => isSensitiveField(input as unknown as Element);
 
       expect(sensitive(new FakeInput("password"))).toBe(true);
@@ -47,8 +78,6 @@ describe("isSensitiveField", () => {
         expect(sensitive(new FakeInput("text", token)), String(token)).toBe(false);
       }
       expect(isSensitiveField({} as Element)).toBe(false);
-    } finally {
-      (globalThis as { HTMLInputElement?: unknown }).HTMLInputElement = previous;
-    }
+    });
   });
 });

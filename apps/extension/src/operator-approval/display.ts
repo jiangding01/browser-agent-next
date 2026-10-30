@@ -43,8 +43,11 @@ export function approvalTitle(
 }
 
 export interface WriteValueDisplay {
-  /** 原样显示的值（入口已拒绝不可见字符，不做任何清理或截断）。 */
-  text: string;
+  /**
+   * 原样显示的值（入口已拒绝不可见字符，不做任何清理或截断）；
+   * 清空字段时为 undefined，由页面在值框之外单独说明，避免与字面量值混淆。
+   */
+  text: string | undefined;
   /** 字符数与空格提示：截断或空白差异不能逃过人工审查（不变量 142）。 */
   caption: string;
 }
@@ -55,7 +58,7 @@ export interface WriteValueDisplay {
  */
 export function writeValueDisplay(value: string): WriteValueDisplay {
   if (value === "") {
-    return { text: "（清空该字段）", caption: "共 0 个字符" };
+    return { text: undefined, caption: "将清空该字段（不输入任何内容）" };
   }
 
   const notes = ["共 " + Array.from(value).length + " 个字符"];

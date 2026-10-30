@@ -70,13 +70,22 @@ export const STRICT_SET_VALUE_FUNCTION = String.raw`function(stableId, value) {
     const isInput = element instanceof view.HTMLInputElement;
     if (!isTextarea && !isInput) return "unsupported";
 
-    if (isInput) {
-      const type = element.type.toLowerCase();
-      const autocomplete = (element.getAttribute("autocomplete") || "").toLowerCase();
-      if (type === "password" || sensitiveAutocomplete.test(autocomplete)) {
-        return "sensitive";
-      }
-      if (!textTypes.includes(type)) return "unsupported";
+    // 与感知层 isSensitiveField 相同的判定：password、凭据 / 支付 autocomplete
+    // （input 与 textarea）、以及 -webkit-text-security 遮盖。
+    const autocomplete = (element.getAttribute("autocomplete") || "").toLowerCase();
+    const masking = view
+      .getComputedStyle(element)
+      .getPropertyValue("-webkit-text-security")
+      .trim();
+    if (
+      (isInput && element.type.toLowerCase() === "password") ||
+      sensitiveAutocomplete.test(autocomplete) ||
+      (masking !== "" && masking !== "none")
+    ) {
+      return "sensitive";
+    }
+    if (isInput && !textTypes.includes(element.type.toLowerCase())) {
+      return "unsupported";
     }
 
     if (

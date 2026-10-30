@@ -383,10 +383,14 @@ describe("writeValueDisplay", () => {
     expect(writeValueDisplay(" ").caption).toBe("共 1 个字符；开头有空格；结尾有空格");
   });
 
-  it("空值显示为清空说明", () => {
+  it("空值不进入值框，只在说明里写明清空，与任何字面量值都不同", () => {
     expect(writeValueDisplay("")).toEqual({
+      text: undefined,
+      caption: "将清空该字段（不输入任何内容）",
+    });
+    expect(writeValueDisplay("（清空该字段）")).toEqual({
       text: "（清空该字段）",
-      caption: "共 0 个字符",
+      caption: "共 7 个字符",
     });
   });
 });

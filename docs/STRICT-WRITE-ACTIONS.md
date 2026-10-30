@@ -1,6 +1,6 @@
 # Strict 写入类动作：setValue / selectOption / submitForm / pressKey
 
-状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 实现中
+状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 已实现并经代码审查（见「S1 实现记录」），S2 / S3 待批准
 最后更新：2026-10-30
 
 ## 为什么做
@@ -61,13 +61,16 @@ export function parseStrictActionArgs(value: unknown): StrictActionArgs;
 - `Cc` 控制字符（含 `\n`、`\t`——S1 只写单行）；
 - `Cf` 格式字符与所有 `Default_Ignorable_Code_Point`（零宽字符、bidi 覆盖与隔离、变体选择符、Hangul filler 等不可见字符）；
 - 行 / 段分隔符（`Zl`、`Zp`）与除 U+0020 以外的空格分隔符（`Zs`，如 NBSP——显示上与普通空格无法区分）；
+- U+2800 Braille Pattern Blank：类别为 `So`、不是默认可忽略字符，但常见字体中渲染为空白；
 - 孤立代理项。
 
 代价：含变体选择符的 emoji 无法通过 setValue 输入，接受。长度上限 1024 个 UTF-16 单元：足够表单单行字段，也让审批页能完整显示。
 
 ### 感知：标出敏感字段
 
-`ElementState.state` 增加 `sensitive?: true`，由 DOM 源对 `type=password`、`autocomplete` 含 `current-password` / `new-password` / `one-time-code` / `cc-*` 的输入框设置；semantic merge 的 state 字段以 DOM 优先，AX 不产生这个字段。它只是一个布尔标记，不含值。
+`ElementState.state` 增加 `sensitive?: true`，由 DOM 源对以下 `<input>` / `<textarea>` 设置：`type=password`；`autocomplete` 含 `current-password` / `new-password` / `one-time-code` / `cc-*`；计算样式 `-webkit-text-security` 不为 `none`（“显示密码”切换后的输入框或自绘密码框常用它遮盖输入）。semantic merge 的 state 字段以 DOM 优先，AX 不产生这个字段。它只是一个布尔标记，不含值。写入函数在页面内使用同一组判定。
+
+这是按已知形态列举的判定，不是对“敏感”的完备定义：没有任何标记、只靠页面文案说明用途的输入框不会被识别。
 
 capability 按并集合并（AX 会给 password 框加上 `setValue`），因此不能靠“不给 capability”排除敏感字段，必须看这个标记。
 
@@ -162,22 +165,25 @@ setValue 的流程：
    `ACTION_OUTCOME_UNKNOWN` 是唯一会让上层（trusted host 与 Act broker）禁止自动重试、并让 broker 降级该 tab 的错误码；focus 已经发生时一律用它，不用 `TARGET_*` 这类看起来可重试的码。
 7. 不 blur、不按 Tab：离开字段的行为（可能触发校验或自动保存）由调用方用后续动作显式决定。
 
-执行结果只带 `valueMatched` 布尔值，**从不回显值本身**。可信路径的动作后验证仍在不含值的 observation 上进行（不为 setValue 打开 `includeValues`，否则 verification evidence 的 `observed` 会把值带回），因此 `field_value` 条件在这里是 inconclusive；`valueMatched` 是写入本身的执行证据。
+执行结果只带 `valueMatched` 布尔值，**从不回显值本身**；错误为固定文本。
+
+动作后验证是一次普通的 observation，遵循 trusted 路径与 model-facing 路径既有的划分：trusted 路径的 observation 本来就含字段当前值（AX 源总会给出文本框的 value，`includeValues` 只在 model egress 层过滤），调用方若在 verification 中写 `field_value` 条件，evidence 的 `observed` 会是字段写入后的实际值——这与它直接调用 `browser.observe` 能读到的内容相同，不构成新的出口。model-facing 路径的 `sanitizedVerification` 去掉 `observed`、`sanitizedElement` 按 `includeValues` 去掉 `value`，S3 开放时沿用。（方案初稿写“不打开 includeValues 即 inconclusive”，代码审查证明不成立，已更正。）
 
 ### 背景标签页与 Playwright 的局限
 
 `element.focus()` 在后台页面中仍会改变 `activeElement`，`execCommand` 作用于 `activeElement`，理论上不依赖窗口焦点。但 Playwright 会对它接管的页面开启焦点模拟（`document.hasFocus()` 恒为 true），因此 **E2E 不能证明“真实浏览器后台标签页”下的行为**，只能证明扩展 isolated world 中的写入链路；这一点在 E2E 与 PROGRESS 中写明。
 
-### 新增不变量（S1）
+### 新增不变量（S1，含实现阶段新增的 146）
 
 138. Strict 动作的 grant 必须精确绑定规范化的动作参数（`actionKind` + `actionArgs`）；消费时参数不完全相同即 `binding-mismatch`，为一个值签发的 grant 不能用于输入另一个值。
 139. 写入类动作必须使用独立的 strict-action 协议消息；不得在既有 click 消息上以可选字段承载写入参数（旧实现会忽略未知字段而执行 click）。
 140. setValue 的焦点确认、字段复核与插入必须在同一个 isolated-world task 内完成，只作用于由强身份解析出的元素，只在唯一确定的本扩展 isolated world 中运行；绝不向“当前恰好有焦点的元素”发送输入，也不在另一个上下文中重试。
-141. 敏感字段（`type=password`、凭据 / 支付类 `autocomplete`）的写入必须在签发与审批请求阶段就被拒绝，审批页永远不显示这类字段的待写入值；执行时在 focus 前后各复核一次。
-142. 动作参数在所有入口拒绝控制字符、格式字符与所有默认可忽略字符、行 / 段分隔符、非 U+0020 的空格分隔符与孤立代理项；operator 审批页必须完整显示将要输入的值，并与页面派生文本分开标注来源。
+141. 敏感字段（`type=password`、`<input>` / `<textarea>` 上的凭据 / 支付类 `autocomplete`、`-webkit-text-security` 遮盖）的写入必须在签发与审批请求阶段就被拒绝，审批页永远不显示这类字段的待写入值；执行时在 focus 前后各复核一次，页面内复核与感知层使用同一组判定。
+142. 动作参数在所有入口拒绝控制字符、格式字符与所有默认可忽略字符、行 / 段分隔符、非 U+0020 的空格分隔符、U+2800 与孤立代理项；operator 审批页必须完整显示将要输入的值（不截断、不设高度上限），并与页面派生文本分开标注来源；清空字段的说明显示在值框之外，不能与任何字面量值混淆。
 143. 写入类动作的 effect 保持 `unknown`，最低 assurance 与 click 相同；在 effect 分类器能证明更窄的 effect 之前不得降级。
-144. 写入类动作的执行结果与错误不得回显输入值；只允许返回 `valueMatched` 这样的布尔执行证据。
+144. 写入类动作的执行结果与错误不得回显输入值；只允许返回 `valueMatched` 这样的布尔执行证据。动作后验证的 evidence 属于 observation，按既有 trusted / model-facing 划分处理：model-facing 出口必须去掉 `observed` 与未获允许的 `value`。
 145. focus 一旦执行，之后的任何失败都必须报告为 `ACTION_OUTCOME_UNKNOWN`；目标位于 OOPIF child session 的写入在任何输入之前 fail closed（`ACTION_NOT_SUPPORTED`）。
+146. Strict 命中测试必须在目标自身所在的 tree scope（`getRootNode()`，document 或 shadow root）上进行：`document.elementFromPoint` 会把 shadow tree 内的命中重定向为 shadow host，使 shadow root 内的目标永远判为遮挡；按 tree scope 测试时，覆盖在目标之上的同一 shadow root、外层 tree 或其它 shadow host 中的元素仍然不等于、也不包含目标，照样判为 `TARGET_OCCLUDED`。该规则同时适用于 click 与 setValue。
 
 ### 威胁模型（S1）
 
@@ -188,7 +194,7 @@ setValue 的流程：
 | W3 | 页面在检查后、插入前把焦点移到别的字段 | 焦点确认、复核与插入在同一 task；只写单行；不用 CDP 输入（140） |
 | W4 | 页面在 focus 回调里把字段变成 password 或只读 | focus 后在同一 task 内复核字段，不通过报 outcome unknown（140、145） |
 | W5 | 审批页显示的内容与实际输入不同（不可见字符、相似空格、截断） | 入口拒绝不可见 / 相似字符；完整显示 + 字符数 + 首尾空格标记（142） |
-| W6 | 凭据值出现在审批页或被写进密码框 | 感知标记 `sensitive`，签发与审批请求阶段拒绝；执行时双重复核（141） |
+| W6 | 凭据值出现在审批页或被写进密码框 | 感知标记 `sensitive`（password、input / textarea 的凭据 autocomplete、`-webkit-text-security`），签发与审批请求阶段拒绝；执行时双重复核（141） |
 | W7 | 写入函数在一个上下文运行后又在另一个上下文重试 | 只选唯一的本扩展 isolated world，不循环（140） |
 | W8 | focus 副作用后被当成可重试的失败 | focus 之后一律 `ACTION_OUTCOME_UNKNOWN`（145） |
 | W9 | 动作被重放或迟到执行 | 沿用 grant 单次消费、TTL、navigation / tab 关闭撤销、二次 prepare |
@@ -218,7 +224,9 @@ Real Chromium E2E（新 fixture `strict-write.html`）：
 - 同进程 child frame 中的输入框写入成功；open shadow root 内的输入框写入成功；
 - focus 回调把焦点移到另一个输入框：另一个输入框保持为空，`ACTION_OUTCOME_UNKNOWN`；
 - focus 回调把 type 改成 password：字段保持原值，`ACTION_OUTCOME_UNKNOWN`；
-- password 字段：签发即被拒绝（`POLICY_BLOCKED`），字段从未获得焦点；
+- password 字段、`autocomplete="one-time-code"` 的 textarea、`-webkit-text-security` 遮盖的输入框：签发即被拒绝（`POLICY_BLOCKED`），字段从未获得焦点（`focusin` 记录，以确实写入过的字段作对照）；
+- focus 回调给字段加上 `-webkit-text-security`：字段保持为空，`ACTION_OUTCOME_UNKNOWN`；
+- open shadow root 内的字段被光照 DOM 遮罩或同一 shadow root 内的遮罩覆盖：`TARGET_OCCLUDED`；shadow root 内的按钮经新消息（`action: { kind: "click" }`）Strict click 成功；
 - readonly / number 字段：签发即被拒绝；被遮罩覆盖的字段：`TARGET_OCCLUDED`，无输入；
 - 用“A”的 grant 执行“B” → `AUTHORIZATION_REQUIRED`，字段不变；
 - 带 maxlength 的字段：执行成功，`valueMatched === false`；
@@ -238,6 +246,13 @@ pnpm e2e
 ### 回滚
 
 S1 不改变任何现有 click 消息的行为；revert PR 即可，无数据迁移。
+
+### S1 实现记录
+
+- E2E 证实了最脆弱的假设：扩展 isolated world 中 `execCommand("insertText")` 产生 `isTrusted` 的 `insertText` 输入事件，焦点抢夺与 focus 回调改类型都在同一 task 内被拒绝。
+- E2E 暴露一处既有缺陷：Strict 命中测试用 `document.elementFromPoint`，shadow root 内的目标一律判为遮挡（click 同样受影响）。改为在目标自身的 tree scope 上测试（不变量 146），并补了光照 DOM 遮罩、同一 shadow root 内遮罩两条反例；这同时让 Strict click 可以作用于 open shadow root 内的元素。
+- 代码审查（check + 独立对抗式审查）：0 HIGH；1 MEDIUM（方案中“验证不回显值”的说法与 trusted 路径 AX 值不符——经核实是文档错误而非新出口，已更正说明与不变量 144）；3 LOW 已修复：U+2800 可伪装成空格、清空说明与字面量值同框、值框高度上限导致需滚动才能看全；textarea 的凭据 autocomplete 与 `-webkit-text-security` 遮盖未被识别为敏感；命中测试修正缺少遮挡反例。
+- 已知且接受：签发阶段无法预知的拒绝（`contenteditable`、OOPIF）发生在 grant 消费之后，浪费一次授权但 fail closed。
 
 ---
 
@@ -267,8 +282,8 @@ S1 不改变任何现有 click 消息的行为；revert PR 即可，无数据迁
 
 ### 新增不变量（S2）
 
-146. selectOption 只按 `option.label` 精确选择，label 与文本内容不一致的选项不可选；选项不存在或不唯一时在任何修改之前拒绝；只支持原生单选 `<select>`。
-147. 表单提交只能通过 `submitForm`（`requestSubmit`）进行；pressKey 不接受 Enter 等带提交语义的按键，按键后焦点被移走时必须报告 `ACTION_OUTCOME_UNKNOWN`。
+147. selectOption 只按 `option.label` 精确选择，label 与文本内容不一致的选项不可选；选项不存在或不唯一时在任何修改之前拒绝；只支持原生单选 `<select>`。
+148. 表单提交只能通过 `submitForm`（`requestSubmit`）进行；pressKey 不接受 Enter 等带提交语义的按键，按键后焦点被移走时必须报告 `ACTION_OUTCOME_UNKNOWN`。
 
 ---
 

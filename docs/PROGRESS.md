@@ -1,10 +1,10 @@
 # 实现进度
 
-最后更新：2026-10-29
+最后更新：2026-10-30
 
 ## 当前基线
 
-PR #1～#17 已合并，Phase 0～6.6 与 Phase 7-0a 完成；Phase 7-0b（脱敏 trace）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#18 已合并，Phase 0～6.6 与 Phase 7-0 完成；Strict 写入类动作 S1（trusted 路径 setValue）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -35,6 +35,7 @@ Phase 6.6b 取消 / 撤销 / progress + 审批 UX    ✅
 Phase 6.6c side-effect wire + 端到端 + 最终审查 ✅
 Phase 7-0a 决策评测 harness + 对抗 fixture      ✅
 Phase 7-0b 脱敏 trace + 有界 sink              ✅
+Strict 写入 S1 trusted 路径 setValue          ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -373,9 +374,33 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 变异验证：失败调用记录入参标识、open origin 改用 Runtime 回传值、去掉 `O_EXCL`、去掉 act 保留容量、broker 回调不加保护、validator 放过未知 key、recorder 不吞异常、bridge 把结果超限记为成功，8 种变异均被对应测试抓到 ✅
 - 代码经 check 审查与独立对抗式审查：1 HIGH（预算之前就失败的 act 调用会占用 act 保留容量，模型可借此挤掉真实 act 的记录）、3 LOW（目录末尾斜杠绕过 symlink 检查、文件尾部丢弃不形成 seq 断档、写入失败路径无测试）与 5 条 advisory 已处理；保留档判定与末尾斜杠两处修复经变异验证由红转绿 ✅
 
+## Strict 写入 S1：trusted 路径 setValue
+
+方案见 `docs/STRICT-WRITE-ACTIONS.md`（think 编写、独立对抗式审查一轮，S1 3 HIGH 等发现在实现前并入方案）。
+
+- core：`StrictActionArgs`、`parseStrictActionArgs`（exact-key、长度 1024、拒绝审批页无法如实显示的字符）与 `canonicalStrictActionArgs`；`ElementState.state.sensitive`；
+- policy：grant 绑定 `actionArgs`，消费时逐字比较，非 click 动作缺参数即拒绝；
+- 感知：DOM 源对 password、凭据 / 支付 autocomplete（input 与 textarea）与 `-webkit-text-security` 遮盖的字段标记 `sensitive`，merge 时 DOM 优先；
+- 协议：新增 `authorization.issue-strict-action`、`authorization.request-strict-action-approval`、`execution.execute-strict-action`（exact-key）；旧 click 消息带 `action` 即拒绝；trusted `browser.act` 接受 setValue；
+- 签发 / 审批：`assertStrictActionTarget` 在签发与审批入队前拒绝缺 capability、敏感、只读、禁用、spinbutton、非 DOM 来源的目标；enterprise 路径只签 click；审批 summary 带 action；
+- 执行：`PolicyGatedStrictClickExecutor` 的 setValue 分支（两次 prepare、参数绑定消费、OOPIF 拒绝），`IsolatedWorldStrictValueWriter` 在唯一的本扩展 isolated world 中单 task 写入，focus 之后的失败一律 `ACTION_OUTCOME_UNKNOWN`；
+- 审批页：标题区分点击 / 填写，值完整显示并标注来源、字符数与空格提示，清空说明在值框之外；
+- 命中测试改在目标自身的 tree scope 上进行（不变量 146），修正 shadow root 内目标一律判为遮挡的既有缺陷，Strict click 也因此能作用于 open shadow root；
+- 新增不变量 138～146，SECURITY 新增「Strict 写入边界」。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（790 个）✅
+- Workspace build ✅
+- Real Chromium E2E（14 个，新增 strict setValue 用例：可信 insertText、textarea / email / 清空 / shadow root / 同进程 child frame、maxlength、焦点抢夺与 focus 时改类型 / 加遮盖、敏感与只读字段签发即拒且从未获得焦点、遮挡（含 shadow root 内两种）、参数不同的 grant、旧消息带 action、审批页显示与批准、shadow root 内 Strict click）✅；Playwright 焦点模拟下无法证明真实后台标签页行为
+- 变异验证：去掉 grant 参数比较、旧消息的 `action` 拒绝、签发 / 审批入队前的敏感检查、OOPIF 拒绝、执行器消费时的参数、isolated world 唯一性、写入调用失败的 outcome unknown、focus 后复核、DOM 的 password / autocomplete 判定、merge 的 sensitive、默认可忽略字符，13 种变异均被单测抓到；写入函数的遮盖复核与命中测试修正各由 E2E 抓到 ✅
+- 代码经 check 审查与独立对抗式审查：0 HIGH；1 MEDIUM（“验证不回显值”的文档说法不成立，经核实 trusted 路径本就可见字段值，为文档错误，已更正）；3 LOW（U+2800 伪装空格与审批页显示、textarea autocomplete 与 `-webkit-text-security` 未识别为敏感、命中测试修正缺遮挡反例）已修复 ✅
+
 ## 下一步
 
-1. Phase 7-0 完成后进入 Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run），开工前再与 Strict 写入类动作（setValue / selectOption / pressKey）的优先级一起确认。
+1. Strict 写入 S2（selectOption / submitForm / pressKey），之后 S3 向模型开放写入（强制 operator 审批）；
+2. Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。
 
 ## 文档
 

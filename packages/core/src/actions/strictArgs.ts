@@ -18,10 +18,11 @@ export const STRICT_VALUE_MAX_LENGTH = 1_024;
 /**
  * 审批页必须显示将要输入的全部内容（不变量 142），因此拒绝：
  * 控制字符（含换行与制表符）、格式字符与所有默认可忽略字符（零宽、bidi、
- * 变体选择符、Hangul filler 等）、行 / 段分隔符，以及除 U+0020 以外的空格分隔符。
+ * 变体选择符、Hangul filler 等）、行 / 段分隔符、除 U+0020 以外的空格分隔符，
+ * 以及常见字体中渲染为空白的 U+2800（Braille Pattern Blank）。
  */
 const FORBIDDEN_VALUE_CHARACTER =
-  /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}   -   　]/u;
+  /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\p{Zl}\p{Zp}\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\u2800]/u;
 
 const LONE_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;

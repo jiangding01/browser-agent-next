@@ -125,10 +125,11 @@ signal 只负责 pacing，不是 correctness proof。为避免 MV3 suspend、不
 
 ## browser.act
 
-第一版只支持当前已经经过真实 Chromium 对抗测试的：
+trusted control plane 支持当前已经经过真实 Chromium 对抗测试的：
 
 ```text
 strict click
+strict setValue      action.value：单行原生文本字段，S1（docs/STRICT-WRITE-ACTIONS.md）
 ```
 
 必须提供：
@@ -154,7 +155,7 @@ Stored Observation
 → Verify
 ```
 
-非 click action 当前返回 ACTION_NOT_SUPPORTED，而不是降级到 compatible execution。
+setValue 的 grant 必须由 `authorization.issue-strict-action` 或 `authorization.request-strict-action-approval` 按完全相同的值签发；执行结果额外带 `valueMatched`，不回显值。其它 action 当前返回 ACTION_NOT_SUPPORTED，而不是降级到 compatible execution。
 
 ### Model-facing 形态（Phase 6.6a）
 
@@ -193,7 +194,7 @@ verifyTimeoutMs?     0..5000，默认 1500
 - `authorization.issue-strict-click`
 - `execution.execute-strict-click`
 
-暂时保留，用于兼容和底层测试。新 Agent 接入应优先面向 `browser.*`。
+暂时保留，用于兼容和底层测试；它们只表示 click，携带 `action` 字段的请求会被拒绝。写入类动作使用 `authorization.issue-strict-action`、`authorization.request-strict-action-approval` 与 `execution.execute-strict-action`。新 Agent 接入应优先面向 `browser.*`。
 
 ## 当前未完成
 

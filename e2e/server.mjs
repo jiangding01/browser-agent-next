@@ -224,10 +224,12 @@ const pages = new Map([
     <meta charset="utf-8">
     <title>Strict Write Fixture</title>
     <style>
-      body { font: 14px sans-serif; }
-      label { display: block; margin: 4px 0; }
+      body { font: 12px sans-serif; margin: 4px; }
+      label { display: inline-block; margin: 2px 8px 2px 0; }
+      textarea { height: 18px; vertical-align: middle; }
       #covered-wrap { position: relative; display: inline-block; }
       #cover { position: absolute; inset: 0; background: rgba(0,0,0,0.3); }
+      #masked { -webkit-text-security: disc; }
     </style>
   </head>
   <body>
@@ -243,6 +245,9 @@ const pages = new Map([
     <label>Focus thief <input aria-label="Focus thief" id="victim"></label>
     <label>Stolen <input aria-label="Stolen" id="thief"></label>
     <label>Flips to password <input aria-label="Flips to password" id="flip"></label>
+    <label>One-time code <textarea aria-label="One-time code" id="otp" autocomplete="one-time-code"></textarea></label>
+    <label>Masked <input aria-label="Masked" id="masked"></label>
+    <label>Masks on focus <input aria-label="Masks on focus" id="masks"></label>
     <span id="covered-wrap"><label>Covered <input aria-label="Covered" id="covered"></label><span id="cover"></span></span>
     <div id="shadow-host"></div>
     <iframe id="child-frame" src="/strict-write-child.html" width="400" height="60"></iframe>
@@ -267,9 +272,20 @@ const pages = new Map([
       document.getElementById("flip").addEventListener("focus", (event) => {
         event.target.type = "password";
       });
+      document.getElementById("masks").addEventListener("focus", (event) => {
+        event.target.style.webkitTextSecurity = "disc";
+      });
       const root = document.getElementById("shadow-host").attachShadow({ mode: "open" });
-      root.innerHTML = '<label>Shadow field <input aria-label="Shadow field" id="shadow-input"></label>';
+      root.innerHTML =
+        '<style>.wrap{position:relative;display:inline-block}.veil{position:absolute;inset:0;background:rgba(0,0,0,.3)}</style>' +
+        '<label>Shadow field <input aria-label="Shadow field" id="shadow-input"></label>' +
+        '<span class="wrap"><label>Shadow covered <input aria-label="Shadow covered" id="shadow-covered"></label><span class="veil"></span></span>' +
+        '<button id="shadow-button">Shadow button</button>';
       root.addEventListener("input", record, true);
+      window.shadowClicks = 0;
+      root.getElementById("shadow-button").addEventListener("click", (event) => {
+        if (event.isTrusted) window.shadowClicks += 1;
+      });
     </script>
   </body>
 </html>`],

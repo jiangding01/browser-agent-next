@@ -357,11 +357,9 @@ function createCard(
         "write-value-label",
         "将要填写的内容（来自调用方，非页面）",
       ),
-      element(
-        "pre",
-        "write-value-text",
-        display.text,
-      ),
+      ...(display.text !== undefined
+        ? [element("pre", "write-value-text", display.text)]
+        : []),
       element(
         "div",
         "write-value-caption",

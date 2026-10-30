@@ -144,11 +144,9 @@ header p,
   margin-top: 4px;
 }
 
-/* 完整显示：保留空白、允许滚动，不截断（不变量 142）。 */
+/* 完整显示：保留空白，不截断、不设高度上限，批准前必须能看到全部内容（不变量 142）。 */
 .write-value-text {
   margin: 4px 0 0;
-  max-height: 160px;
-  overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family:

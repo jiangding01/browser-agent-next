@@ -292,7 +292,7 @@ describe("isTrustedHostRequest strict-action 消息", () => {
         { kind: "type", value: "x" },
         { kind: "setValue" },
         { kind: "setValue", value: "line\nbreak" },
-        { kind: "setValue", value: "zero​width" },
+        { kind: "setValue", value: "zero\u200Bwidth" },
         { kind: "setValue", value: "x".repeat(1_025) },
         { kind: "click", value: "x" },
       ]) {
@@ -332,7 +332,7 @@ describe("isTrustedHostRequest strict-action 消息", () => {
     expect(act({ kind: "setValue", value: "张三" })).toBe(true);
     expect(act({ kind: "setValue", value: "" })).toBe(true);
     expect(act({ kind: "setValue" })).toBe(false);
-    expect(act({ kind: "setValue", value: "a‮b" })).toBe(false);
+    expect(act({ kind: "setValue", value: "a\u202Eb" })).toBe(false);
     expect(act({ kind: "click" })).toBe(true);
     expect(act({ kind: "click", value: "x" })).toBe(false);
     expect(act({ kind: "selectOption", value: "x" })).toBe(false);

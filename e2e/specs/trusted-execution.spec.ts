@@ -3548,6 +3548,50 @@ test(
       });
       expect(await valueOf("#shadow-input")).toBe("inside shadow");
       await page.evaluate(() => document.querySelector("#shadow-veil")!.remove());
+
+      // 同一 shadow root 内的遮罩同样判为遮挡，字段从未获得焦点。
+      expect(await write("Shadow covered", "nope", "shadow-covered")).toMatchObject({
+        ok: false,
+        error: { code: "TARGET_OCCLUDED" },
+      });
+      expect(
+        await page.evaluate(() =>
+          (document.querySelector("#shadow-host")!.shadowRoot!
+            .getElementById("shadow-covered") as HTMLInputElement).value,
+        ),
+      ).toBe("");
+
+      // 命中测试修正同样让 Strict click 能作用于 open shadow root 内的按钮。
+      const shadowClick = await observe();
+      const shadowButtonRef = shadowClick.refOf("Shadow button");
+      expect(
+        await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.issue-strict-action",
+          requestId: "issue-shadow-click",
+          authorizationId: "auth-shadow-click",
+          tabId,
+          observedRevision: shadowClick.revision,
+          ref: shadowButtonRef,
+          ttlMs: 30_000,
+          action: { kind: "click" },
+        }),
+      ).toMatchObject({ ok: true });
+      const clicked = await trustedRequest(active.rpcPort, active.token, {
+        type: "execution.execute-strict-action",
+        requestId: "execute-shadow-click",
+        actionId: "act-shadow-click",
+        authorizationId: "auth-shadow-click",
+        tabId,
+        observedRevision: shadowClick.revision,
+        ref: shadowButtonRef,
+        action: { kind: "click" },
+        verification: verification(shadowButtonRef),
+        verifyTimeoutMs: 0,
+      });
+      expect(clicked, JSON.stringify(clicked)).toMatchObject({ ok: true });
+      expect(
+        await page.evaluate(() => (window as unknown as { shadowClicks: number }).shadowClicks),
+      ).toBe(1);
       expect(await write("Child field", "inside child", "child")).toMatchObject({
         ok: true,
         result: { execution: { valueMatched: true } },
@@ -3581,6 +3625,8 @@ test(
       // 7. 签发阶段就拒绝：password、只读、number。
       for (const [label, code] of [
         ["Password", "POLICY_BLOCKED"],
+        ["One-time code", "POLICY_BLOCKED"],
+        ["Masked", "POLICY_BLOCKED"],
         ["Read only", "ACTION_NOT_SUPPORTED"],
         ["Age", "ACTION_NOT_SUPPORTED"],
       ] as const) {
@@ -3593,9 +3639,16 @@ test(
         page.evaluate(() => (window as unknown as { focusLog: string[] }).focusLog);
       // 对照：确实写入过的字段出现在 focusLog 中，证明该断言不是空转。
       expect(await focused()).toContain("name");
-      for (const id of ["password", "readonly", "age"]) {
+      for (const id of ["password", "otp", "masked", "readonly", "age"]) {
         expect(await focused(), id).not.toContain(id);
       }
+
+      // focus 回调给字段加上 -webkit-text-security：同一 task 内复核拒绝，outcome unknown。
+      expect(await write("Masks on focus", "secret", "masks")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN" },
+      });
+      expect(await valueOf("#masks")).toBe("");
 
       // 8. 被遮罩覆盖：prepare 阶段拒绝，不写入。
       expect(await write("Covered", "hidden", "covered")).toMatchObject({
