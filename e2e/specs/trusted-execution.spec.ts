@@ -3589,6 +3589,13 @@ test(
       }
       expect(await valueOf("#password")).toBe("");
       expect(await valueOf("#readonly")).toBe("fixed");
+      const focused = () =>
+        page.evaluate(() => (window as unknown as { focusLog: string[] }).focusLog);
+      // 对照：确实写入过的字段出现在 focusLog 中，证明该断言不是空转。
+      expect(await focused()).toContain("name");
+      for (const id of ["password", "readonly", "age"]) {
+        expect(await focused(), id).not.toContain(id);
+      }
 
       // 8. 被遮罩覆盖：prepare 阶段拒绝，不写入。
       expect(await write("Covered", "hidden", "covered")).toMatchObject({
@@ -3596,6 +3603,7 @@ test(
         error: { code: "TARGET_OCCLUDED" },
       });
       expect(await valueOf("#covered")).toBe("");
+      expect(await focused()).not.toContain("covered");
 
       // 9. 用“A”的 grant 执行“B”：授权不匹配，不写入。
       expect(await write("Full name", "B", "mismatch", "A")).toMatchObject({

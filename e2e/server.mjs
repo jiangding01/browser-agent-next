@@ -257,6 +257,10 @@ const pages = new Map([
         });
       };
       document.addEventListener("input", record, true);
+      window.focusLog = [];
+      document.addEventListener("focusin", (event) => {
+        window.focusLog.push(event.composedPath()[0].id);
+      }, true);
       document.getElementById("victim").addEventListener("focus", () => {
         document.getElementById("thief").focus();
       });
