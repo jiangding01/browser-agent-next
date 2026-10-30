@@ -481,7 +481,7 @@ S2 不改变 click 与 setValue 的行为；新增的 `submit` capability 只是
 
 ## S2 实现进度（交接，WIP）
 
-分支 `claude/magical-thompson-h5zzdu` 上的 S2 实现**尚未完成，不可合并**。下一会话从这里继续，流程同前：实现 → E2E → check 审查循环 → 文档 → PR → CI → 合并 → 汇报。
+分支 `claude/magical-thompson-h5zzdu` 上的 S2 实现**尚未完成，不可合并**。完整的交接说明（环境、流程、逐步清单、踩过的坑）见仓库根目录 `HANDOFF.md`，以那份为准。下一会话从这里继续，流程同前：实现 → E2E → check 审查循环 → 文档 → PR → CI → 合并 → 汇报。
 
 已完成（未经审查）：
 
