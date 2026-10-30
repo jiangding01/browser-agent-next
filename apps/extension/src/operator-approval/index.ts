@@ -5,13 +5,13 @@ import type {
   OperatorApprovalUiResponse,
 } from "../protocol/operatorApproval.js";
 import {
+  type ApprovalActionDetail,
   type CardState,
-  approvalTitle,
+  approvalActionView,
   formatRemaining,
   planCardUpdate,
   shortCode,
   untrustedDisplayText,
-  writeValueDisplay,
 } from "./display.js";
 
 declare const chrome: {
@@ -236,10 +236,51 @@ function actionButton(
   return button;
 }
 
+/**
+ * 来自调用方而非页面的内容（写入值、选项、按键、提交说明）：单独成区、完整显示，
+ * 只经 textContent 写入。
+ */
+function detailSection(
+  detail: ApprovalActionDetail,
+): HTMLElement {
+  const section = element(
+    "section",
+    "write-value",
+  );
+  section.append(
+    element(
+      "div",
+      "write-value-label",
+      detail.label,
+    ),
+  );
+  if (detail.value) {
+    if (detail.value.text !== undefined) {
+      section.append(
+        element("pre", "write-value-text", detail.value.text),
+      );
+    }
+    if (detail.value.caption) {
+      section.append(
+        element("div", "write-value-caption", detail.value.caption),
+      );
+    }
+  }
+  if (detail.note !== undefined) {
+    section.append(
+      element("p", "write-value-note", detail.note),
+    );
+  }
+
+  return section;
+}
+
 function createCard(
   approval:
     OperatorApprovalSummary,
 ): CardView {
+  const actionView =
+    approvalActionView(approval.action);
   const card = element(
     "article",
     "approval-card",
@@ -255,7 +296,7 @@ function createCard(
     element(
       "h2",
       undefined,
-      approvalTitle(approval.action),
+      actionView.title,
     ),
     element(
       "span",
@@ -331,48 +372,27 @@ function createCard(
       "operator-approval.reject",
       "已拒绝",
     ),
-    actionButton(
-      "批准一次",
-      "primary",
-      approval,
-      "operator-approval.approve",
-      "已批准",
-    ),
   ];
-  actions.append(...buttons);
-
-  // 写入值来自调用方而非页面：单独成区、完整显示，只经 textContent 写入。
-  const writeValue: HTMLElement[] = [];
-  if (approval.action.kind === "setValue") {
-    const display = writeValueDisplay(
-      approval.action.value,
-    );
-    const section = element(
-      "section",
-      "write-value",
-    );
-    section.append(
-      element(
-        "div",
-        "write-value-label",
-        "将要填写的内容（来自调用方，非页面）",
-      ),
-      ...(display.text !== undefined
-        ? [element("pre", "write-value-text", display.text)]
-        : []),
-      element(
-        "div",
-        "write-value-caption",
-        display.caption,
+  // 无法识别的动作只能拒绝：不渲染批准按钮。
+  if (actionView.approvable) {
+    buttons.push(
+      actionButton(
+        "批准一次",
+        "primary",
+        approval,
+        "operator-approval.approve",
+        "已批准",
       ),
     );
-    writeValue.push(section);
   }
+  actions.append(...buttons);
 
   card.append(
     head,
     origin,
-    ...writeValue,
+    ...(actionView.detail
+      ? [detailSection(actionView.detail)]
+      : []),
     untrusted,
     countdown,
     actions,

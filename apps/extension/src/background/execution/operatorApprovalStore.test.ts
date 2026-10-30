@@ -1260,4 +1260,39 @@ describe("OperatorApprovalStore 写入类动作", () => {
       expect(store.listPending()).toEqual([]);
     }
   });
+  it("S2 动作：入队前按同一规则早期拒绝，合法时 summary 带原 action", () => {
+    const select = field({}, {
+      semantic: { role: "combobox", name: "City" },
+      capabilities: [{ kind: "selectOption", optionsKnown: true }],
+    });
+    const submittable = field({}, {
+      capabilities: [{ kind: "setValue", valueType: "text" }, { kind: "submit" }],
+    });
+    for (const [target, action, code] of [
+      [select, { kind: "selectOption", label: "上海" }, undefined],
+      [field(), { kind: "selectOption", label: "上海" }, "TARGET_CAPABILITY_MISSING"],
+      [{ ...select, state: { ...select.state, sensitive: true } }, { kind: "selectOption", label: "12" }, "POLICY_BLOCKED"],
+      [submittable, { kind: "submit" }, undefined],
+      [field(), { kind: "submit" }, "TARGET_CAPABILITY_MISSING"],
+      [field({ enabled: false }, { capabilities: submittable.capabilities }), { kind: "submit" }, "ACTION_NOT_SUPPORTED"],
+      [field(), { kind: "pressKey", key: "Tab" }, undefined],
+      [field({ sensitive: true }), { kind: "pressKey", key: "Tab" }, "POLICY_BLOCKED"],
+      [field({}, { semantic: { role: "spinbutton", name: "Qty" } }), { kind: "pressKey", key: "ArrowDown" }, "ACTION_NOT_SUPPORTED"],
+      [field({}, { semantic: { role: "searchbox", name: "Q" } }), { kind: "pressKey", key: "Escape" }, "ACTION_NOT_SUPPORTED"],
+      [field({}, { provenance: { ax: true } }), { kind: "pressKey", key: "Tab" }, "ACTION_NOT_SUPPORTED"],
+    ] as const) {
+      const { store, entries } = setup();
+      entries.get("rev-1").byRef.set("@e_1", target);
+      const label = JSON.stringify(action) + " → " + String(code);
+
+      if (code === undefined) {
+        expect(store.request({ ...input, action }).action, label).toEqual(action);
+      } else {
+        expect(() => store.request({ ...input, action }), label).toThrow(
+          expect.objectContaining({ code }),
+        );
+        expect(store.listPending(), label).toEqual([]);
+      }
+    }
+  });
 });

@@ -424,7 +424,28 @@ function submitsOwnFormWithoutButton(element: Element): boolean {
     "elements",
   )?.get?.call(form) as HTMLFormControlsCollection | undefined;
   if (!elements) return false;
-  return !Array.from(elements).some(isSubmitButton);
+  return (
+    !Array.from(elements).some(isSubmitButton) &&
+    !hasImageSubmit(form)
+  );
+}
+
+/**
+ * 表单的 elements 不含 input type=image，按 form owner 单独查找。
+ * form owner 与表单在同一个 tree 中，所以只需查表单所在的 document 或 shadow root。
+ */
+function hasImageSubmit(form: HTMLFormElement): boolean {
+  const root = Node.prototype.getRootNode.call(form);
+  const query =
+    root instanceof Document
+      ? Document.prototype.querySelectorAll
+      : root instanceof DocumentFragment
+        ? DocumentFragment.prototype.querySelectorAll
+        : undefined;
+  if (!query) return true;
+  return Array.from(query.call(root, "input") as NodeListOf<HTMLInputElement>).some(
+    (input) => input.type.toLowerCase() === "image" && input.form === form,
+  );
 }
 
 function valueFor(element: Element): ElementState["value"] | undefined {

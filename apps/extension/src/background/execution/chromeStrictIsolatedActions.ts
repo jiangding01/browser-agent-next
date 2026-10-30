@@ -83,8 +83,9 @@ const KEY_DEFINITIONS: Record<
  * 只读 DOM，不运行页面代码；isolated world 的 DOM 包装对象不受页面改写原型影响。
  */
 const COMMON_CHECKS = String.raw`
+  // Document 实例的属性可被同名命名元素覆盖，一律经原型读取（不变量 151）。
   const doc = element.ownerDocument;
-  const view = doc.defaultView;
+  const view = Object.getOwnPropertyDescriptor(Document.prototype, "defaultView").get.call(doc);
   const sensitiveAutocomplete = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE_PATTERN)});
 
   const isSensitive = () => {
@@ -287,8 +288,14 @@ export const STRICT_SUBMIT_FUNCTION = String.raw`function(stableId) {
   const formGetter = (name) => Object.getOwnPropertyDescriptor(formProto, name).get;
   const controls = Array.from(formGetter("elements").call(form));
 
-  // form.elements 不含 input type=image，单独按 form owner 查找。
-  const inputs = Array.from(view.Document.prototype.querySelectorAll.call(doc, "input"));
+  // 表单的 elements 不含 input type=image，单独按 form owner 查找；
+  // form owner 与表单在同一个 tree 中，只需查表单所在的 document 或 shadow root。
+  const root = view.Node.prototype.getRootNode.call(form);
+  const query =
+    root instanceof view.Document
+      ? view.Document.prototype.querySelectorAll
+      : view.DocumentFragment.prototype.querySelectorAll;
+  const inputs = Array.from(query.call(root, "input"));
   const hasSubmitButton =
     controls.some((control) =>
       control instanceof view.HTMLButtonElement

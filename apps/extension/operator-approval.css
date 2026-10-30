@@ -167,6 +167,12 @@ header p,
   line-height: 1.5;
 }
 
+/* 固定说明（如 submit 提交的是哪个表单）：与值框同区，不来自页面。 */
+.approval-card .write-value-note {
+  margin: 4px 0 0;
+  color: inherit;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
