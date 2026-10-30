@@ -540,7 +540,7 @@ export class HighLevelBrowserApiService {
       );
     }
 
-    // 非法参数组合 与非法参数组合在这里以 POLICY_BLOCKED 拒绝。
+    // 未知 kind 已在上面拒绝；非法参数组合（如 click 带 label）在这里以 POLICY_BLOCKED 拒绝。
     const action: StrictActionArgs = strictArgsFromActAction(input.action);
 
     return this.trustedExecution.executeStrictClickAndVerify({

@@ -211,7 +211,7 @@ export class ChromeStrictMainFrameClickResolver
         documentCompatible: true,
         identityMatches: false,
         reason:
-          "strict click currently requires linked DOM and AX strong identities",
+          "strict actions currently require linked DOM and AX strong identities",
       };
     }
 
