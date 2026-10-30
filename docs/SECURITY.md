@@ -120,9 +120,9 @@ trace 默认关闭，只有 operator 设置 `BROWSER_AGENT_NEXT_TRACE_DIR` 才�
 
 已接受的残余：trace 记录访问过的 origin（都在 operator 已配置的 allowlist 内）与操作时间线；trace 文件的访问控制依赖 OS 用户隔离，与 trusted token 相同；模型输入校验失败在 adapter 里同为 `POLICY_BLOCKED`，会计入 policy 层；进程退出时队列中未写出的事件会丢失。
 
-## Strict 写入边界（setValue，S1）
+## Strict 写入边界（setValue / selectOption / submit / pressKey）
 
-S1 只在 trusted 路径开放（`authorization.issue-strict-action`、`authorization.request-strict-action-approval`、`execution.execute-strict-action` 与 trusted `browser.act`）；model-facing `browser.act` 仍只接受 click。设计与威胁模型见 `docs/STRICT-WRITE-ACTIONS.md`。
+S1（setValue）与 S2（selectOption、submit、pressKey）只在 trusted 路径开放（`authorization.issue-strict-action`、`authorization.request-strict-action-approval`、`execution.execute-strict-action` 与 trusted `browser.act`）；model-facing `browser.act` 仍只接受 click。设计与威胁模型见 `docs/STRICT-WRITE-ACTIONS.md`。
 
 - **参数绑定**：grant 绑定 `actionKind` 与规范化参数（含值原文），消费时逐字比较；为“填 A”签发的授权不能用于填 B，也不能用于 click，反之亦然。enterprise-policy 的签名结构只绑定 click，因此拒绝为写入签发。
 - **版本错配**：写入只走独立的 strict-action 消息；旧 click 消息带 `action` 字段一律以 `INVALID_TRUSTED_HOST_REQUEST` 拒绝，旧扩展收到新消息类型同样拒绝，写入永远不会被执行成 click。
@@ -130,9 +130,14 @@ S1 只在 trusted 路径开放（`authorization.issue-strict-action`、`authoriz
 - **单 task 写入**：在目标帧中唯一的、origin 为本扩展的 isolated world 里，一个同步函数内完成字段检查 → focus → 确认 `activeElement` → 复核 → `select()` → `execCommand`；不向“恰好有焦点的元素”发送 CDP 输入，不在另一个上下文重试。只写单行原生文本字段；OOPIF 中的目标在任何输入之前 fail closed。
 - **结果语义**：focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`，禁止自动重试；执行结果只带 `valueMatched` 布尔值，错误为固定文本，均不含值。动作后验证是普通 observation：trusted 路径与 `browser.observe` 一样能看到字段当前值，model-facing 出口去掉 `observed` 与未获允许的 `value`。
 - **审批页**：值的字符集在所有入口限定为审批页能如实显示的字符（拒绝控制、格式、默认可忽略字符、非 U+0020 空格、U+2800、孤立代理项）；值完整显示、不截断、不设高度上限，附字符数与首尾 / 连续空格提示，并标注“来自调用方，非页面”；清空字段的说明显示在值框之外。
-- **命中测试**：Strict 命中测试在目标自身的 tree scope 上进行，open shadow root 内的目标可以被 click 或写入，覆盖其上的元素（同一 shadow root、外层 tree 或其它 shadow host）仍判为遮挡。
+- **命中测试**：Strict 命中测试在目标自身的 tree scope 上进行，open shadow root 内的目标可以被 click 或写入，覆盖其上的元素（同一 shadow root、外层 tree 或其它 shadow host）仍判为遮挡。可见、in-viewport 与命中测试适用于全部 strict 动作。
+- **selectOption**：只作用于原生单选、`size` 不大于 1、非 `base-select` 的 `<select>`，按 `option.label` 在未禁用、自身与 optgroup 均未隐藏、无元素子节点、`label` 属性与文本一致的选项中精确匹配；不存在或不唯一时在修改之前拒绝；不 focus，设置与事件派发在同一个 isolated-world task 内完成。敏感 autocomplete 的 `<select>`（如信用卡有效期）同样在签发前拒绝。
+- **submit**：不提供 Enter 键。`submit` 只适用于用户在该字段中按 Enter 会提交的表单：字段自身所在（非 `form` 属性关联）、没有任何提交按钮（含 `type=image` 与经 `form` 属性关联进来的按钮），且目标是其中唯一阻止隐式提交的文本类 `<input>`（`requestSubmit()` 不受隐式提交规则限制，必须显式复核，否则会绕过页面以 `type=button` 加脚本确认的提交）；有效性预检是纯读取、在任何页面代码运行之前完成，含 form-associated custom element 的表单拒绝；不带 submitter 调用 `requestSubmit()`，只有观察到可信的 submit 事件才报告成功。
+- **pressKey**：只接受 Escape / Tab / ArrowUp / ArrowDown；拒绝敏感字段、原生值控件（`<select>`、非文本类 `<input>`）上的方向键与 `type=search` 上的 Escape（签发时按 role 拒绝 spinbutton / slider / radio / searchbox，原生 `<select>` 与 role 被改写的 input 由执行时在 focus 之前按 DOM 拒绝）；还拒绝 shadow host（经 `chrome.dom.openOrClosedShadowRoot`，含 closed root；按键之后再复核一次）与 frame owner（含 fencedframe）——焦点委托会把按键送进未经检查的内层控件，且 `activeElement` 与 `composedPath()` 被重定向成 host。CDP 按键无法与焦点确认放进同一个 task，因此由 focus 之前注册在 isolated world 的捕获监听器证明：恰好一个可信、key 相符、目标为该元素的 keydown 才算成功，否则 `ACTION_OUTCOME_UNKNOWN`。同一 tab 的 isolated-world 动作串行执行。
+- **页面可覆盖的属性**：isolated-world 页面函数对 `HTMLFormElement` 与 `Document` 的属性、方法与监听器注册一律经原型访问，同名控件或命名元素无法替换它们。
+- **审批页的动作类型**：标题与内容区按动作类型穷举；审批页无法识别的动作或参数形状显示为“无法识别的动作”且不渲染批准按钮，版本错配时宁可无法批准，也不显示成别的动作。
 
-已接受的残余：`element.focus()` 会触发页面的 focus / blur 回调；页面可以在 `input` 事件里改写值，`valueMatched` 如实反映；签发阶段无法预知的拒绝（`contenteditable`、OOPIF）在 grant 消费之后发生，浪费一次授权但 fail closed；Playwright 的焦点模拟使 E2E 无法证明真实后台标签页下的行为。
+已接受的残余：`element.focus()` 会触发页面的 focus / blur 回调；页面可以在 `input` 事件里改写值，`valueMatched` 如实反映；签发阶段无法预知的拒绝（`contenteditable`、OOPIF、选项不存在、自定义表单控件、input 的实际 type）在 grant 消费之后发生，浪费一次授权但 fail closed；select 的 `input` / `change` 事件不可信；按键与提交触发的页面处理器可以做任何事（effect 保持 `unknown`）；Playwright 的焦点模拟使 E2E 无法证明真实后台标签页下的行为，真实后台标签页中 CDP 按键可能不送达，此时 fail closed 为 outcome unknown；二次 prepare 在按 tab 串行队列之外完成，排队期间前一个动作改变的布局只由页面函数复核可见与启用，不复核命中测试（与页面脚本随时可改布局的既有窗口同类）。
 
 ## Unknown Effect
 

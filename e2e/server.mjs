@@ -296,6 +296,161 @@ const pages = new Map([
     <label>Child field <input aria-label="Child field" id="child-input"></label>
   </body>
 </html>`],
+  ["/strict-actions.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Strict Actions Fixture</title>
+    <style>
+      body { font: 11px sans-serif; margin: 4px; }
+      section { margin: 2px 0; }
+      input, select { font-size: 11px; width: 90px; }
+      form { display: inline-block; margin: 0 6px 0 0; }
+      .wrap { position: relative; display: inline-block; }
+      .veil { position: absolute; inset: 0; background: rgba(0,0,0,0.3); }
+      #listbox { display: inline-block; padding: 0 4px; border: 1px solid #999; }
+    </style>
+  </head>
+  <body>
+    <section id="select-area">
+      <select aria-label="City" id="city">
+        <option selected>北京</option>
+        <option>上海</option>
+        <option>广州</option>
+        <option>Dup</option>
+        <option>Dup</option>
+        <option label="Shown">Real</option>
+        <option disabled>Disabled opt</option>
+        <option hidden>Hidden opt</option>
+        <optgroup label="Group" hidden><option>Grouped</option></optgroup>
+        <option id="rich-option"></option>
+      </select>
+      <select aria-label="Multi" id="multi" multiple size="1"><option>One</option><option>Two</option></select>
+      <select aria-label="Exp month" id="expmonth" autocomplete="cc-exp-month"><option>01</option><option>02</option></select>
+      <select aria-label="Reverter" id="reverter"><option>Keep</option><option>Change</option></select>
+      <span class="wrap"><select aria-label="Covered select" id="covered-select"><option>A</option><option>B</option></select><span class="veil"></span></span>
+      <select aria-label="Listbox select" id="listbox-select" size="2"><option>X</option><option>Y</option></select>
+    </section>
+    <section id="submit-area">
+      <form id="search-form"><input aria-label="Search query" id="q"></form>
+      <form id="required-form"><input aria-label="Required field" id="req" required></form>
+      <form id="shadowed-form"><input type="hidden" name="noValidate"><input type="hidden" name="requestSubmit"><input type="hidden" name="elements"><input aria-label="Shadowed query" id="sq"></form>
+      <form id="custom-form"><input aria-label="Custom form field" id="cf"><x-ctl></x-ctl></form>
+      <form id="button-form"><input aria-label="Has button field" id="hb"><button type="submit" id="go">Go</button></form>
+      <form id="image-form"><input aria-label="Image form field" id="if"><input type="image" alt="Img go" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></form>
+      <form id="ext-form"><input aria-label="External button field" id="eb"></form><button type="submit" form="ext-form" id="ext-go">Ext go</button>
+      <form id="far-form"></form>
+      <input aria-label="Remote field" id="remote" form="far-form">
+      <input aria-label="Loose field" id="loose">
+      <span id="shadow-form-host"></span>
+      <form id="two-field-form"><input aria-label="Two field A" id="tfa"><input aria-label="Two field B" id="tfb"></form>
+      <form id="select-form"><select aria-label="Form select" id="form-select"><option>S1</option></select></form>
+    </section>
+    <section id="key-area">
+      <input aria-label="Tab start" id="tab-start"><input aria-label="Tab next" id="tab-next">
+      <input aria-label="Popup trigger" id="popup-input"><span id="popup">popup</span>
+      <div role="listbox" tabindex="0" aria-label="Fruits" id="listbox" data-active="0">fruits</div>
+      <input aria-label="Key victim" id="key-victim"><input aria-label="Late victim" id="late-victim"><input aria-label="Key thief" id="key-thief">
+      <div role="button" aria-label="Unfocusable div" id="nofocus">nofocus</div>
+      <input type="number" aria-label="Quantity" id="qty" value="5">
+      <input type="radio" aria-label="Radio A" id="radio-a" name="r" checked><input type="radio" aria-label="Radio B" id="radio-b" name="r">
+      <input type="search" aria-label="Search box" id="searchbox" value="keep search">
+      <input type="search" role="textbox" aria-label="Disguised search" id="disguised" value="keep disguised">
+      <input type="number" role="textbox" aria-label="Disguised number" id="disguised-number" value="7">
+      <span role="button" tabindex="0" aria-label="Delegating host" id="delegate-host"></span>
+      <span role="button" tabindex="0" aria-label="Late host" id="late-host">late</span>
+      <iframe role="button" aria-label="Frame owner" id="key-frame" src="/strict-actions-frame.html" width="60" height="20"></iframe>
+    </section>
+    <iframe id="child-frame" src="/strict-actions-child.html" width="300" height="30"></iframe>
+    <script>
+      window.eventLog = [];
+      for (const type of ["input", "change", "invalid", "submit", "keydown"]) {
+        document.addEventListener(type, (event) => {
+          const target = event.composedPath()[0];
+          const entry = { id: target.id, type, trusted: event.isTrusted };
+          if (type === "submit") entry.submitter = event.submitter ? event.submitter.id : null;
+          if (type === "keydown") entry.key = event.key;
+          window.eventLog.push(entry);
+        }, true);
+      }
+      // SPA 式提交：不导航，页面状态可继续断言。
+      document.addEventListener("submit", (event) => event.preventDefault());
+      window.focusLog = [];
+      document.addEventListener("focusin", (event) => {
+        window.focusLog.push(event.composedPath()[0].id);
+      }, true);
+
+      document.getElementById("shadow-form-host").attachShadow({ mode: "open" }).innerHTML =
+        '<form id="shadow-image-form"><input aria-label="Shadow image field" id="sif">' +
+        '<input type="image" alt="Shadow img go" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></form>' +
+        '<form id="shadow-plain-form"><input aria-label="Shadow plain field" id="spf"></form>';
+      // closed + delegatesFocus：focus host 实际聚焦内层 number 输入框，activeElement 被重定向成 host。
+      const delegated = document.getElementById("delegate-host").attachShadow({ mode: "closed", delegatesFocus: true });
+      delegated.innerHTML = '<input type="number" id="delegated-number" value="3" style="width:40px">';
+      window.delegatedNumber = () => delegated.getElementById("delegated-number").value;
+      // 调用 A 结束后（按键之前）才挂上 closed + delegatesFocus 的 shadow root 并把焦点委托进内层输入框：
+      // 按键落到内层，composedPath 却被重定向成 host。
+      const lateHost = document.getElementById("late-host");
+      let lateInner;
+      lateHost.addEventListener("focus", () => {
+        queueMicrotask(() => {
+          if (lateInner) return;
+          const root = lateHost.attachShadow({ mode: "closed", delegatesFocus: true });
+          root.innerHTML = '<input id="late-inner" style="width:30px">';
+          lateInner = root.getElementById("late-inner");
+          lateInner.addEventListener("keydown", () => { window.lateInnerKeys = (window.lateInnerKeys || 0) + 1; });
+          lateInner.focus();
+        });
+      });
+      const rich = document.getElementById("rich-option");
+      rich.appendChild(document.createElement("b")).textContent = "Rich";
+      document.getElementById("reverter").addEventListener("change", (event) => {
+        event.target.selectedIndex = 0;
+      });
+      customElements.define("x-ctl", class extends HTMLElement {
+        static formAssociated = true;
+        constructor() {
+          super();
+          this.attachInternals();
+        }
+      });
+
+      document.getElementById("popup-input").addEventListener("keydown", (event) => {
+        if (event.key === "Escape") document.getElementById("popup").hidden = true;
+      });
+      const listbox = document.getElementById("listbox");
+      listbox.addEventListener("keydown", (event) => {
+        const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+        if (step) listbox.dataset.active = String(Number(listbox.dataset.active) + step);
+      });
+      const thief = document.getElementById("key-thief");
+      // 同步改焦点：调用 A 内的焦点复核即可发现。
+      document.getElementById("key-victim").addEventListener("focus", () => thief.focus());
+      // 调用 A 结束后（按键之前）才改焦点：只能靠监听器记录的按键目标发现。
+      document.getElementById("late-victim").addEventListener("focus", () => {
+        queueMicrotask(() => thief.focus());
+      });
+    </script>
+  </body>
+</html>`],
+  ["/strict-actions-frame.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Strict Actions Frame</title></head>
+  <body style="margin: 0">
+    <input aria-label="Framed field" id="framed" style="width:40px">
+    <script>
+      window.keyLog = [];
+      document.addEventListener("keydown", (event) => window.keyLog.push(event.key), true);
+    </script>
+  </body>
+</html>`],
+  ["/strict-actions-child.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Strict Actions Child</title></head>
+  <body style="margin: 2px">
+    <input aria-label="Child A" id="child-a"><input aria-label="Child B" id="child-b">
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {

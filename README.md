@@ -46,7 +46,8 @@ PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor�
 - 审批取消 / 撤销、MCP progress、扩展角标与审批页体验，以及 side-effect wire 集成与端到端测试（Phase 6.6b / 6.6c）；
 - 离线决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture（Phase 7-0a）；
 - model-facing MCP 的脱敏、有界 JSONL trace 与离线汇总（Phase 7-0b，默认关闭）；
-- trusted 路径 Strict setValue：参数精确绑定的 grant、敏感字段拒绝、扩展 isolated world 单 task 写入、审批页完整显示待写入值（Strict 写入 S1）。
+- trusted 路径 Strict setValue：参数精确绑定的 grant、敏感字段拒绝、扩展 isolated world 单 task 写入、审批页完整显示待写入值（Strict 写入 S1）；
+- trusted 路径 Strict selectOption / submit / pressKey：原生单选下拉框按 label 精确选择、只提交无提交按钮的表单、由 isolated world 监听器证明按键落在目标上，审批页按动作类型显示且无法识别的动作不可批准（Strict 写入 S2）。
 
 真实 Chromium 已验证：
 

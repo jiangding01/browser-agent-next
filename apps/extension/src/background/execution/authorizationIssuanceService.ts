@@ -4,6 +4,7 @@ import {
   type AuthorizationAssurance,
   type ElementState,
   type StrictActionArgs,
+  type StrictKey,
 } from "@browser-agent-next/core";
 import {
   authorizationAssuranceSatisfies,
@@ -54,31 +55,103 @@ export function assertStrictActionTarget(
   element: ElementState,
   action: StrictActionArgs,
 ): void {
-  if (action.kind !== "setValue") return;
+  switch (action.kind) {
+    case "click":
+      return;
+    case "setValue":
+      requireCapability(element, "setValue");
+      rejectSensitive(element, "setValue");
+      if (
+        element.state.readonly === true ||
+        !element.state.enabled ||
+        element.semantic.role === "spinbutton" ||
+        element.provenance.dom !== true
+      ) {
+        throw new BrowserRuntimeError(
+          "ACTION_NOT_SUPPORTED",
+          "setValue supports only enabled, editable native text fields confirmed by DOM perception",
+        );
+      }
+      return;
+    case "selectOption":
+      requireCapability(element, "selectOption");
+      rejectSensitive(element, "selectOption");
+      requireEnabledDomTarget(element, "selectOption");
+      return;
+    case "submit":
+      requireCapability(element, "submit");
+      requireEnabledDomTarget(element, "submit");
+      return;
+    case "pressKey":
+      rejectSensitive(element, "pressKey");
+      requireEnabledDomTarget(element, "pressKey");
+      if (keyWouldChangeValue(element, action.key)) {
+        throw new BrowserRuntimeError(
+          "ACTION_NOT_SUPPORTED",
+          "pressKey cannot send this key to a value control; use the matching strict action instead",
+        );
+      }
+      return;
+    default: {
+      const unknownAction: never = action;
+      throw new BrowserRuntimeError(
+        "ACTION_NOT_SUPPORTED",
+        "strict action kind is not supported: " + String((unknownAction as { kind?: unknown }).kind),
+      );
+    }
+  }
+}
 
-  if (!element.capabilities.some((capability) => capability.kind === "setValue")) {
+function requireCapability(
+  element: ElementState,
+  kind: "setValue" | "selectOption" | "submit",
+): void {
+  if (!element.capabilities.some((capability) => capability.kind === kind)) {
     throw new BrowserRuntimeError(
       "TARGET_CAPABILITY_MISSING",
-      "the observed target does not accept setValue",
+      "the observed target does not accept " + kind,
     );
   }
+}
+
+function rejectSensitive(
+  element: ElementState,
+  kind: "setValue" | "selectOption" | "pressKey",
+): void {
   if (element.state.sensitive === true) {
     throw new BrowserRuntimeError(
       "POLICY_BLOCKED",
-      "setValue is not allowed on credential or payment fields",
+      kind + " is not allowed on credential or payment fields",
     );
   }
-  if (
-    element.state.readonly === true ||
-    !element.state.enabled ||
-    element.semantic.role === "spinbutton" ||
-    element.provenance.dom !== true
-  ) {
+}
+
+function requireEnabledDomTarget(
+  element: ElementState,
+  kind: "selectOption" | "submit" | "pressKey",
+): void {
+  if (!element.state.enabled || element.provenance.dom !== true) {
     throw new BrowserRuntimeError(
       "ACTION_NOT_SUPPORTED",
-      "setValue supports only enabled, editable native text fields confirmed by DOM perception",
+      kind + " supports only enabled targets confirmed by DOM perception",
     );
   }
+}
+
+/**
+ * 按键本身能改值的组合（不变量 149）：方向键作用于数值 / 滑块 / 单选，Escape 作用于搜索框。
+ * 感知按 role 给原生 select 与 ARIA combobox / listbox 同样的 selectOption capability，
+ * 签发时无法区分；原生 select 与非文本类 input 由执行时的调用 A 在 focus 之前按 DOM 拒绝。
+ */
+function keyWouldChangeValue(
+  element: ElementState,
+  key: StrictKey,
+): boolean {
+  const role = element.semantic.role;
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    return role === "spinbutton" || role === "slider" || role === "radio";
+  }
+  return key === "Escape" && role === "searchbox";
 }
 
 /**

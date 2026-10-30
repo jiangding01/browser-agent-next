@@ -33,13 +33,120 @@ export function untrustedDisplayText(
     : cleaned;
 }
 
-/** 审批卡片标题：按将要执行的动作区分。 */
+/** 无法识别的动作：审批页与 summary 版本不一致时宁可无法批准，也不能显示成别的动作。 */
+export const UNKNOWN_ACTION_TITLE = "无法识别的动作";
+
+/** 审批卡片标题：按将要执行的动作区分，未知 kind 显示为无法识别。 */
 export function approvalTitle(
   action: { kind: string },
 ): string {
-  return action.kind === "setValue"
-    ? "待批准的填写"
-    : "待批准的点击";
+  switch (action.kind) {
+    case "click":
+      return "待批准的点击";
+    case "setValue":
+      return "待批准的填写";
+    case "selectOption":
+      return "待批准的选择";
+    case "submit":
+      return "待批准的表单提交";
+    case "pressKey":
+      return "待批准的按键";
+    default:
+      return UNKNOWN_ACTION_TITLE;
+  }
+}
+
+/** pressKey 的固定显示，不显示调用方字符串。 */
+const KEY_LABELS: Readonly<Record<string, string>> = {
+  Escape: "Esc",
+  Tab: "Tab",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+};
+
+export const SUBMIT_NOTE =
+  "将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）";
+
+/** 卡片中来自调用方（非页面）的内容区；所有文本只经 textContent 写入。 */
+export interface ApprovalActionDetail {
+  label: string;
+  /** 值框：setValue / selectOption 的完整值，pressKey 的固定键名。 */
+  value?: WriteValueDisplay;
+  /** 固定说明文字。 */
+  note?: string;
+}
+
+export interface ApprovalActionView {
+  title: string;
+  /** 为 false 时不渲染批准按钮（只能拒绝）。 */
+  approvable: boolean;
+  detail?: ApprovalActionDetail;
+}
+
+const UNKNOWN_ACTION_VIEW: ApprovalActionView = {
+  title: UNKNOWN_ACTION_TITLE,
+  approvable: false,
+  detail: {
+    label: "审批页无法识别该动作",
+    note: "该请求的动作类型或参数无法识别，不能在此批准；请更新扩展后重试",
+  },
+};
+
+/**
+ * 审批卡片的动作展示。action 来自后台的 summary，但审批页与后台可能版本不一致，
+ * 因此按运行时形状校验：kind 未知或参数形状不符时一律不可批准。
+ */
+export function approvalActionView(action: unknown): ApprovalActionView {
+  const record =
+    action !== null && typeof action === "object"
+      ? (action as Record<string, unknown>)
+      : {};
+  const kind = typeof record.kind === "string" ? record.kind : "";
+  const title = approvalTitle({ kind });
+
+  switch (kind) {
+    case "click":
+      return { title, approvable: true };
+    case "setValue":
+      return typeof record.value === "string"
+        ? {
+            title,
+            approvable: true,
+            detail: {
+              label: "将要填写的内容（来自调用方，非页面）",
+              value: writeValueDisplay(record.value),
+            },
+          }
+        : UNKNOWN_ACTION_VIEW;
+    case "selectOption":
+      return typeof record.label === "string" && record.label !== ""
+        ? {
+            title,
+            approvable: true,
+            detail: {
+              label: "将要选择的选项（来自调用方，非页面）",
+              value: writeValueDisplay(record.label),
+            },
+          }
+        : UNKNOWN_ACTION_VIEW;
+    case "submit":
+      return { title, approvable: true, detail: { label: "将要执行的操作", note: SUBMIT_NOTE } };
+    case "pressKey": {
+      const keyLabel =
+        typeof record.key === "string" && Object.hasOwn(KEY_LABELS, record.key)
+          ? KEY_LABELS[record.key]
+          : undefined;
+      return keyLabel !== undefined
+        ? {
+            title,
+            approvable: true,
+            detail: { label: "将要按下的键", value: { text: keyLabel, caption: "" } },
+          }
+        : UNKNOWN_ACTION_VIEW;
+    }
+    default:
+      return UNKNOWN_ACTION_VIEW;
+  }
 }
 
 export interface WriteValueDisplay {

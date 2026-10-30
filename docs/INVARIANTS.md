@@ -156,3 +156,8 @@
 144. 写入类动作的执行结果与错误不得回显输入值；只允许返回 `valueMatched` 这样的布尔执行证据。动作后验证的 evidence 属于 observation，按既有 trusted / model-facing 划分处理：model-facing 出口必须去掉 `observed` 与未获允许的 `value`。
 145. focus 一旦执行，之后的任何失败都必须报告为 `ACTION_OUTCOME_UNKNOWN`；目标位于 OOPIF child session 的写入在任何输入之前 fail closed（`ACTION_NOT_SUPPORTED`）。
 146. Strict 命中测试必须在目标自身所在的 tree scope（`getRootNode()`，document 或 shadow root）上进行：`document.elementFromPoint` 会把 shadow tree 内的命中重定向为 shadow host，使 shadow root 内的目标永远判为遮挡；按 tree scope 测试时，覆盖在目标之上的同一 shadow root、外层 tree 或其它 shadow host 中的元素仍然不等于、也不包含目标，照样判为 `TARGET_OCCLUDED`。该规则同时适用于 click 与 setValue。
+147. selectOption 只作用于原生单选、`size` 不大于 1、非 `base-select` 的 `<select>`，只按 `option.label` 在未禁用、自身与 optgroup 均未隐藏、无元素子节点、`label` 属性与文本一致的选项中精确匹配；不存在或不唯一时在任何修改之前拒绝；设置与事件派发在同一个 isolated-world task 内完成，不 focus。
+148. 不提供 Enter 键；程序化的表单提交只能经 `submit` 动作，且只适用于没有任何提交按钮、由字段自身所在（非 `form` 属性关联）、并且该字段是其中唯一阻止隐式提交的文本类 `<input>` 的表单——即用户在该字段中按 Enter 会提交的表单：不带 submitter 调用 `requestSubmit()`，有效性预检在任何页面代码运行之前完成，只有观察到可信的 submit 事件才报告执行成功。
+149. pressKey 只接受 Escape / Tab / ArrowUp / ArrowDown，不得作用于敏感字段，方向键不得作用于原生的值控件（`<select>` 与非文本类 `<input>`），Escape 不得作用于 `type=search`，不得作用于 shadow host（含 closed root，且在按键之后复核）与 frame owner；只有当 isolated world 中预先注册的捕获监听器记录到恰好一个可信且 key 相符、目标为该元素的 `keydown` 时才算执行成功，否则报告 `ACTION_OUTCOME_UNKNOWN`；focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。
+150. Strict preflight 的可见、in-viewport 与 hit-test 检查适用于所有 strict 动作。
+151. isolated-world 页面函数不得经可被页面命名属性覆盖的路径（`HTMLFormElement` / `Document` 实例上的属性与方法）读取或调用，一律经原型访问器与方法。

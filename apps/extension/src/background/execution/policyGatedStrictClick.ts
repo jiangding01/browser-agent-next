@@ -19,7 +19,10 @@ import {
   type ChromeStrictClickDispatcher,
 } from "./chromeStrictClickDispatcher.js";
 import type { StrictClickPresentationFence } from "./rootPresentationFence.js";
-import type { StrictValueWriter } from "./chromeStrictValueWriter.js";
+import type {
+  StrictIsolatedActionArgs,
+  StrictIsolatedActionRunner,
+} from "./chromeStrictIsolatedActions.js";
 
 export interface StrictClickOriginPolicy {
   isAllowed(origin: string): boolean;
@@ -105,15 +108,15 @@ export class PolicyGatedStrictClickExecutor {
     private readonly authorizations: InMemoryAuthorizationStore,
     private readonly origins: StrictClickOriginPolicy,
     private readonly presentationFence: StrictClickPresentationFence,
-    private readonly valueWriter?: StrictValueWriter,
+    private readonly isolatedActions?: StrictIsolatedActionRunner,
   ) {}
 
   async execute(
     input: ExecuteStrictClickInput,
   ): Promise<ExecuteStrictClickResult> {
     const requested = input.action ?? { kind: "click" };
-    if (requested.kind === "setValue") {
-      return this.executeSetValue(input, requested.value);
+    if (requested.kind !== "click") {
+      return this.executeIsolatedAction(input, requested);
     }
 
     const action: BrowserAction = {
@@ -288,23 +291,23 @@ export class PolicyGatedStrictClickExecutor {
    * 两次 prepare、grant 精确绑定参数与 effect policy 与 click 相同；写入不经坐标输入，
    * 由写入器在扩展 isolated world 的单一 task 内完成（不变量 140）。
    */
-  private async executeSetValue(
+  private async executeIsolatedAction(
     input: ExecuteStrictClickInput,
-    value: string,
+    args: StrictIsolatedActionArgs,
   ): Promise<ExecuteStrictClickResult> {
-    if (!this.valueWriter) {
+    if (!this.isolatedActions) {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",
-        "strict setValue is not available in this runtime",
+        "strict " + args.kind + " is not available in this runtime",
       );
     }
 
     const action: BrowserAction = {
       actionId: input.actionId,
-      kind: "setValue",
+      kind: args.kind,
       observedRevision: input.observedRevision,
       target: { ref: input.ref },
-      args: { kind: "setValue", value },
+      args,
       ...(input.authorizationId
         ? { authorization: { id: input.authorizationId } }
         : {}),
@@ -329,8 +332,8 @@ export class PolicyGatedStrictClickExecutor {
           tabId: input.tabId,
           observedRevision: input.observedRevision,
           ref: input.ref,
-          actionKind: "setValue",
-          actionArgs: canonicalStrictActionArgs({ kind: "setValue", value }),
+          actionKind: args.kind,
+          actionArgs: canonicalStrictActionArgs(args),
           effectClass: effect.class,
           ...(requiredAssurance !== undefined
             ? { minimumAssurance: requiredAssurance }
@@ -354,7 +357,7 @@ export class PolicyGatedStrictClickExecutor {
         decision.verdict === "deny"
           ? "POLICY_BLOCKED"
           : "AUTHORIZATION_REQUIRED",
-        "strict setValue blocked by effect policy: " +
+        "strict " + args.kind + " blocked by effect policy: " +
           decision.reasons.join("; "),
         {
           effect,
@@ -377,7 +380,7 @@ export class PolicyGatedStrictClickExecutor {
     if (target.cdpSessionId !== undefined) {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",
-        "strict setValue is not supported inside out-of-process iframes",
+        "strict " + args.kind + " is not supported inside out-of-process iframes",
       );
     }
 
@@ -387,7 +390,7 @@ export class PolicyGatedStrictClickExecutor {
     ) {
       throw new BrowserRuntimeError(
         "AUTHORIZATION_REQUIRED",
-        "strict setValue authorization expired before dispatch",
+        "strict " + args.kind + " authorization expired before dispatch",
         {
           effect,
           requiredAssurance,
@@ -396,14 +399,14 @@ export class PolicyGatedStrictClickExecutor {
       );
     }
 
-    const written = await this.valueWriter.write(
+    const outcome = await this.isolatedActions.run(
       {
         tabId: target.tabId,
         cdpFrameId: target.cdpFrameId,
         frameEpoch: target.frameEpoch,
         stableId: target.stableId,
       },
-      value,
+      args,
     );
 
     return {
@@ -412,7 +415,9 @@ export class PolicyGatedStrictClickExecutor {
       observedRevision: input.observedRevision,
       ref: input.ref,
       effect,
-      valueMatched: written.valueMatched,
+      ...(outcome.valueMatched !== undefined
+        ? { valueMatched: outcome.valueMatched }
+        : {}),
     };
   }
 }

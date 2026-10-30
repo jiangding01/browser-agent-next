@@ -3747,3 +3747,554 @@ test(
     }
   },
 );
+
+test(
+  "Strict S2：selectOption / submit / pressKey 在 isolated world 执行，拒绝时页面状态不变、审批页显示三种卡片",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+    // Playwright 对接管的页面开启焦点模拟：本用例证明的是 isolated world 与 CDP 按键链路，
+    // 不能证明真实后台标签页下 CDP 按键能否送达（那种情况下 fail closed 为 outcome unknown）。
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    let host: TrustedHostBrowser | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home, () => {
+        writeAutoActOrigins(home);
+      });
+      const active = host;
+
+      const createdPage = active.context.waitForEvent("page");
+      const open = await trustedRequest(active.rpcPort, active.token, {
+        type: "browser.open",
+        requestId: "open-strict-actions",
+        url: fixtureOrigin + "/strict-actions.html",
+        active: false,
+      });
+      expect(open, JSON.stringify(open)).toMatchObject({ ok: true });
+      const page = await createdPage;
+      await page.waitForLoadState("load");
+      const tabId: number = open.result.tabId;
+
+      type Observed = {
+        ref: string;
+        semantic: { role: string; name?: string };
+        capabilities: Array<{ kind: string }>;
+      };
+      type StrictAction =
+        | { kind: "click" }
+        | { kind: "selectOption"; label: string }
+        | { kind: "submit" }
+        | { kind: "pressKey"; key: "Escape" | "Tab" | "ArrowUp" | "ArrowDown" };
+
+      let sequence = 0;
+      async function observe(): Promise<{
+        revision: string;
+        find(name: string): Observed;
+      }> {
+        sequence += 1;
+        const observed = await trustedRequest(active.rpcPort, active.token, {
+          type: "browser.observe",
+          requestId: "observe-strict-actions-" + sequence,
+          tabId,
+          options: {
+            profile: "hybrid",
+            includeOpenShadowRoots: true,
+            maxElements: 200,
+            maxAxElements: 200,
+          },
+        });
+        expect(observed, JSON.stringify(observed)).toMatchObject({ ok: true });
+        const elements: Observed[] = observed.result.elements;
+        return {
+          revision: observed.result.revision.id,
+          find(name: string) {
+            const found = elements.filter((element) => element.semantic.name === name);
+            if (found.length !== 1) {
+              throw new Error("expected exactly one element named " + name + ", got " + found.length);
+            }
+            return found[0]!;
+          },
+        };
+      }
+
+      const verification = (ref: string) => ({
+        mode: "all",
+        conditions: [{ type: "ref_exists", ref }],
+      });
+
+      async function issue(name: string, action: StrictAction, suffix: string) {
+        const { revision, find } = await observe();
+        const ref = find(name).ref;
+        const response = await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.issue-strict-action",
+          requestId: "issue-" + suffix,
+          authorizationId: "auth-" + suffix,
+          tabId,
+          observedRevision: revision,
+          ref,
+          ttlMs: 30_000,
+          action,
+        });
+        return { response, revision, ref };
+      }
+
+      async function act(
+        name: string,
+        action: StrictAction,
+        suffix: string,
+        grantAction: StrictAction = action,
+      ) {
+        const issued = await issue(name, grantAction, suffix);
+        expect(issued.response, suffix + " " + JSON.stringify(issued.response)).toMatchObject({ ok: true });
+        return trustedRequest(active.rpcPort, active.token, {
+          type: "execution.execute-strict-action",
+          requestId: "execute-" + suffix,
+          actionId: "act-" + suffix,
+          authorizationId: "auth-" + suffix,
+          tabId,
+          observedRevision: issued.revision,
+          ref: issued.ref,
+          action,
+          verification: verification(issued.ref),
+          verifyTimeoutMs: 0,
+        });
+      }
+
+      type LogEntry = { id: string; type: string; trusted: boolean; submitter?: string | null; key?: string };
+      const events = () =>
+        page.evaluate(() => (window as unknown as { eventLog: LogEntry[] }).eventLog);
+      const eventsFor = async (id: string) => (await events()).filter((entry) => entry.id === id);
+      const focused = () =>
+        page.evaluate(() => (window as unknown as { focusLog: string[] }).focusLog);
+      const valueOf = (selector: string) => page.locator(selector).inputValue();
+      const activeId = () => page.evaluate(() => document.activeElement?.id ?? null);
+      const select = (label: string) => ({ kind: "selectOption", label }) as const;
+      const press = (key: "Escape" | "Tab" | "ArrowUp" | "ArrowDown") => ({ kind: "pressKey", key }) as const;
+
+      // ── 感知：submit capability 只给“自身所在、无任何提交按钮”的表单中的字段 ──
+      const capabilities = await observe();
+      const hasSubmit = (name: string) =>
+        capabilities.find(name).capabilities.some((capability) => capability.kind === "submit");
+      for (const name of [
+        "Search query",
+        "Required field",
+        "Shadowed query",
+        "Custom form field",
+        "Shadow plain field",
+      ]) {
+        expect(hasSubmit(name), name).toBe(true);
+      }
+      for (const name of [
+        "Has button field",
+        "Go",
+        "Image form field",
+        "External button field",
+        "Ext go",
+        "Remote field",
+        "Loose field",
+        "Shadow image field",
+        // 两个阻止隐式提交的字段：按 Enter 不会提交；select 上按 Enter 也不会提交。
+        "Two field A",
+        "Two field B",
+        "Form select",
+      ]) {
+        expect(hasSubmit(name), name).toBe(false);
+      }
+
+      // ── selectOption ──
+      // 1. 按 label 选中：页面收到 input / change，valueMatched 为 true，结果不回显 label。
+      const picked = await act("City", select("上海"), "select-city");
+      expect(picked, JSON.stringify(picked)).toMatchObject({
+        ok: true,
+        result: { execution: { status: "executed", valueMatched: true } },
+      });
+      expect(JSON.stringify(picked)).not.toContain("上海");
+      expect(await valueOf("#city")).toBe("上海");
+      expect((await eventsFor("city")).map((entry) => entry.type)).toEqual(["input", "change"]);
+
+      // 2. 已选中项：成功但不派发事件。
+      expect(await act("City", select("上海"), "select-same")).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: true } },
+      });
+      expect(await eventsFor("city")).toHaveLength(2);
+
+      // 3. 执行时才能发现的拒绝：值不变、无事件（对照组为上面的两条事件）。
+      // 信封只带 code 与固定消息（details 不出扩展），固定消息区分“不存在”与“不唯一”。
+      const notFound = "strict selectOption found no selectable option with the requested label";
+      const ambiguous = "strict selectOption found more than one selectable option with the requested label";
+      for (const [label, message, suffix] of [
+        ["不存在", notFound, "missing"],
+        ["Dup", ambiguous, "dup"],
+        ["Shown", notFound, "label-attr"],
+        ["Real", notFound, "label-text"],
+        ["Disabled opt", notFound, "disabled"],
+        ["Hidden opt", notFound, "hidden"],
+        ["Grouped", notFound, "optgroup"],
+        ["Rich", notFound, "rich"],
+      ] as const) {
+        const refused = await act("City", select(label), "select-" + suffix);
+        expect(refused, label + " " + JSON.stringify(refused)).toMatchObject({
+          ok: false,
+          error: { code: "TARGET_CAPABILITY_MISSING", message },
+        });
+        expect(JSON.stringify(refused)).not.toContain(label === "Dup" ? "\"Dup\"" : label);
+      }
+      expect(await valueOf("#city")).toBe("上海");
+      expect(await eventsFor("city")).toHaveLength(2);
+
+      // 4. multiple 下拉框：执行时拒绝（observation 不区分 multiple），值不变。
+      expect(await act("Multi", select("Two"), "select-multi")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED" },
+      });
+      expect(await page.locator("#multi").evaluate((node) => (node as HTMLSelectElement).selectedIndex)).toBe(-1);
+
+      // 5. 页面 change 处理器改回原值：如实报告 valueMatched=false。
+      expect(await act("Reverter", select("Change"), "select-revert")).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: false } },
+      });
+      expect(await valueOf("#reverter")).toBe("Keep");
+
+      // 5b. size > 1 的 select 在页面内渲染为列表：执行时拒绝，值不变。
+      expect(await act("Listbox select", select("Y"), "select-listbox")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict selectOption does not support this target" },
+      });
+      expect(await valueOf("#listbox-select")).toBe("");
+      expect(await eventsFor("listbox-select")).toEqual([]);
+
+      // 6. 签发即拒：敏感下拉框；被遮罩覆盖的下拉框在 prepare 阶段拒绝。
+      expect((await issue("Exp month", select("02"), "select-sensitive")).response).toMatchObject({
+        ok: false,
+        error: { code: "POLICY_BLOCKED" },
+      });
+      expect(await act("Covered select", select("B"), "select-covered")).toMatchObject({
+        ok: false,
+        error: { code: "TARGET_OCCLUDED" },
+      });
+      expect(await valueOf("#expmonth")).toBe("01");
+      expect(await valueOf("#covered-select")).toBe("A");
+      expect(await eventsFor("expmonth")).toEqual([]);
+      expect(await eventsFor("covered-select")).toEqual([]);
+
+      // 7. 用选择“上海”的 grant 选择“广州”、或改做按键：授权不匹配。
+      expect(await act("City", select("广州"), "select-mismatch", select("上海"))).toMatchObject({
+        ok: false,
+        error: { code: "AUTHORIZATION_REQUIRED" },
+      });
+      expect(await act("City", press("Tab"), "select-kind-mismatch", select("广州"))).toMatchObject({
+        ok: false,
+        error: { code: "AUTHORIZATION_REQUIRED" },
+      });
+      expect(await valueOf("#city")).toBe("上海");
+
+      // ── submit ──
+      const submitsOf = async (id: string) =>
+        (await eventsFor(id)).filter((entry) => entry.type === "submit");
+
+      // 8. 无按钮表单：页面收到可信 submit 事件，没有 submitter。
+      expect(await act("Search query", { kind: "submit" }, "submit-search")).toMatchObject({
+        ok: true,
+        result: { execution: { status: "executed" } },
+      });
+      expect(await submitsOf("search-form")).toEqual([
+        { id: "search-form", type: "submit", trusted: true, submitter: null },
+      ]);
+
+      // 9. 必填字段为空：NO_EFFECT，页面没有收到 invalid 或 submit。
+      expect(await act("Required field", { kind: "submit" }, "submit-required")).toMatchObject({
+        ok: false,
+        error: { code: "NO_EFFECT", message: "strict submit was not attempted because the form has invalid fields" },
+      });
+      expect(await eventsFor("req")).toEqual([]);
+      expect(await submitsOf("required-form")).toEqual([]);
+
+      // 10. 名为 noValidate / requestSubmit / elements 的控件不影响提交。
+      expect(await act("Shadowed query", { kind: "submit" }, "submit-shadowed")).toMatchObject({
+        ok: true,
+      });
+      expect(await submitsOf("shadowed-form")).toEqual([
+        { id: "shadowed-form", type: "submit", trusted: true, submitter: null },
+      ]);
+
+      // 10b. 签发后页面给表单加了第二个文本字段：执行时复核隐式提交规则，拒绝且不提交。
+      const searchIssued = await issue("Search query", { kind: "submit" }, "submit-grown");
+      expect(searchIssued.response).toMatchObject({ ok: true });
+      await page.evaluate(() => {
+        const extra = document.createElement("input");
+        extra.id = "q-extra";
+        extra.style.width = "10px";
+        document.getElementById("search-form")!.appendChild(extra);
+      });
+      expect(
+        await trustedRequest(active.rpcPort, active.token, {
+          type: "execution.execute-strict-action",
+          requestId: "execute-submit-grown",
+          actionId: "act-submit-grown",
+          authorizationId: "auth-submit-grown",
+          tabId,
+          observedRevision: searchIssued.revision,
+          ref: searchIssued.ref,
+          action: { kind: "submit" },
+          verification: verification(searchIssued.ref),
+          verifyTimeoutMs: 0,
+        }),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: "ACTION_NOT_SUPPORTED",
+          message: "strict submit is only for forms that pressing Enter in this single field would submit",
+        },
+      });
+      expect(await submitsOf("search-form")).toHaveLength(1);
+      await page.evaluate(() => document.getElementById("q-extra")!.remove());
+
+      // 11. 含 form-associated custom element：执行时拒绝，不提交。
+      expect(await act("Custom form field", { kind: "submit" }, "submit-custom")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict submit cannot validate forms containing custom form controls" },
+      });
+      expect(await submitsOf("custom-form")).toEqual([]);
+
+      // 12. 有提交按钮 / 表单外字段 / 经 form 属性关联的字段：签发即拒，不提交。
+      for (const [name, formId] of [
+        ["Has button field", "button-form"],
+        ["Image form field", "image-form"],
+        ["External button field", "ext-form"],
+        ["Remote field", "far-form"],
+        ["Loose field", undefined],
+        ["Go", "button-form"],
+      ] as const) {
+        const refused = await issue(name, { kind: "submit" }, "submit-refuse-" + name.replace(/\s/g, ""));
+        expect(refused.response, name).toMatchObject({ ok: false, error: { code: "TARGET_CAPABILITY_MISSING" } });
+        if (formId) expect(await submitsOf(formId), name).toEqual([]);
+      }
+
+      // ── pressKey ──
+      // 13. Tab：默认动作把焦点移到下一个字段。
+      expect(await act("Tab start", press("Tab"), "key-tab")).toMatchObject({
+        ok: true,
+        result: { execution: { status: "executed" } },
+      });
+      expect(await activeId()).toBe("tab-next");
+      expect(await eventsFor("tab-start")).toContainEqual({
+        id: "tab-start",
+        type: "keydown",
+        trusted: true,
+        key: "Tab",
+      });
+
+      // 14. Escape 让页面处理器关闭弹层；ArrowDown 到达自定义 listbox。
+      expect(await act("Popup trigger", press("Escape"), "key-escape")).toMatchObject({ ok: true });
+      expect(await page.locator("#popup").isHidden()).toBe(true);
+      expect(await act("Fruits", press("ArrowDown"), "key-listbox")).toMatchObject({ ok: true });
+      expect(await page.locator("#listbox").getAttribute("data-active")).toBe("1");
+
+      // 15. focus 回调同步把焦点移走：调用 A 内发现，按键从未派发。
+      const thiefKeysBefore = (await eventsFor("key-thief")).filter((entry) => entry.type === "keydown");
+      expect(thiefKeysBefore).toEqual([]);
+      expect(await act("Key victim", press("ArrowDown"), "key-victim")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN", outcomeMayHaveChanged: true },
+      });
+      expect((await eventsFor("key-thief")).filter((entry) => entry.type === "keydown")).toEqual([]);
+
+      // 16. A 结束后、按键之前焦点被移走：按键落到别处，监听器据此判定 outcome unknown。
+      expect(await act("Late victim", press("ArrowDown"), "key-late")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN" },
+      });
+      expect((await eventsFor("key-thief")).filter((entry) => entry.type === "keydown")).toEqual([
+        { id: "key-thief", type: "keydown", trusted: true, key: "ArrowDown" },
+      ]);
+      expect((await eventsFor("late-victim")).filter((entry) => entry.type === "keydown")).toEqual([]);
+
+      // 17. 不可聚焦的 div：执行时拒绝，从未获得焦点（对照：成功的目标出现在 focusLog 中）。
+      expect(await act("Unfocusable div", press("Escape"), "key-nofocus")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED" },
+      });
+      expect(await focused()).toContain("tab-start");
+      expect(await focused()).not.toContain("nofocus");
+
+      // 17b. closed + delegatesFocus 的 shadow host：焦点会落到内层 number 输入框上，
+      //      activeElement 与 composedPath 都被重定向成 host——调用 A 在 focus 之前拒绝。
+      expect(await act("Delegating host", press("ArrowUp"), "key-delegate")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict pressKey does not support this target" },
+      });
+      expect(await page.evaluate(() => (window as unknown as { delegatedNumber(): string }).delegatedNumber())).toBe("3");
+      expect(await focused()).not.toContain("delegate-host");
+
+      // 17c. frame owner：按键会进入子帧——在 focus 之前拒绝，子帧没有收到按键。
+      expect(await act("Frame owner", press("Escape"), "key-frame-owner")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict pressKey does not support this target" },
+      });
+      expect(
+        await page.frameLocator("#key-frame").locator("body").evaluate(
+          () => (window as unknown as { keyLog: string[] }).keyLog,
+        ),
+      ).toEqual([]);
+      expect(await focused()).not.toContain("key-frame");
+
+      // 17d. A 之后页面才把目标变成 closed + delegatesFocus 的 shadow host：按键落在内层输入框，
+      //      composedPath 被重定向成目标——调用 B 复核后判定为 outcome unknown，不误报成功。
+      expect(await act("Late host", press("ArrowDown"), "key-late-host")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN", outcomeMayHaveChanged: true },
+      });
+      expect(await page.evaluate(() => (window as unknown as { lateInnerKeys?: number }).lateInnerKeys)).toBe(1);
+
+      // 18. 签发即拒：方向键作用于原生值控件、Escape 作用于搜索框、敏感下拉框。
+      for (const [name, key, code] of [
+        ["Quantity", "ArrowUp", "ACTION_NOT_SUPPORTED"],
+        ["Radio A", "ArrowDown", "ACTION_NOT_SUPPORTED"],
+        ["Search box", "Escape", "ACTION_NOT_SUPPORTED"],
+        ["Exp month", "Tab", "POLICY_BLOCKED"],
+      ] as const) {
+        const refused = await issue(name, press(key), "key-refuse-" + name.replace(/\s/g, ""));
+        expect(refused.response, name).toMatchObject({ ok: false, error: { code } });
+      }
+
+      // 19. observation 无法区分的值控件（原生 select 与 ARIA combobox 同为 selectOption capability；
+      //     input 的 type 不在 observation 中）：调用 A 在 focus 之前拒绝，值不变、从未获得焦点。
+      for (const [name, key, id] of [
+        ["City", "ArrowDown", "city"],
+        ["Disguised search", "Escape", "disguised"],
+        ["Disguised number", "ArrowUp", "disguised-number"],
+      ] as const) {
+        const refused = await act(name, press(key), "key-late-refuse-" + id);
+        expect(refused, name + " " + JSON.stringify(refused)).toMatchObject({
+          ok: false,
+          error: { code: "ACTION_NOT_SUPPORTED" },
+        });
+        expect(await focused(), name).not.toContain(id);
+      }
+      expect(await valueOf("#city")).toBe("上海");
+      expect(await valueOf("#qty")).toBe("5");
+      expect(await page.locator("#radio-a").isChecked()).toBe(true);
+      expect(await valueOf("#searchbox")).toBe("keep search");
+      expect(await valueOf("#disguised")).toBe("keep disguised");
+      expect(await valueOf("#disguised-number")).toBe("7");
+      for (const id of ["city", "qty", "radio-a", "searchbox", "disguised", "disguised-number", "expmonth"]) {
+        expect((await eventsFor(id)).filter((entry) => entry.type === "keydown"), id).toEqual([]);
+      }
+
+      // 20. 同进程 child frame 内的 Tab。
+      expect(await act("Child A", press("Tab"), "key-child")).toMatchObject({ ok: true });
+      expect(
+        await page.frameLocator("#child-frame").locator("body").evaluate(() => document.activeElement?.id),
+      ).toBe("child-b");
+
+      // ── 审批页：三种卡片的标题与内容，批准后执行成功 ──
+      const extensionId = await extensionIdOf(active.context);
+      const approvals: Array<{
+        name: string;
+        action: StrictAction;
+        title: string;
+        label: string;
+        value?: string;
+        note?: string;
+      }> = [
+        {
+          name: "City",
+          action: select("广州"),
+          title: "待批准的选择",
+          label: "将要选择的选项（来自调用方，非页面）",
+          value: "广州",
+        },
+        {
+          name: "Search query",
+          action: { kind: "submit" },
+          title: "待批准的表单提交",
+          label: "将要执行的操作",
+          note: "将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）",
+        },
+        {
+          name: "Tab start",
+          action: press("ArrowDown"),
+          title: "待批准的按键",
+          label: "将要按下的键",
+          value: "↓",
+        },
+      ];
+      const popup = await active.context.newPage();
+      await popup.goto("chrome-extension://" + extensionId + "/operator-approval.html");
+      for (const [index, approval] of approvals.entries()) {
+        const target = await observe();
+        const ref = target.find(approval.name).ref;
+        const requested = await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.request-strict-action-approval",
+          requestId: "approval-request-" + index,
+          authorizationId: "auth-approval-" + index,
+          tabId,
+          observedRevision: target.revision,
+          ref,
+          ttlMs: 30_000,
+          approvalTtlMs: 60_000,
+          action: approval.action,
+        });
+        expect(requested, JSON.stringify(requested)).toMatchObject({ ok: true });
+        const approvalId: string = requested.result.approvalRequestId;
+
+        await popup.bringToFront();
+        const card = popup.locator(`[data-approval-id="${approvalId}"]`);
+        await expect(card.locator("h2")).toHaveText(approval.title);
+        await expect(card.locator(".write-value-label")).toHaveText(approval.label);
+        if (approval.value !== undefined) {
+          await expect(card.locator(".write-value-text")).toHaveText(approval.value, { useInnerText: false });
+        } else {
+          await expect(card.locator(".write-value-text")).toHaveCount(0);
+        }
+        if (approval.note !== undefined) {
+          await expect(card.locator(".write-value-note")).toHaveText(approval.note);
+        }
+        await expect(card.locator("button.primary")).toBeEnabled({ timeout: 5_000 });
+        await card.locator("button.primary").click();
+
+        await expect.poll(async () => {
+          const status = await trustedRequest(active.rpcPort, active.token, {
+            type: "authorization.operator-approval-status",
+            requestId: "approval-status-" + index + "-" + Date.now(),
+            approvalRequestId: approvalId,
+          });
+          return status.result?.state;
+        }).toBe("approved");
+
+        const executed = await trustedRequest(active.rpcPort, active.token, {
+          type: "execution.execute-strict-action",
+          requestId: "approval-execute-" + index,
+          actionId: "act-approval-" + index,
+          authorizationId: "auth-approval-" + index,
+          tabId,
+          observedRevision: target.revision,
+          ref,
+          action: approval.action,
+          verification: verification(ref),
+          verifyTimeoutMs: 0,
+        });
+        expect(executed, approval.title + " " + JSON.stringify(executed)).toMatchObject({
+          ok: true,
+          result: { execution: { status: "executed" } },
+        });
+      }
+      expect(await valueOf("#city")).toBe("广州");
+      expect(await submitsOf("search-form")).toHaveLength(2);
+      expect(
+        (await eventsFor("tab-start")).filter((entry) => entry.type === "keydown").map((entry) => entry.key),
+      ).toEqual(["Tab", "ArrowDown"]);
+    } finally {
+      await host?.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);

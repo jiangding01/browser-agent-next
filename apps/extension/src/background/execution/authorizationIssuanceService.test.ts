@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type {
   BrowserObservation,
+  StrictActionArgs,
+  StrictKey,
 } from "@browser-agent-next/core";
 import {
   InMemoryAuthorizationStore,
@@ -11,6 +13,7 @@ import {
 } from "@browser-agent-next/runtime";
 import {
   StrictClickAuthorizationIssuanceService,
+  assertStrictActionTarget,
 } from "./authorizationIssuanceService.js";
 
 function observation(
@@ -348,4 +351,168 @@ describe("StrictClickAuthorizationIssuanceService 写入类动作", () => {
       id: "auth-1",
     });
   });
+});
+
+describe("assertStrictActionTarget（S2 签发前的早期拒绝）", () => {
+  type Element = BrowserObservation["elements"][number];
+
+  function element(overrides: {
+    role?: string;
+    state?: Partial<Element["state"]>;
+    capabilities?: Element["capabilities"];
+    dom?: boolean;
+  } = {}): Element {
+    return {
+      ref: "@e_1",
+      kind: "field",
+      semantic: { role: overrides.role ?? "textbox", name: "Field" },
+      state: { visible: true, enabled: true, focused: false, ...overrides.state },
+      frameId: "web:0",
+      capabilities: overrides.capabilities ?? [{ kind: "focus" }],
+      provenance: { dom: overrides.dom ?? true, ax: true },
+    };
+  }
+
+  const selectable: Element["capabilities"] = [
+    { kind: "selectOption", optionsKnown: true },
+    { kind: "focus" },
+  ];
+  const submittable: Element["capabilities"] = [
+    { kind: "setValue", valueType: "text" },
+    { kind: "submit" },
+    { kind: "focus" },
+  ];
+
+  function code(target: Element, action: StrictActionArgs): string {
+    try {
+      assertStrictActionTarget(target, action);
+      return "ok";
+    } catch (error) {
+      return (error as { code: string }).code;
+    }
+  }
+
+  const selectOption = { kind: "selectOption", label: "上海" } as const;
+  const submit = { kind: "submit" } as const;
+  const press = (key: StrictKey) => ({ kind: "pressKey", key }) as const;
+
+  it("selectOption：需要 selectOption capability，拒绝敏感、禁用与非 DOM 来源", () => {
+    expect(code(element({ role: "combobox", capabilities: selectable }), selectOption)).toBe("ok");
+    expect(code(element({ role: "combobox" }), selectOption)).toBe("TARGET_CAPABILITY_MISSING");
+    expect(
+      code(element({ role: "combobox", capabilities: selectable, state: { sensitive: true } }), selectOption),
+    ).toBe("POLICY_BLOCKED");
+    expect(
+      code(element({ role: "combobox", capabilities: selectable, state: { enabled: false } }), selectOption),
+    ).toBe("ACTION_NOT_SUPPORTED");
+    expect(code(element({ role: "combobox", capabilities: selectable, dom: false }), selectOption)).toBe(
+      "ACTION_NOT_SUPPORTED",
+    );
+  });
+
+  it("submit：需要 submit capability，拒绝禁用与非 DOM 来源", () => {
+    expect(code(element({ capabilities: submittable }), submit)).toBe("ok");
+    expect(code(element({ capabilities: [{ kind: "setValue", valueType: "text" }] }), submit)).toBe(
+      "TARGET_CAPABILITY_MISSING",
+    );
+    expect(code(element({ capabilities: submittable, state: { enabled: false } }), submit)).toBe(
+      "ACTION_NOT_SUPPORTED",
+    );
+    expect(code(element({ capabilities: submittable, dom: false }), submit)).toBe("ACTION_NOT_SUPPORTED");
+  });
+
+  it("pressKey：拒绝敏感、禁用与非 DOM 来源", () => {
+    expect(code(element(), press("Tab"))).toBe("ok");
+    expect(code(element({ state: { sensitive: true } }), press("Tab"))).toBe("POLICY_BLOCKED");
+    expect(code(element({ state: { enabled: false } }), press("Tab"))).toBe("ACTION_NOT_SUPPORTED");
+    expect(code(element({ dom: false }), press("Tab"))).toBe("ACTION_NOT_SUPPORTED");
+  });
+
+  it("pressKey：方向键不得作用于值控件，Escape 不得作用于搜索框", () => {
+    for (const key of ["ArrowUp", "ArrowDown"] as const) {
+      for (const role of ["spinbutton", "slider", "radio"]) {
+        expect(code(element({ role }), press(key)), key + " " + role).toBe("ACTION_NOT_SUPPORTED");
+      }
+      // 对照：方向键可以作用于文本框与自定义 listbox / combobox。observation 无法区分原生 select
+      // 与 ARIA combobox（两者都有 selectOption capability），原生 select 由执行时的调用 A 拒绝。
+      expect(code(element(), press(key)), key).toBe("ok");
+      expect(code(element({ role: "listbox", capabilities: selectable }), press(key)), key).toBe("ok");
+      expect(code(element({ role: "combobox", capabilities: selectable }), press(key)), key).toBe("ok");
+    }
+    expect(code(element({ role: "searchbox" }), press("Escape"))).toBe("ACTION_NOT_SUPPORTED");
+    expect(code(element({ role: "textbox" }), press("Escape"))).toBe("ok");
+    // Tab 只移动焦点，不受值控件限制。
+    expect(code(element({ role: "searchbox" }), press("Tab"))).toBe("ok");
+    expect(code(element({ role: "combobox", capabilities: selectable }), press("Tab"))).toBe("ok");
+    expect(code(element({ role: "slider" }), press("Escape"))).toBe("ok");
+  });
+
+  it("click 与 setValue 不受 S2 检查影响", () => {
+    expect(code(element({ role: "radio", state: { sensitive: true }, dom: false }), { kind: "click" })).toBe("ok");
+    expect(
+      code(element({ capabilities: [{ kind: "setValue", valueType: "text" }] }), { kind: "setValue", value: "x" }),
+    ).toBe("ok");
+  });
+});
+
+describe("StrictClickAuthorizationIssuanceService S2 动作", () => {
+  function selectSetup() {
+    const states = new TabStateStore();
+    states.put({
+      ...observation(true),
+      elements: [{
+        ref: "@e_1",
+        kind: "field",
+        semantic: { role: "combobox", name: "City" },
+        state: { visible: true, enabled: true, focused: false },
+        frameId: "web:0",
+        capabilities: [{ kind: "selectOption", optionsKnown: true }, { kind: "focus" }],
+        provenance: { dom: true, ax: true },
+      }],
+    });
+    const authorizations = new InMemoryAuthorizationStore({ now: () => 100 });
+    const origins = new MutableExactOriginAllowlist();
+    origins.replace(["https://fixture.test"]);
+    return {
+      authorizations,
+      service: new StrictClickAuthorizationIssuanceService(states, authorizations, origins),
+    };
+  }
+
+  it("grant 的 actionKind 取参数的 kind，并绑定 label", () => {
+    const { service, authorizations } = selectSetup();
+    service.issueControlPlane({ ...input, action: { kind: "selectOption", label: "上海" } });
+
+    const consume = (actionKind: string, actionArgs: string) =>
+      authorizations.consume({
+        id: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        actionKind: actionKind as "selectOption",
+        actionArgs,
+        effectClass: "unknown",
+      });
+
+    expect(consume("selectOption", JSON.stringify({ kind: "selectOption", label: "北京" }))).toMatchObject({
+      ok: false,
+      reason: "binding-mismatch",
+    });
+    expect(consume("pressKey", JSON.stringify({ kind: "pressKey", key: "Tab" }))).toMatchObject({ ok: false });
+    expect(consume("selectOption", JSON.stringify({ kind: "selectOption", label: "上海" }))).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("早期拒绝发生在签发之前，不产生 grant", () => {
+    const { service, authorizations } = selectSetup();
+    expect(() => service.issueControlPlane({ ...input, action: { kind: "submit" } })).toThrow(
+      expect.objectContaining({ code: "TARGET_CAPABILITY_MISSING" }),
+    );
+    expect(authorizations.size()).toBe(0);
+    // 对照：同一目标上合法的动作照常签发。
+    service.issueOperatorApproved({ ...input, action: { kind: "pressKey", key: "Tab" } });
+    expect(authorizations.size()).toBe(1);
+  });
+
 });

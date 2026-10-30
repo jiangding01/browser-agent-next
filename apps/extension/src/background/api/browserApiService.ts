@@ -1,6 +1,6 @@
 import {
   BrowserRuntimeError,
-  parseStrictActionArgs,
+  strictArgsFromActAction,
   type BrowserActInput,
   type BrowserExtractInput,
   type BrowserExtractResult,
@@ -180,6 +180,14 @@ function timeoutVerification(
  * ownership 只能由 browser.open 的真实 tabs.create 结果进入 TabOwnershipRegistry；
  * 未记录的 tab 一律按 user-existing 处理。MV3 restart 后 registry 丢失时同样 fail safe。
  */
+const STRICT_ACT_KINDS: ReadonlySet<string> = new Set([
+  "click",
+  "setValue",
+  "selectOption",
+  "submit",
+  "pressKey",
+]);
+
 export class HighLevelBrowserApiService {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -518,13 +526,10 @@ export class HighLevelBrowserApiService {
       5_000,
     );
 
-    if (
-      input.action.kind !== "click" &&
-      input.action.kind !== "setValue"
-    ) {
+    if (!STRICT_ACT_KINDS.has(input.action.kind)) {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",
-        "browser.act currently supports strict click and setValue only",
+        "browser.act supports strict click, setValue, selectOption, submit and pressKey only",
       );
     }
 
@@ -535,13 +540,8 @@ export class HighLevelBrowserApiService {
       );
     }
 
-    const action: StrictActionArgs =
-      input.action.kind === "setValue"
-        ? parseStrictActionArgs({
-            kind: "setValue",
-            value: input.action.value,
-          })
-        : { kind: "click" };
+    // 未知 kind 已在上面拒绝；非法参数组合（如 click 带 label）在这里以 POLICY_BLOCKED 拒绝。
+    const action: StrictActionArgs = strictArgsFromActAction(input.action);
 
     return this.trustedExecution.executeStrictClickAndVerify({
       actionId: input.action.actionId,

@@ -4,6 +4,7 @@ import type {
   Rect,
   ViewportState,
 } from "@browser-agent-next/core";
+import { IMPLICIT_SUBMISSION_BLOCKING_TYPES } from "../protocol/implicitSubmission.js";
 import { SENSITIVE_AUTOCOMPLETE_PATTERN } from "../protocol/sensitiveFields.js";
 
 export interface DomFrameElement {
@@ -254,12 +255,18 @@ const SENSITIVE_AUTOCOMPLETE = new RegExp(SENSITIVE_AUTOCOMPLETE_PATTERN);
 /**
  * 凭据 / 支付字段：只产生布尔标记，绝不读取值。
  *
- * password 类型、凭据 / 支付 autocomplete（input 与 textarea 都看），以及用
+ * password 类型、凭据 / 支付 autocomplete（input、textarea 与 select 都看），以及用
  * `-webkit-text-security` 遮盖输入的字段（“显示密码”切换或自绘密码框）。
  */
 export function isSensitiveField(element: Element, win: Window): boolean {
   const isInput = element instanceof HTMLInputElement;
-  if (!isInput && !(element instanceof HTMLTextAreaElement)) return false;
+  if (
+    !isInput &&
+    !(element instanceof HTMLTextAreaElement) &&
+    !(element instanceof HTMLSelectElement)
+  ) {
+    return false;
+  }
   if (isInput && element.type.toLowerCase() === "password") return true;
   if (
     SENSITIVE_AUTOCOMPLETE.test(
@@ -374,7 +381,72 @@ function capabilitiesFor(element: Element, role: string): ElementCapability[] {
     capabilities.push({ kind: "upload", multiple: element.multiple });
   }
 
+  if (
+    capabilities.some((capability) => capability.kind === "setValue") &&
+    submitsOwnFormWithoutButton(element)
+  ) {
+    capabilities.push({ kind: "submit" });
+  }
+
   return capabilities;
+}
+
+function isSubmitButton(element: Element): boolean {
+  if (element instanceof HTMLButtonElement) return element.type === "submit";
+  if (element instanceof HTMLInputElement) {
+    const type = element.type.toLowerCase();
+    return type === "submit" || type === "image";
+  }
+  return false;
+}
+
+function blocksImplicitSubmission(element: Element): boolean {
+  return (
+    element instanceof HTMLInputElement &&
+    IMPLICIT_SUBMISSION_BLOCKING_TYPES.includes(element.type.toLowerCase())
+  );
+}
+
+/**
+ * Strict submit 只覆盖“在该字段中按 Enter 会提交”的表单（不变量 148）：字段自身所在
+ * （非 form 属性关联）、没有任何提交按钮，且该字段是表单中唯一阻止隐式提交的字段。
+ * 有提交按钮时用 Strict click。表单属性经原型访问，同名控件无法覆盖（不变量 151）。
+ */
+function submitsOwnFormWithoutButton(element: Element): boolean {
+  if (!(element instanceof HTMLInputElement) || !blocksImplicitSubmission(element)) {
+    return false;
+  }
+  const form = element.form;
+  if (!form || form !== element.closest("form")) return false;
+  const elements = Object.getOwnPropertyDescriptor(
+    HTMLFormElement.prototype,
+    "elements",
+  )?.get?.call(form) as HTMLFormControlsCollection | undefined;
+  if (!elements) return false;
+  const controls = Array.from(elements);
+  return (
+    !controls.some(isSubmitButton) &&
+    controls.filter(blocksImplicitSubmission).length === 1 &&
+    !hasImageSubmit(form)
+  );
+}
+
+/**
+ * 表单的 elements 不含 input type=image，按 form owner 单独查找。
+ * form owner 与表单在同一个 tree 中，所以只需查表单所在的 document 或 shadow root。
+ */
+function hasImageSubmit(form: HTMLFormElement): boolean {
+  const root = Node.prototype.getRootNode.call(form);
+  const query =
+    root instanceof Document
+      ? Document.prototype.querySelectorAll
+      : root instanceof DocumentFragment
+        ? DocumentFragment.prototype.querySelectorAll
+        : undefined;
+  if (!query) return true;
+  return Array.from(query.call(root, "input") as NodeListOf<HTMLInputElement>).some(
+    (input) => input.type.toLowerCase() === "image" && input.form === form,
+  );
 }
 
 function valueFor(element: Element): ElementState["value"] | undefined {

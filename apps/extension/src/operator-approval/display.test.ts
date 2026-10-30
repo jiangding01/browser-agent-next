@@ -10,6 +10,9 @@ import {
   shortCode,
   untrustedDisplayText,
   type CardState,
+  SUBMIT_NOTE,
+  UNKNOWN_ACTION_TITLE,
+  approvalActionView,
   approvalTitle,
   writeValueDisplay,
 } from "./display.js";
@@ -360,9 +363,86 @@ describe("planCardUpdate", () => {
 });
 
 describe("approvalTitle", () => {
-  it("区分点击与填写", () => {
+  it("按动作区分标题，未知 kind 显示为无法识别", () => {
     expect(approvalTitle({ kind: "click" })).toBe("待批准的点击");
     expect(approvalTitle({ kind: "setValue" })).toBe("待批准的填写");
+    expect(approvalTitle({ kind: "selectOption" })).toBe("待批准的选择");
+    expect(approvalTitle({ kind: "submit" })).toBe("待批准的表单提交");
+    expect(approvalTitle({ kind: "pressKey" })).toBe("待批准的按键");
+    expect(approvalTitle({ kind: "pressEnter" })).toBe(UNKNOWN_ACTION_TITLE);
+    expect(approvalTitle({ kind: "" })).toBe(UNKNOWN_ACTION_TITLE);
+  });
+});
+
+describe("approvalActionView", () => {
+  it("click 可批准，没有调用方内容区", () => {
+    expect(approvalActionView({ kind: "click" })).toEqual({ title: "待批准的点击", approvable: true });
+  });
+
+  it("setValue 与 selectOption 完整显示调用方给出的值", () => {
+    expect(approvalActionView({ kind: "setValue", value: " 张三 " })).toEqual({
+      title: "待批准的填写",
+      approvable: true,
+      detail: {
+        label: "将要填写的内容（来自调用方，非页面）",
+        value: writeValueDisplay(" 张三 "),
+      },
+    });
+    expect(approvalActionView({ kind: "selectOption", label: "上海  浦东" })).toEqual({
+      title: "待批准的选择",
+      approvable: true,
+      detail: {
+        label: "将要选择的选项（来自调用方，非页面）",
+        value: { text: "上海  浦东", caption: "共 6 个字符；含连续空格" },
+      },
+    });
+  });
+
+  it("submit 只显示固定说明", () => {
+    expect(approvalActionView({ kind: "submit" })).toEqual({
+      title: "待批准的表单提交",
+      approvable: true,
+      detail: { label: "将要执行的操作", note: SUBMIT_NOTE },
+    });
+    expect(SUBMIT_NOTE).toBe("将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）");
+  });
+
+  it("pressKey 按固定映射显示键名，不显示调用方字符串", () => {
+    for (const [key, text] of [
+      ["Escape", "Esc"],
+      ["Tab", "Tab"],
+      ["ArrowUp", "↑"],
+      ["ArrowDown", "↓"],
+    ] as const) {
+      expect(approvalActionView({ kind: "pressKey", key })).toEqual({
+        title: "待批准的按键",
+        approvable: true,
+        detail: { label: "将要按下的键", value: { text, caption: "" } },
+      });
+    }
+  });
+
+  it("未知 kind 或参数形状不符时不可批准，且不回显调用方字符串", () => {
+    const canary = "CANARY-key-9";
+    for (const action of [
+      { kind: "pressEnter" },
+      { kind: "pressKey", key: "Enter" },
+      { kind: "pressKey", key: "toString" },
+      { kind: "pressKey", key: canary },
+      { kind: "setValue" },
+      { kind: "setValue", value: 42 },
+      { kind: "selectOption", label: "" },
+      { kind: "selectOption" },
+      { kind: 1 },
+      null,
+      undefined,
+      "click",
+    ]) {
+      const view = approvalActionView(action);
+      expect(view.approvable, JSON.stringify(action)).toBe(false);
+      expect(view.title).toBe(UNKNOWN_ACTION_TITLE);
+      expect(JSON.stringify(view)).not.toContain(canary);
+    }
   });
 });
 

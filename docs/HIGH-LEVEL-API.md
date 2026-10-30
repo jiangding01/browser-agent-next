@@ -130,7 +130,12 @@ trusted control plane 支持当前已经经过真实 Chromium 对抗测试的：
 ```text
 strict click
 strict setValue      action.value：单行原生文本字段，S1（docs/STRICT-WRITE-ACTIONS.md）
+strict selectOption  action.label：原生单选 <select> 的选项 label（精确匹配），S2
+strict submit        无额外字段：提交字段自身所在、没有任何提交按钮的表单，S2
+strict pressKey      action.key：Escape / Tab / ArrowUp / ArrowDown，S2
 ```
+
+`value` / `label` / `key` 只能出现在对应的 kind 上（click 带 `label`、selectOption 带 `value` 等组合以 `POLICY_BLOCKED` 拒绝）。
 
 必须提供：
 
@@ -155,7 +160,7 @@ Stored Observation
 → Verify
 ```
 
-setValue 的 grant 必须由 `authorization.issue-strict-action` 或 `authorization.request-strict-action-approval` 按完全相同的值签发；执行结果额外带 `valueMatched`，不回显值。其它 action 当前返回 ACTION_NOT_SUPPORTED，而不是降级到 compatible execution。
+写入类动作（setValue / selectOption / submit / pressKey）的 grant 必须由 `authorization.issue-strict-action` 或 `authorization.request-strict-action-approval` 按完全相同的动作与参数签发；setValue / selectOption 的执行结果额外带 `valueMatched`，所有结果与错误都不回显参数。其它 action 当前返回 ACTION_NOT_SUPPORTED，而不是降级到 compatible execution。
 
 ### Model-facing 形态（Phase 6.6a）
 

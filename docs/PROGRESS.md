@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#18 已合并，Phase 0～6.6 与 Phase 7-0 完成；Strict 写入类动作 S1（trusted 路径 setValue）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#19 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1 完成；Strict 写入 S2（trusted 路径 selectOption / submit / pressKey）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -36,6 +36,7 @@ Phase 6.6c side-effect wire + 端到端 + 最终审查 ✅
 Phase 7-0a 决策评测 harness + 对抗 fixture      ✅
 Phase 7-0b 脱敏 trace + 有界 sink              ✅
 Strict 写入 S1 trusted 路径 setValue          ✅
+Strict 写入 S2 trusted 路径 selectOption / submit / pressKey ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -397,9 +398,30 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 变异验证：去掉 grant 参数比较、旧消息的 `action` 拒绝、签发 / 审批入队前的敏感检查、OOPIF 拒绝、执行器消费时的参数、isolated world 唯一性、写入调用失败的 outcome unknown、focus 后复核、DOM 的 password / autocomplete 判定、merge 的 sensitive、默认可忽略字符，13 种变异均被单测抓到；写入函数的遮盖复核与命中测试修正各由 E2E 抓到 ✅
 - 代码经 check 审查与独立对抗式审查：0 HIGH；1 MEDIUM（“验证不回显值”的文档说法不成立，经核实 trusted 路径本就可见字段值，为文档错误，已更正）；3 LOW（U+2800 伪装空格与审批页显示、textarea autocomplete 与 `-webkit-text-security` 未识别为敏感、命中测试修正缺遮挡反例）已修复 ✅
 
+## Strict 写入 S2：trusted 路径 selectOption / submit / pressKey
+
+方案见 `docs/STRICT-WRITE-ACTIONS.md`「S2」（对照代码细化并做 spike，独立对抗式审查一轮，2 HIGH 等发现在实现前并入方案）。
+
+- core：`StrictActionArgs` 增加 `selectOption` / `submit` / `pressKey`（exact-key，按键只接受 Escape / Tab / ArrowUp / ArrowDown），`strictArgsFromActAction` 是 `browser.act` 参数拼装的唯一实现；
+- 感知：`submit` capability 只给“用户在该字段中按 Enter 会提交”的字段（自身所在表单、无任何提交按钮含 `type=image`、唯一阻止隐式提交的文本类 input）；敏感 autocomplete 的 `<select>` 标记 `sensitive`；
+- preflight：可见、in-viewport 与命中测试适用于全部 strict 动作（不变量 150）；
+- 签发 / 审批：`assertStrictActionTarget` 按动作穷举早期拒绝（缺 capability、敏感、禁用、非 DOM 来源、值控件上的方向键、搜索框上的 Escape）；
+- 执行：`chromeStrictValueWriter` 改为 `IsolatedWorldStrictActionRunner`，每种动作一个 isolated-world 页面函数与结果映射，按 tab 串行；selectOption 单 task、不 focus；submit 只经原型访问表单、纯读取的有效性预检、只以可信 submit 事件为准；pressKey 由 focus 之前注册的捕获监听器证明按键落在目标上，拒绝 shadow host 与 frame owner；
+- 审批页：`approvalActionView` 按动作穷举（选择 / 表单提交 / 按键三种卡片），无法识别的动作或参数形状不渲染批准按钮；
+- 新增不变量 147～151，SECURITY「Strict 写入边界」覆盖 S2。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（830 个）✅
+- Workspace build ✅
+- Real Chromium E2E（15 个，新增 S2 用例：按 label 选择与已选中项不派发事件、不存在 / 歧义 / label 属性 / 禁用 / 隐藏 / 隐藏 optgroup / 含元素子节点的选项被拒且值不变、multiple 与 size > 1 被拒、change 处理器改回如实报告、敏感与被遮挡的 select、参数或 kind 不同的 grant；无按钮表单提交且无 submitter、必填为空 NO_EFFECT 且无 invalid 事件、同名控件覆盖表单属性不影响、自定义表单控件被拒、签发后加第二个字段执行时被拒、submit capability 在各种表单形态下的有无；Tab / Escape / 自定义 listbox 的 ArrowDown 成功、同步与 A 之后的焦点抢夺均为 outcome unknown、不可聚焦 div / closed delegatesFocus shadow host / iframe owner 在 focus 前被拒、A 之后才变成 shadow host 时判定 outcome unknown、值控件上的方向键与搜索框上的 Escape 被拒且值不变、同进程 child frame 内的 Tab；审批页三种卡片批准后执行）✅；Playwright 焦点模拟下无法证明真实后台标签页行为
+- 变异验证：26 种变异均被单测或 E2E 抓到（明细见 `docs/STRICT-WRITE-ACTIONS.md`「S2 实现记录」）✅
+- 代码经 check（Deep）审查与独立对抗式审查（两轮）：0 HIGH；2 MEDIUM（焦点委托 / frame owner 让 pressKey 落到未经检查的控件、submit 能提交按 Enter 提交不了的表单）与 2 LOW（activeElement 经实例读取、size > 1 的 select）已修复，修复部分经变异验证与第二轮独立审查；1 LOW（二次 prepare 在串行队列之外）作为已接受残余写入 SECURITY；第二轮只审修复部分，0 HIGH / MEDIUM，3 LOW 已修复（补 fencedframe、B 复核目标未在按键前变成 shadow host、E2E 拒绝断言补固定消息），1 LOW（multiple / size > 1 的 select 签发通过、执行时拒绝）作为已接受残余 ✅
+
 ## 下一步
 
-1. Strict 写入 S2（selectOption / submitForm / pressKey），之后 S3 向模型开放写入（强制 operator 审批）；
+1. Strict 写入 S3：向模型开放写入（强制 operator 审批），待批准；
 2. Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。
 
 ## 文档

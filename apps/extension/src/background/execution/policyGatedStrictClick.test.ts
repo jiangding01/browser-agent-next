@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BrowserRuntimeError } from "@browser-agent-next/core";
+import { BrowserRuntimeError, canonicalStrictActionArgs } from "@browser-agent-next/core";
 import { InMemoryAuthorizationStore } from "@browser-agent-next/policy";
 import { StrictClickDispatchError } from "./chromeStrictClickDispatcher.js";
 import { PolicyGatedStrictClickExecutor } from "./policyGatedStrictClick.js";
@@ -655,7 +655,7 @@ describe("PolicyGatedStrictClickExecutor setValue", () => {
     options: {
       authorizations?: InMemoryAuthorizationStore;
       preparedTarget?: Record<string, unknown>;
-      write?: (target: unknown, value: string) => Promise<{ valueMatched: boolean }>;
+      write?: (target: unknown, args: unknown) => Promise<{ valueMatched?: boolean }>;
       withWriter?: boolean;
     } = {},
   ) {
@@ -675,7 +675,7 @@ describe("PolicyGatedStrictClickExecutor setValue", () => {
       options.authorizations ?? setValueStore(),
       { isAllowed: () => true },
       noPresentationFence(),
-      options.withWriter === false ? undefined : { write },
+      options.withWriter === false ? undefined : { run: write },
     );
     const run = (value = VALUE, authorizationId: string | null = "grant-1") =>
       instance.execute({
@@ -708,8 +708,85 @@ describe("PolicyGatedStrictClickExecutor setValue", () => {
     expect(dispatch).not.toHaveBeenCalled();
     expect(write).toHaveBeenCalledWith(
       { tabId: 7, cdpFrameId: "cdp-main", frameEpoch: "frame-a", stableId: "s1" },
-      VALUE,
+      { kind: "setValue", value: VALUE },
     );
+  });
+
+  const S2_ACTIONS = [
+    { kind: "selectOption", label: "北京" },
+    { kind: "submit" },
+    { kind: "pressKey", key: "Escape" },
+  ] as const;
+
+  function s2Executor(
+    action: (typeof S2_ACTIONS)[number],
+    preparedTarget: Record<string, unknown> = {},
+  ) {
+    const authorizations = new InMemoryAuthorizationStore();
+    authorizations.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: action.kind,
+      actionArgs: canonicalStrictActionArgs(action),
+      effectClass: "unknown",
+      assurance: "control-plane",
+      ttlMs: 60_000,
+      source: "trusted-host",
+    });
+    const prepare = vi.fn(async (_tabId: number, prepareAction: { kind: string }) => {
+      const base = prepared();
+      return {
+        ...base,
+        action: prepareAction,
+        prepared: { ...base.prepared, ...preparedTarget },
+      } as never;
+    });
+    const dispatch = vi.fn(async () => undefined);
+    const run = vi.fn(async () => ({}));
+    const instance = new PolicyGatedStrictClickExecutor(
+      { prepare } as never,
+      { dispatch } as never,
+      authorizations,
+      { isAllowed: () => true },
+      noPresentationFence(),
+      { run },
+    );
+    const execute = () =>
+      instance.execute({
+        tabId: 7,
+        actionId: "a1",
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        authorizationId: "grant-1",
+        action,
+      });
+    return { execute, prepare, dispatch, run };
+  }
+
+  it("S2 动作同样经 isolated-world 执行器，以自己的 kind 与参数消费 grant，绝不走 click dispatch", async () => {
+    for (const action of S2_ACTIONS) {
+      const { execute, prepare, dispatch, run } = s2Executor(action);
+
+      const result = await execute();
+
+      expect(result, action.kind).not.toHaveProperty("valueMatched");
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(prepare.mock.calls.every(([, prepared]) => prepared.kind === action.kind)).toBe(true);
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({ stableId: "s1" }), action);
+    }
+  });
+
+  it("S2 动作的目标在 OOPIF child session 中时，在执行前 fail closed", async () => {
+    for (const action of S2_ACTIONS) {
+      const { execute, run, dispatch } = s2Executor(action, { cdpSessionId: "child-session" });
+
+      await expect(execute(), action.kind).rejects.toMatchObject({ code: "ACTION_NOT_SUPPORTED" });
+      expect(run).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    }
   });
 
   it("参数不同、click grant 或没有 grant 时都不写入", async () => {
@@ -781,7 +858,7 @@ describe("PolicyGatedStrictClickExecutor setValue", () => {
         authorizations,
         { isAllowed: () => true },
         noPresentationFence(),
-        { write },
+        { run: write },
       );
 
       await expect(

@@ -1,3 +1,4 @@
+import type { BrowserAction } from "@browser-agent-next/core";
 import { describe, expect, it } from "vitest";
 import type { BrowserObservation } from "@browser-agent-next/core";
 import { InMemoryPersistentRefStore } from "@browser-agent-next/refs";
@@ -189,7 +190,7 @@ describe("ChromeStrictMainFrameClickResolver", () => {
     const { observation, ref } = fixture(refs);
     const resolver = happyPathResolver(refs);
     const expected = observation.elements.find((element) => element.ref === ref)!;
-    const resolve = (kind: "setValue" | "selectOption") =>
+    const resolve = (kind: BrowserAction["kind"]) =>
       resolver.resolve({
         tabId: 7,
         action: {
@@ -207,9 +208,15 @@ describe("ChromeStrictMainFrameClickResolver", () => {
       identityMatches: true,
       prepared: { backendNodeId: 42, stableId: "s1" },
     });
-    expect(await resolve("selectOption")).toMatchObject({
+    for (const kind of ["selectOption", "submit", "pressKey"] as const) {
+      expect(await resolve(kind), kind).toMatchObject({
+        identityMatches: true,
+        prepared: { backendNodeId: 42, stableId: "s1" },
+      });
+    }
+    expect(await resolve("check")).toMatchObject({
       identityMatches: false,
-      reason: expect.stringContaining("only supports click and setValue"),
+      reason: expect.stringContaining("only supports click, setValue"),
     });
   });
 

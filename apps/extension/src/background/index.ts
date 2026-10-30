@@ -92,8 +92,8 @@ import {
   bindOperatorApprovalBadge,
 } from "./execution/approvalBadge.js";
 import {
-  IsolatedWorldStrictValueWriter,
-} from "./execution/chromeStrictValueWriter.js";
+  IsolatedWorldStrictActionRunner,
+} from "./execution/chromeStrictIsolatedActions.js";
 import {
   BrowserChangeSignalHub,
   registerBrowserChangeSignals,
@@ -246,7 +246,7 @@ const clickDispatcher =
 
 // 写入只在本扩展的 isolated world 中进行：按 origin 精确定位，不尝试其它上下文。
 const strictValueWriter =
-  new IsolatedWorldStrictValueWriter(
+  new IsolatedWorldStrictActionRunner(
     debuggerTransport,
     "chrome-extension://" + chrome.runtime.id,
   );
