@@ -90,7 +90,7 @@
 
 ## Strict 写入类动作
 - [x] S1 trusted 路径 setValue：参数绑定 grant、敏感字段拒绝、isolated world 单 task 写入、独立协议消息、审批页显示值
-- [ ] S2 selectOption / submitForm / pressKey
+- [x] S2 trusted 路径 selectOption / submit / pressKey：原生单选 select 精确匹配、无提交按钮表单的 submit、监听器证明的按键、几何检查覆盖全部动作、审批页按动作穷举
 - [ ] S3 向模型开放写入（强制 operator 审批）
 
 ## Phase 7 — Intelligence
