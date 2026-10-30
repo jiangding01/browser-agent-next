@@ -1,6 +1,6 @@
 # Strict 写入类动作：setValue / selectOption / submit / pressKey
 
-状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 已合并（PR #19）；S2 方案已对照代码细化（含 spike），待审查；S3 待批准
+状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 已合并（PR #19）；S2 方案已对照代码细化（含 spike），经独立对抗式审查一轮（2 HIGH、3 MEDIUM、4 LOW，已全部并入）；S3 待批准
 最后更新：2026-10-30
 
 ## 为什么做
@@ -275,7 +275,7 @@ export type StrictActionArgs =
 
 ### 感知
 
-- **`submit` capability**：DOM 源对拥有 form owner（`element.form !== null`）的提交按钮（`<button type=submit>`、`<input type=submit|image>`）与表单字段（已有 setValue / selectOption / check capability 的元素）增加 `{ kind: "submit" }`。目前没有任何感知源产生这个 capability，而 preflight 的 `requiredCapability("submit")` 要求它；补上它也让签发阶段能在不消耗 grant 的情况下拒绝不在表单里的目标。AX 源不产生，merge 按并集保留 DOM 的结果。
+- **`submit` capability**：DOM 源只对满足以下全部条件的表单字段（已有 setValue / selectOption / check capability 的 `<input>` / `<select>` / `<textarea>`）增加 `{ kind: "submit" }`：有 form owner，且 form owner 就是 `closest("form")`（不经 `form` 属性关联到别处的表单），且该表单没有任何提交按钮（`<button type=submit>`、`<input type=submit|image>`，含表单外经 `form` 属性关联进来的）。提交按钮本身不带这个 capability——提交按钮用既有的 Strict click（`requestSubmit(submitter)` 不派发 click，按钮的 `onclick` 不会运行，比点击更不忠实）。目前没有任何感知源产生 `submit`，而 preflight 的 `requiredCapability("submit")` 要求它；AX 源不产生，merge 按并集保留 DOM 的结果。
 - **敏感 `<select>`**：`isSensitiveField` 对 `HTMLSelectElement` 同样检查凭据 / 支付类 autocomplete（`cc-exp-month` 等常见于下拉框）。
 
 ### 签发前的早期拒绝（`assertStrictActionTarget`）
@@ -283,22 +283,26 @@ export type StrictActionArgs =
 | 动作 | 拒绝条件 |
 |---|---|
 | selectOption | 缺 `selectOption` capability（`TARGET_CAPABILITY_MISSING`）；`sensitive`（`POLICY_BLOCKED`）；禁用或非 DOM 来源（`ACTION_NOT_SUPPORTED`） |
-| submit | 缺 `submit` capability；禁用或非 DOM 来源 |
-| pressKey | 禁用或非 DOM 来源 |
+| submit | 缺 `submit` capability（`TARGET_CAPABILITY_MISSING`）；禁用或非 DOM 来源 |
+| pressKey | `sensitive`（`POLICY_BLOCKED`）；禁用或非 DOM 来源；方向键作用于带 `selectOption` capability 的目标或 role 为 `spinbutton` / `slider` / `radio` 的目标、Escape 作用于 role 为 `searchbox` 的目标（`ACTION_NOT_SUPPORTED`，理由见 pressKey 一节） |
 
-retained observation 不含 `<option>` 列表、不区分原生 `<select>` 与 ARIA combobox，所以“选项不存在”和“自定义组件”只能在执行时发现，此时 grant 已消耗——与 S1 中 `contenteditable` 相同的已接受代价。
+retained observation 不含 `<option>` 列表、不区分原生 `<select>` 与 ARIA combobox、不含 input 的 type，所以“选项不存在”“自定义组件”和部分 pressKey 限制只能在执行时发现，此时 grant 已消耗——与 S1 中 `contenteditable` 相同的已接受代价。
 
 ### preflight 几何检查
 
 S1 只对 click / setValue 检查 in-viewport 与 hit-test。S2 改为对所有 strict 动作检查：用户看不到、点不到的目标，调用方也不应能选择、提交或按键（不变量 150）。
 
+### 页面函数的通用规则：不信任页面可覆盖的属性
+
+`HTMLFormElement` 带 `[LegacyOverrideBuiltIns]`：同名控件会覆盖内置属性（`<input name="noValidate">` 让 `form.noValidate` 变成那个元素，`requestSubmit`、`elements` 同理）。这是 DOM 绑定行为，spike 证实在 isolated world 中同样生效。页面函数对表单一律经 `view.HTMLFormElement.prototype` 的访问器与方法调用（`Object.getOwnPropertyDescriptor(proto, "elements").get.call(form)`、`proto.requestSubmit.call(form)`）。`Document` 的命名属性在 spike 中没有覆盖 isolated world 里的 `document.execCommand`，S1 不受影响；但为统一规则，S1 的 `execCommand` 调用也改为经 `view.Document.prototype.execCommand.call(doc, …)`，代价为零。
+
 ### selectOption（原生单选 `<select>`）
 
 单一 isolated-world task，不 focus（设置选中项不需要焦点，省掉 focus 回调这一页面代码执行点；isolated world 有自己的 DOM 包装对象，页面改写 `HTMLSelectElement.prototype` 影响不到这里）：
 
-1. 解析元素；必须是已连接的 `HTMLSelectElement`、非 `multiple`，否则 `unsupported`；
+1. 解析元素；必须是已连接的 `HTMLSelectElement`、非 `multiple`、计算样式 `appearance` 不是 `base-select`（可定制 select 的选项可含任意 HTML 与页面 CSS，屏幕显示与 `option.text` 可以不同），否则 `unsupported`；
 2. 敏感 autocomplete → `sensitive`；`:disabled`、`aria-disabled`、`inert`、不可见 → `unsupported`；
-3. 候选选项：未禁用（`option.matches(":disabled")`，覆盖禁用的 `optgroup`）、无 `hidden` 属性、计算样式 `display` 不为 `none`，且若带 `label` 属性则其值与 `option.text` 完全相等（Chrome 下拉列表显示 `label` 属性，与文本内容不一致的选项可能让审批页与实际含义脱节）；
+3. 候选选项：未禁用（`option.matches(":disabled")`，覆盖禁用的 `optgroup`）；选项及其到 `<select>` 之间的祖先（`optgroup`）都没有 `hidden` 属性、计算样式 `display` 都不为 `none`；没有元素子节点；若带 `label` 属性则其值与 `option.text` 完全相等（Chrome 下拉列表显示 `label` 属性，与文本内容不一致的选项可能让审批页与实际含义脱节）；
 4. 在候选中按 `option.label === label` 精确匹配：零个 → `option-not-found`，多个 → `option-ambiguous`，两者都在任何修改之前返回；
 5. 匹配项已选中 → 直接返回 `written`、`valueMatched: true`，不派发事件（与用户重新选择同一项时浏览器不派发 `change` 一致）；
 6. `select.selectedIndex = option.index`，再派发冒泡的 `input`（`composed: true`）与 `change`；
@@ -306,65 +310,86 @@ S1 只对 click / setValue 检查 in-viewport 与 hit-test。S2 改为对所有 
 
 `input` / `change` 事件的 `isTrusted` 为 false：原生 `<select>` 没有可信的编辑命令（spike 证实），这是已知限制，React 等框架照常接收。`option-not-found` / `option-ambiguous` 映射为 `TARGET_CAPABILITY_MISSING`，`details.reason` 区分两者，消息为固定文本、不含 label。
 
-### submit
+### submit（无提交按钮的表单）
 
-不提供 Enter 键：确认焦点与 CDP 按键之间页面可以移动焦点，把 Enter 送进另一个表单。显式的 `submit` 动作在单一 isolated-world task 内完成，不 focus：
+不提供 Enter 键：确认焦点与 CDP 按键之间页面可以移动焦点，把 Enter 送进另一个表单。`submit` 只覆盖“表单没有提交按钮、用户只能按 Enter 提交”这一种情况（典型是搜索框），并且审批页能如实说明提交的是哪个表单。在单一 isolated-world task 内完成，不 focus，表单对象的所有属性与方法都经原型访问：
 
-1. 解析元素；必须是已连接、未禁用、不在 `inert` 中、可见、拥有 `form` 的 `HTMLButtonElement` / `HTMLInputElement` / `HTMLSelectElement` / `HTMLTextAreaElement`，否则 `unsupported`；
-2. submitter：目标本身是提交按钮时用目标；否则用表单的默认按钮（`form.elements` 中第一个提交按钮），没有默认按钮则不带 submitter；默认按钮被禁用 → `unsupported`（用户按 Enter 时浏览器也不会提交）；
-3. 有效性预检：除非 `form.noValidate` 或 submitter 带 `formNoValidate`，只要有 `willValidate && !validity.valid` 的元素就返回 `form-invalid`——纯读取，不派发 `invalid` 事件，此时页面代码尚未运行；
-4. `form.requestSubmit(submitter)`：浏览器派发可信的 `submit` 事件（spike 证实，`submitter` 正确）并按表单行为导航或交给页面处理；
-5. 返回 `submitted`。
+1. 解析元素；必须是已连接、未禁用、不在 `inert` 中、可见的 `HTMLInputElement` / `HTMLSelectElement` / `HTMLTextAreaElement`，否则 `unsupported`；
+2. form owner 必须存在且等于 `closest("form")`，否则 `unsupported`（`form` 属性可把字段关联到页面别处的另一个表单）；
+3. 表单的 `elements` 中不得有任何提交按钮（`button` 的 type 为 submit、`input` 的 type 为 submit 或 image），否则 `unsupported`（`details.reason: "has-submit-button"`：应改用 Strict click 点击按钮）；
+4. 表单的 `elements` 中不得有 isolated world 读不到原生 `validity` 的控件（form-associated custom element 经 `ElementInternals` 校验，isolated world 看不到），否则 `unsupported`；
+5. 有效性预检：除非原型访问器读出的 `noValidate` 为 true，只要有 `willValidate && !validity.valid` 的元素就返回 `form-invalid`——纯读取，不派发 `invalid` 事件，此时页面代码尚未运行；
+6. 在表单上注册捕获的 `submit` 监听器，记录 `isTrusted` 且 `target === form` 的事件；以原型方法调用 `requestSubmit()`（不带 submitter）；移除监听器；
+7. 记录到恰好一个这样的事件 → `submitted`；否则 → outcome unknown（`invalid` 处理器可能已经运行，或页面在更早的捕获阶段截断了事件）。
 
-`form-invalid` 映射为 `NO_EFFECT`（`details.reason: "form-invalid"`），发生在任何页面代码运行之前，可安全重试；`requestSubmit` 抛出或之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。页面在 submit 处理器中 `preventDefault` 属于正常的 SPA 提交，仍是 `executed`。动作后的导航由 verification 观察。
+`form-invalid` 映射为 `NO_EFFECT`（`details.reason: "form-invalid"`），发生在任何页面代码运行之前，可安全重试；`requestSubmit` 抛出、没有观察到 submit 事件或之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。页面在 submit 处理器中 `preventDefault` 属于正常的 SPA 提交，仍是 `executed`。动作后的导航由 verification 观察。
 
 ### pressKey
 
-按键只能用 CDP `Input.dispatchKeyEvent`（合成的 `KeyboardEvent` 不触发 Tab 移动焦点等默认动作），因此无法与焦点确认放进同一个 task。改为**由页面内的监听器证明按键落在目标上**：
+按键只能用 CDP `Input.dispatchKeyEvent`（合成的 `KeyboardEvent` 不触发 Tab 移动焦点等默认动作），因此无法与焦点确认放进同一个 task。改为**由页面内的监听器证明按键落在目标上**。
 
-1. isolated-world 调用 A（单 task）：解析元素；必须已连接、未禁用、不在 `inert` 中、可见、可聚焦（`tabIndex >= 0`、显式 `tabindex` 或 `isContentEditable`），否则 `unsupported`——此时尚未 focus，可安全拒绝；在元素所属窗口上以捕获方式注册 `keydown` 监听器，记录每个 `isTrusted` 且 `key` 相符的事件的 `composedPath()[0] === element`；`element.focus({ preventScroll: true })`；确认 `getRootNode().activeElement === element`；监听器以随机 token 存在 isolated world 的全局表中，并设 5 秒自清理定时器；
+按键本身也能改值：方向键改变原生 `<select>`、`number` / `range` / 日期类 `<input>` 与单选组的值，Escape 清空 `type=search` 的输入框——这些都是 selectOption / setValue 已经明确限制或拒绝的写入。因此 pressKey 在调用 A 中、focus 之前拒绝：
+
+- 敏感字段（同 setValue 的判定，含敏感 `<select>`）；
+- 方向键作用于 `<select>`、type 不是 text / search / email / url / tel 的 `<input>`（含 radio、checkbox、number、range、日期类）；
+- Escape 作用于 `type=search` 的 `<input>`。
+
+Tab 只移动焦点，不受这些限制；Escape 与方向键作用于自定义组件（如 ARIA listbox）时，效果由页面脚本决定，effect 保持 `unknown`，审批页显示目标与按键。
+
+1. isolated-world 调用 A（单 task）：解析元素；必须已连接、未禁用、不在 `inert` 中、可见、可聚焦（`tabIndex >= 0`、显式 `tabindex` 或 `isContentEditable`），并通过上述按键限制，否则 `unsupported` 或 `sensitive`——此时尚未 focus，可安全拒绝；在元素所属窗口上以捕获方式注册 `keydown` 监听器，记录每个 `isTrusted` 且 `key` 相符的事件的 `composedPath()[0] === element`；`element.focus({ preventScroll: true })`；确认 `getRootNode().activeElement === element`；监听器以随机 token 存在 isolated world 的全局表中，并设 5 秒自清理定时器；
 2. CDP `Input.dispatchKeyEvent`：`keyDown` 后 `keyUp`，带 `key` / `code` / `windowsVirtualKeyCode`（Escape 27、Tab 9、ArrowUp 38、ArrowDown 40），不带 `text`；
 3. isolated-world 调用 B：按 token 取出记录并移除监听器；恰有一条相符记录且其目标是元素 → `executed`；否则（没有记录、目标不符、多条记录）→ `ACTION_OUTCOME_UNKNOWN`。
 
-A 中 focus 之后的任何失败、CDP 派发失败、B 的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。spike 证实：Tab 的默认动作照常把焦点移到下一个字段；页面在 A 与按键之间移走焦点时，监听器记录到的目标不是元素，判定为 unknown。页面若在更早注册的窗口捕获监听器中 `stopImmediatePropagation`，记录为空，同样 fail closed。
+A 中 focus 之后的任何失败、CDP 派发失败、B 的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。spike 证实：Tab 的默认动作照常把焦点移到下一个字段；页面在 A 与按键之间移走焦点时，监听器记录到的目标不是元素，判定为 unknown。页面若在更早注册的窗口捕获监听器中 `stopImmediatePropagation`，或按键进入了另一个帧，记录为空，同样 fail closed。
+
+### 同一 tab 串行执行
+
+`IsolatedWorldStrictActionRunner` 对同一 tab 的所有 isolated-world 动作串行执行（按 tab 的 promise 队列）：两个并发的 pressKey 会互相记录到对方的按键，虽然 fail closed，但会无谓地制造 outcome unknown；串行化也让 submit / selectOption 的单 task 前提不必考虑另一个写入在两次 CDP 往返之间插入。
 
 ### 审批页
 
 | 动作 | 标题 | 来自调用方的内容（单独成区，只经 `textContent`） |
 |---|---|---|
 | selectOption | 待批准的选择 | “将要选择的选项（来自调用方，非页面）”+ 值框（同 setValue 的完整显示与空格提示） |
-| submit | 待批准的表单提交 | 固定说明：“将提交该元素所在的表单；目标是提交按钮时以它提交，否则使用表单的默认提交按钮” |
+| submit | 待批准的表单提交 | 固定说明：“将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）” |
 | pressKey | 待批准的按键 | “将要按下的键”：Esc / Tab / ↑ / ↓（固定映射，不显示调用方字符串） |
+
+`approvalTitle` 与内容区改为对 `action.kind` 穷举的 `switch`；遇到未知 kind 时卡片显示“无法识别的动作”且**不渲染批准按钮**——审批页与 summary 版本不一致时，宁可无法批准，也不能显示成“点击”。
 
 ### 执行器与写入器
 
 - `PolicyGatedStrictClickExecutor` 的 setValue 分支泛化为所有非 click 动作共用的一条路径：prepare → 以参数的 `kind` 与规范参数消费 grant → effect policy → 二次 prepare → OOPIF 拒绝 → 过期检查 → 交给 isolated-world 执行器；
-- `chromeStrictValueWriter.ts` 改名为 `chromeStrictIsolatedActions.ts`，`IsolatedWorldStrictValueWriter` 改名为 `IsolatedWorldStrictActionRunner`：保留“唯一的本扩展 isolated world + bridge 元数据校验”的前置步骤，每种动作一个页面函数与一个结果映射；pressKey 在同一个 object group 内完成 A → 按键 → B；
+- `ChromeStrictMainFrameClickResolver.resolve` 的动作白名单从 click / setValue 扩展到 selectOption / submit / pressKey；
+- `chromeStrictValueWriter.ts` 改名为 `chromeStrictIsolatedActions.ts`，`IsolatedWorldStrictValueWriter` 改名为 `IsolatedWorldStrictActionRunner`：保留“唯一的本扩展 isolated world + bridge 元数据校验”的前置步骤，每种动作一个页面函数与一个结果映射；pressKey 在同一个 object group 内完成 A → 按键 → B；按 tab 串行；
 - 结果：setValue / selectOption 带 `valueMatched`；submit 与 pressKey 只有 `executed`；都不回显参数；
 - 所有动作的 effect 仍为 `unknown`，最低 assurance 与 click 相同。
 
 ### 新增不变量（S2）
 
-147. selectOption 只作用于原生单选 `<select>`，只按 `option.label` 在未禁用、未隐藏、`label` 属性与文本一致的选项中精确匹配；不存在或不唯一时在任何修改之前拒绝；设置与事件派发在同一个 isolated-world task 内完成，不 focus。
-148. 表单提交只能通过 `submit` 动作（`requestSubmit`）进行，submitter 是目标提交按钮或表单的默认按钮；有效性预检在任何页面代码运行之前完成；不提供 Enter 键。
-149. pressKey 只接受 Escape / Tab / ArrowUp / ArrowDown；只有当 isolated world 中预先注册的捕获监听器记录到恰好一个可信且 key 相符、目标为该元素的 `keydown` 时才算执行成功，否则报告 `ACTION_OUTCOME_UNKNOWN`；focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。
+147. selectOption 只作用于原生单选、非 `base-select` 的 `<select>`，只按 `option.label` 在未禁用、自身与 optgroup 均未隐藏、无元素子节点、`label` 属性与文本一致的选项中精确匹配；不存在或不唯一时在任何修改之前拒绝；设置与事件派发在同一个 isolated-world task 内完成，不 focus。
+148. 不提供 Enter 键；程序化的表单提交只能经 `submit` 动作，且只适用于没有任何提交按钮、由字段自身所在（非 `form` 属性关联）的表单：不带 submitter 调用 `requestSubmit()`，有效性预检在任何页面代码运行之前完成，只有观察到可信的 submit 事件才报告执行成功。
+149. pressKey 只接受 Escape / Tab / ArrowUp / ArrowDown，不得作用于敏感字段，方向键不得作用于原生的值控件（`<select>` 与非文本类 `<input>`），Escape 不得作用于 `type=search`；只有当 isolated world 中预先注册的捕获监听器记录到恰好一个可信且 key 相符、目标为该元素的 `keydown` 时才算执行成功，否则报告 `ACTION_OUTCOME_UNKNOWN`；focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。
 150. Strict preflight 的可见、in-viewport 与 hit-test 检查适用于所有 strict 动作。
+151. isolated-world 页面函数不得经可被页面命名属性覆盖的路径（`HTMLFormElement` / `Document` 实例上的属性与方法）读取或调用，一律经原型访问器与方法。
 
 ### 威胁模型（S2）
 
 | # | 威胁 | 对策 |
 |---|---|---|
 | X1 | 批准选择 A 的 grant 被用来选 B、或用来按键 / 提交 | 参数绑定（138），kind 不同即 binding-mismatch |
-| X2 | 选项文本与 Chrome 显示的 `label` 属性不同，审批与实际不符 | 只匹配 `label` 属性与文本一致的选项（147） |
-| X3 | 同名选项（一个隐藏或禁用），选中用户看不到或不能选的那个 | 候选只含未禁用、未隐藏的选项；同名可选项多于一个即拒绝（147） |
-| X4 | Enter 被页面重定向到另一个表单 | 不提供 Enter；submit 在单 task 内对目标的 form owner 调用 `requestSubmit`（148） |
-| X5 | 提交时页面借 `invalid` 事件运行代码后再报告“未提交” | 纯读取的有效性预检，失败时页面代码尚未运行（148） |
-| X6 | 页面在 focus 与按键之间移走焦点，按键落到别处 | 页面内监听器记录 keydown 的实际目标，不符即 outcome unknown，不重试（149） |
-| X7 | 对看不到的元素按键或提交 | 几何检查扩展到所有动作（150） |
-| X8 | 信用卡有效期等支付类下拉框被选择 | `<select>` 也按 autocomplete 标记 `sensitive`，签发前拒绝 |
-| X9 | 版本错配：旧扩展把 S2 动作当成别的动作 | S1 扩展以未知 kind 拒绝；旧 click 消息带 `action` 拒绝（139） |
+| X2 | 选项屏幕显示与 `option.text` / `label` 不同，审批与实际不符 | 只匹配 `label` 属性与文本一致、无元素子节点的选项，拒绝 `base-select`（147） |
+| X3 | 同名选项（一个隐藏或禁用），选中用户看不到或不能选的那个 | 候选只含未禁用、自身与 optgroup 均未隐藏的选项；同名可选项多于一个即拒绝（147） |
+| X4 | Enter 被页面重定向到另一个表单 | 不提供 Enter（148） |
+| X5 | 字段经 `form` 属性关联到页面别处的表单，或默认按钮是“删除” | submit 只适用于字段自身所在、没有任何提交按钮的表单；审批页说明如实（148） |
+| X6 | 提交时页面借 `invalid` 事件运行代码后报告“已提交” | 纯读取的有效性预检；含自定义表单控件的表单拒绝；只以观察到的可信 submit 事件为准（148） |
+| X7 | 同名控件覆盖 `form.noValidate` / `requestSubmit` / `elements` | 经原型访问器与方法（151） |
+| X8 | 页面在 focus 与按键之间移走焦点，按键落到别处 | 页面内监听器记录 keydown 的实际目标，不符即 outcome unknown，不重试（149） |
+| X9 | 用方向键 / Escape 绕过 selectOption、setValue 的限制改值（敏感下拉框、number、radio、search） | pressKey 拒绝敏感字段、原生值控件上的方向键、search 上的 Escape（149） |
+| X10 | 对看不到的元素按键或提交 | 几何检查扩展到所有动作（150） |
+| X11 | 信用卡有效期等支付类下拉框被选择 | `<select>` 也按 autocomplete 标记 `sensitive`，签发前拒绝 |
+| X12 | 版本错配：旧扩展把 S2 动作当成别的动作；旧审批页把新动作显示成“点击” | S1 扩展以未知 kind 拒绝；审批页对未知 kind 不渲染批准按钮 |
 
-已接受的残余：select 的 `input` / `change` 不可信；按键与提交触发的页面处理器可以做任何事（effect 保持 `unknown`）；真实后台标签页中 CDP 按键可能不送达，此时 fail closed 为 outcome unknown，E2E 无法覆盖；执行时才能发现的拒绝（选项不存在、自定义组件、无表单）会浪费一次 grant。
+已接受的残余：select 的 `input` / `change` 不可信；按键与提交触发的页面处理器可以做任何事（effect 保持 `unknown`）；真实后台标签页中 CDP 按键可能不送达，此时 fail closed 为 outcome unknown，E2E 无法覆盖；执行时才能发现的拒绝（选项不存在、自定义组件、表单有提交按钮、input type 不允许该按键）会浪费一次 grant；有提交按钮但按钮不可见、只能按 Enter 的表单无法用 S2 提交。
 
 ### 测试计划（S2）
 
@@ -372,20 +397,20 @@ A 中 focus 之后的任何失败、CDP 派发失败、B 的任何失败都是 `
 
 - 参数：三种新 kind 的合法形状；空 label、多余 key、未知 key 名、`key: "Enter"`、label 含被拒字符；规范化结果确定、kind 之间互不相等；
 - 授权：selectOption 的 label 不同、kind 不同时 `binding-mismatch`；
-- 感知：表单内的字段与提交按钮带 `submit` capability，表单外的不带，非提交按钮不带；敏感 autocomplete 的 `<select>` 带 `sensitive`；
+- 感知：无提交按钮表单中的字段带 `submit`；有提交按钮（含 `type=image`、含经 `form` 属性关联进来的按钮）的表单、经 `form` 属性关联到别处表单的字段、表单外的字段、提交按钮本身都不带；敏感 autocomplete 的 `<select>` 带 `sensitive`；
 - preflight：selectOption / submit / pressKey 的 out-of-viewport 与 occluded 被拒绝；
 - 签发服务与审批入队：上表每一条拒绝；
 - 协议：新 kind 通过 strict-action 消息；`browser.act` 的 label / key 组合校验；
 - 执行器：每种 kind 以自己的 kind 与规范参数消费 grant、OOPIF 拒绝；
-- 执行器（isolated world）：每个页面函数返回值到错误码的映射；pressKey 在 A 失败、派发失败、B 无记录 / 目标不符 / 多条时的映射，A 在派发前、B 在派发后的调用顺序，结果与错误不含参数；
-- 审批页：三种标题、选项值框、提交说明、按键的固定映射。
+- 执行器（isolated world）：每个页面函数返回值到错误码的映射；pressKey 在 A 失败、派发失败、B 无记录 / 目标不符 / 多条时的映射，A 在派发前、B 在派发后的调用顺序；同一 tab 的两次调用串行；结果与错误不含参数；页面函数源码中表单与文档的属性访问都经原型；
+- 审批页：三种标题、选项值框、提交说明、按键的固定映射；未知 kind 不渲染批准按钮。
 
 Real Chromium E2E（fixture 扩展 `strict-write.html`，新增 `strict-actions` 区域）：
 
-- selectOption：按 label 选中，页面收到 `change`、`valueMatched === true`；已选中项不派发事件；选项不存在 / 同名两项可选 / `label` 属性与文本不同 / 禁用 / `hidden` → 拒绝且值不变；`multiple` 下拉框 → `ACTION_NOT_SUPPORTED`；`autocomplete="cc-exp-month"` → 签发即拒；
-- submit：从文本框提交无按钮的表单（页面 submit 处理器记录 `isTrusted` 且无 submitter）；从字段提交有默认按钮的表单（submitter 为默认按钮）；目标为第二个提交按钮时 submitter 是它；必填字段为空 → `NO_EFFECT` 且页面没有收到 `invalid` 事件；默认按钮被禁用 → 拒绝；表单外的输入框 → 签发即拒；
-- pressKey：Tab 把焦点移到下一个字段；Escape 让页面的 keydown 处理器关闭一个弹层；ArrowDown 到达自定义 listbox；focus 回调把焦点移到别处 → `ACTION_OUTCOME_UNKNOWN`，另一个元素收到的 Escape 不会被报告为成功；不可聚焦的 div → 拒绝且从未获得焦点；
-- 几何：被遮罩覆盖的 select / 提交按钮 → `TARGET_OCCLUDED`；
+- selectOption：按 label 选中，页面收到 `change`、`valueMatched === true`；已选中项不派发事件；选项不存在 / 同名两项可选 / `label` 属性与文本不同 / 禁用 / `hidden` / 位于隐藏的 optgroup 中 → 拒绝且值不变；`multiple` 下拉框 → `ACTION_NOT_SUPPORTED`；`autocomplete="cc-exp-month"` → 签发即拒；
+- submit：从文本框提交无按钮的表单（页面 submit 处理器记录 `isTrusted` 且无 submitter）；必填字段为空 → `NO_EFFECT` 且页面没有收到 `invalid` 事件；表单中有名为 `noValidate` 与 `requestSubmit` 的控件时行为不变；含 form-associated custom element 的表单 → 拒绝；有提交按钮的表单、经 `form` 属性关联到别处表单的字段、表单外的输入框 → 签发即拒；
+- pressKey：Tab 把焦点移到下一个字段；Escape 让页面的 keydown 处理器关闭一个弹层；ArrowDown 到达自定义 listbox；focus 回调把焦点移到别处 → `ACTION_OUTCOME_UNKNOWN`；不可聚焦的 div → 拒绝且从未获得焦点；方向键作用于原生 `<select>`、`type=number`、radio → 拒绝且值不变；Escape 作用于 `type=search` → 拒绝且值不变；敏感下拉框 → 签发即拒；同进程 child frame 内的 Tab 成功；
+- 几何：被遮罩覆盖的 select → `TARGET_OCCLUDED`；
 - 审批页：选择、提交、按键三种卡片的标题与内容，批准后执行成功。
 
 ### 回滚
@@ -448,5 +473,8 @@ S2 不改变 click 与 setValue 的行为；新增的 `submit` capability 只是
 | isolated world 中设置 `selectedIndex` 并派发 `input` / `change` | 值改变，页面收到的 `change` 为 `isTrusted: false` |
 | 有空必填字段的表单上读 `validity.valid` | 识别为无效，页面没有收到 `invalid` 事件 |
 | `form.requestSubmit(button)` | 页面收到 `isTrusted: true` 的 submit 事件，`submitter` 为该按钮 |
+| 表单中有名为 `noValidate` / `requestSubmit` / `elements` 的控件 | isolated world 中 `form.noValidate` 等返回该控件；经 `HTMLFormElement.prototype` 的访问器读出正确值 |
+| 页面有 `<img name="execCommand">` | isolated world 中 `document.execCommand` 仍是函数 |
+| `<optgroup hidden>` 中的 `<option>` | 选项自身的计算样式 `display` 仍为 `block`——隐藏检查必须覆盖祖先 |
 
 最脆弱的假设：pressKey 依赖“CDP 键盘事件送到当前聚焦的帧与元素，且 isolated world 的窗口捕获监听器先于页面目标阶段处理器观察到它”。spike 在主帧证实了这一点；同进程 child frame 与 shadow root 内的目标由 E2E 复验。若某一形态下不成立，监听器记录为空或目标不符，结果是 fail closed 的 outcome unknown，不会误报成功。
