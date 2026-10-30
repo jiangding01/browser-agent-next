@@ -3966,7 +3966,7 @@ test(
       // 5b. size > 1 的 select 在页面内渲染为列表：执行时拒绝，值不变。
       expect(await act("Listbox select", select("Y"), "select-listbox")).toMatchObject({
         ok: false,
-        error: { code: "ACTION_NOT_SUPPORTED" },
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict selectOption does not support this target" },
       });
       expect(await valueOf("#listbox-select")).toBe("");
       expect(await eventsFor("listbox-select")).toEqual([]);
@@ -4129,7 +4129,7 @@ test(
       //      activeElement 与 composedPath 都被重定向成 host——调用 A 在 focus 之前拒绝。
       expect(await act("Delegating host", press("ArrowUp"), "key-delegate")).toMatchObject({
         ok: false,
-        error: { code: "ACTION_NOT_SUPPORTED" },
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict pressKey does not support this target" },
       });
       expect(await page.evaluate(() => (window as unknown as { delegatedNumber(): string }).delegatedNumber())).toBe("3");
       expect(await focused()).not.toContain("delegate-host");
@@ -4137,7 +4137,7 @@ test(
       // 17c. frame owner：按键会进入子帧——在 focus 之前拒绝，子帧没有收到按键。
       expect(await act("Frame owner", press("Escape"), "key-frame-owner")).toMatchObject({
         ok: false,
-        error: { code: "ACTION_NOT_SUPPORTED" },
+        error: { code: "ACTION_NOT_SUPPORTED", message: "strict pressKey does not support this target" },
       });
       expect(
         await page.frameLocator("#key-frame").locator("body").evaluate(
@@ -4145,6 +4145,14 @@ test(
         ),
       ).toEqual([]);
       expect(await focused()).not.toContain("key-frame");
+
+      // 17d. A 之后页面才把目标变成 closed + delegatesFocus 的 shadow host：按键落在内层输入框，
+      //      composedPath 被重定向成目标——调用 B 复核后判定为 outcome unknown，不误报成功。
+      expect(await act("Late host", press("ArrowDown"), "key-late-host")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN", outcomeMayHaveChanged: true },
+      });
+      expect(await page.evaluate(() => (window as unknown as { lateInnerKeys?: number }).lateInnerKeys)).toBe(1);
 
       // 18. 签发即拒：方向键作用于原生值控件、Escape 作用于搜索框、敏感下拉框。
       for (const [name, key, code] of [

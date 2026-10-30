@@ -629,6 +629,7 @@ describe("S2 页面函数源码", () => {
     const focusAt = STRICT_KEY_ARM_FUNCTION.indexOf("element.focus(");
     expect(hostCheckAt).toBeGreaterThan(0);
     expect(frameCheckAt).toBeGreaterThan(0);
+    expect(STRICT_KEY_ARM_FUNCTION).toContain("element instanceof view.HTMLFencedFrameElement");
     expect(focusAt).toBeGreaterThan(hostCheckAt);
     expect(focusAt).toBeGreaterThan(frameCheckAt);
     // 拿不到 chrome.dom 时无法看见 closed shadow root：一律拒绝。
@@ -662,6 +663,11 @@ describe("S2 页面函数源码", () => {
     expect(STRICT_KEY_ARM_FUNCTION).toContain("event.composedPath()[0] === element");
     expect(STRICT_KEY_ARM_FUNCTION).not.toMatch(/\bawait\b|Promise/);
     expect(STRICT_KEY_READ_FUNCTION).toContain("records.length === 1 && records[0] === true");
+    // A 之后目标变成 shadow host：B 不据记录判定成功。
+    expect(STRICT_KEY_ARM_FUNCTION).toContain("const becameHost = () => Boolean(domApi.openOrClosedShadowRoot(element));");
+    expect(STRICT_KEY_READ_FUNCTION.indexOf("if (entry.becameHost())")).toBeLessThan(
+      STRICT_KEY_READ_FUNCTION.indexOf("records.length === 1 && records[0] === true"),
+    );
   });
 
   it("selects an option without focusing and without yielding", () => {

@@ -358,6 +358,7 @@ const pages = new Map([
       <input type="search" role="textbox" aria-label="Disguised search" id="disguised" value="keep disguised">
       <input type="number" role="textbox" aria-label="Disguised number" id="disguised-number" value="7">
       <span role="button" tabindex="0" aria-label="Delegating host" id="delegate-host"></span>
+      <span role="button" tabindex="0" aria-label="Late host" id="late-host">late</span>
       <iframe role="button" aria-label="Frame owner" id="key-frame" src="/strict-actions-frame.html" width="60" height="20"></iframe>
     </section>
     <iframe id="child-frame" src="/strict-actions-child.html" width="300" height="30"></iframe>
@@ -387,6 +388,20 @@ const pages = new Map([
       const delegated = document.getElementById("delegate-host").attachShadow({ mode: "closed", delegatesFocus: true });
       delegated.innerHTML = '<input type="number" id="delegated-number" value="3" style="width:40px">';
       window.delegatedNumber = () => delegated.getElementById("delegated-number").value;
+      // 调用 A 结束后（按键之前）才挂上 closed + delegatesFocus 的 shadow root 并把焦点委托进内层输入框：
+      // 按键落到内层，composedPath 却被重定向成 host。
+      const lateHost = document.getElementById("late-host");
+      let lateInner;
+      lateHost.addEventListener("focus", () => {
+        queueMicrotask(() => {
+          if (lateInner) return;
+          const root = lateHost.attachShadow({ mode: "closed", delegatesFocus: true });
+          root.innerHTML = '<input id="late-inner" style="width:30px">';
+          lateInner = root.getElementById("late-inner");
+          lateInner.addEventListener("keydown", () => { window.lateInnerKeys = (window.lateInnerKeys || 0) + 1; });
+          lateInner.focus();
+        });
+      });
       const rich = document.getElementById("rich-option");
       rich.appendChild(document.createElement("b")).textContent = "Rich";
       document.getElementById("reverter").addEventListener("change", (event) => {

@@ -364,6 +364,8 @@ export const STRICT_KEY_ARM_FUNCTION = String.raw`function(stableId, key, token)
   }
   ${COMMON_CHECKS}
   const textTypes = ${JSON.stringify(TEXT_INPUT_TYPES)};
+  // closed shadow root 只能经扩展的 chrome.dom 看到；拿不到时 check 一律拒绝。
+  const domApi = globalThis.chrome && globalThis.chrome.dom;
 
   // 按键本身能改值：方向键改变原生值控件，Escape 清空 search 输入框。
   const check = () => {
@@ -387,14 +389,15 @@ export const STRICT_KEY_ARM_FUNCTION = String.raw`function(stableId, key, token)
     if (!visibleAndEnabled()) return "unsupported";
     // 焦点委托会让 activeElement 与 composedPath 被重定向成 host，按键实际落在 shadow 内的控件上；
     // frame owner 把按键送进子帧。两者都无法证明按键只作用于被识别的目标。
-    const domApi = globalThis.chrome && globalThis.chrome.dom;
     if (!domApi || typeof domApi.openOrClosedShadowRoot !== "function") return "unsupported";
     if (domApi.openOrClosedShadowRoot(element)) return "unsupported";
     if (
       element instanceof view.HTMLIFrameElement ||
       element instanceof view.HTMLFrameElement ||
       element instanceof view.HTMLObjectElement ||
-      element instanceof view.HTMLEmbedElement
+      element instanceof view.HTMLEmbedElement ||
+      (typeof view.HTMLFencedFrameElement === "function" &&
+        element instanceof view.HTMLFencedFrameElement)
     ) {
       return "unsupported";
     }
@@ -426,7 +429,10 @@ export const STRICT_KEY_ARM_FUNCTION = String.raw`function(stableId, key, token)
   };
   eventTarget.addEventListener.call(view, "keydown", listener, true);
   const timer = setTimeout(cleanup, ${KEY_PROBE_TTL_MS});
-  registry.set(token, { records, cleanup, timer });
+  // 调用 B 复核：A 之后页面给目标挂上（closed、delegatesFocus 的）shadow root 时，
+  // 按键会落到内层控件而 composedPath 仍被重定向成目标——不能据记录判定成功。
+  const becameHost = () => Boolean(domApi.openOrClosedShadowRoot(element));
+  registry.set(token, { records, cleanup, timer, becameHost });
 
   const disarm = () => {
     clearTimeout(timer);
@@ -457,6 +463,9 @@ export const STRICT_KEY_READ_FUNCTION = String.raw`function(token) {
   clearTimeout(entry.timer);
   entry.cleanup();
   const records = entry.records;
+  if (entry.becameHost()) {
+    return { status: "misrouted", count: records.length };
+  }
   return records.length === 1 && records[0] === true
     ? { status: "pressed" }
     : { status: "misrouted", count: records.length };
