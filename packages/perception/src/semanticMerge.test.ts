@@ -45,4 +45,43 @@ describe("mergePerceptionCandidates", () => {
       "upload",
     ]);
   });
+
+  it("DOM 的 sensitive 标记在合并后保留，AX 的 setValue capability 不会抹掉它", () => {
+    const merged = mergePerceptionCandidates([
+      {
+        source: "ax",
+        mergeKey: "backend:main:doc:7",
+        identity: {
+          source: "ax",
+          tabId: 1,
+          cdpFrameId: "main",
+          documentEpoch: "doc",
+          backendNodeId: 7,
+        },
+        kind: "field",
+        semantic: { role: "textbox", name: "Password" },
+        state: { visible: true, enabled: true, focused: false },
+        frameId: "web:0",
+        capabilities: [{ kind: "setValue", valueType: "text" }],
+      },
+      {
+        source: "dom",
+        mergeKey: "backend:main:doc:7",
+        identity: {
+          source: "dom",
+          tabId: 1,
+          frameEpoch: "frame-a",
+          stableId: "s7",
+        },
+        kind: "field",
+        semantic: { role: "textbox", name: "Password" },
+        state: { visible: true, enabled: true, focused: false, sensitive: true },
+        frameId: "web:0",
+        capabilities: [{ kind: "focus" }],
+      },
+    ]);
+
+    expect(merged[0]?.state.sensitive).toBe(true);
+    expect(merged[0]?.capabilities.some((entry) => entry.kind === "setValue")).toBe(true);
+  });
 });

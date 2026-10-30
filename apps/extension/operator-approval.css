@@ -124,6 +124,42 @@ header p,
   overflow-wrap: anywhere;
 }
 
+.write-value {
+  margin: 8px 0;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.write-value-label,
+.write-value-caption {
+  display: block;
+  font-size: 11px;
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+.write-value-caption {
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+/* 完整显示：保留空白，不截断、不设高度上限，批准前必须能看到全部内容（不变量 142）。 */
+.write-value-text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-size: 12px;
+  background: rgba(26, 115, 232, 0.06);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
 .approval-card p {
   margin: 8px 0 12px;
   font-size: 12px;

@@ -152,11 +152,15 @@ export class ChromeStrictMainFrameClickResolver
     observation: BrowserObservation;
     expected: ElementState;
   }): Promise<StrictLiveResolution<PreparedStrictClickTarget>> {
-    if (input.action.kind !== "click") {
+    // setValue 与 click 的身份与几何复核完全相同；写入本身由执行器完成。
+    if (
+      input.action.kind !== "click" &&
+      input.action.kind !== "setValue"
+    ) {
       return {
         documentCompatible: true,
         identityMatches: false,
-        reason: "current Chrome strict resolver only supports click",
+        reason: "current Chrome strict resolver only supports click and setValue",
       };
     }
 

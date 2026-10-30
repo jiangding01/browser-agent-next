@@ -1,9 +1,24 @@
-import type {
-  AuthorizationAssurance,
-  BrowserActionKind,
-  EffectClass,
-  RevisionId,
+import {
+  canonicalStrictActionArgs,
+  type AuthorizationAssurance,
+  type BrowserActionKind,
+  type EffectClass,
+  type RevisionId,
 } from "@browser-agent-next/core";
+
+const CLICK_ACTION_ARGS = canonicalStrictActionArgs({ kind: "click" });
+
+/**
+ * click 的参数唯一，缺省即 click 的规范参数；其它动作必须显式给出，
+ * 缺失时返回 undefined，由调用方 fail closed（不变量 138）。
+ */
+function normalizedActionArgs(
+  actionKind: BrowserActionKind,
+  actionArgs: string | undefined,
+): string | undefined {
+  if (actionArgs !== undefined) return actionArgs;
+  return actionKind === "click" ? CLICK_ACTION_ARGS : undefined;
+}
 
 export interface AuthorizationGrant {
   id: string;
@@ -11,6 +26,8 @@ export interface AuthorizationGrant {
   observedRevision: RevisionId;
   ref: string;
   actionKind: BrowserActionKind;
+  /** canonicalStrictActionArgs 的结果；消费时必须逐字相等。 */
+  actionArgs: string;
   effectClass: EffectClass;
   assurance: AuthorizationAssurance;
   issuedAt: number;
@@ -28,6 +45,8 @@ export interface IssueAuthorizationInput {
   observedRevision: RevisionId;
   ref: string;
   actionKind: BrowserActionKind;
+  /** click 可省略；其它动作必须提供。 */
+  actionArgs?: string;
   effectClass: EffectClass;
   assurance: AuthorizationAssurance;
   ttlMs: number;
@@ -41,6 +60,8 @@ export interface ConsumeAuthorizationInput {
   observedRevision: RevisionId;
   ref: string;
   actionKind: BrowserActionKind;
+  /** click 可省略；其它动作缺失时视为 binding-mismatch。 */
+  actionArgs?: string;
   effectClass: EffectClass;
   minimumAssurance?: AuthorizationAssurance;
 }
@@ -126,6 +147,16 @@ export class InMemoryAuthorizationStore {
       );
     }
 
+    const actionArgs = normalizedActionArgs(
+      input.actionKind,
+      input.actionArgs,
+    );
+    if (actionArgs === undefined) {
+      throw new Error(
+        "authorization for a non-click action must bind its action arguments",
+      );
+    }
+
     const issuedAt = this.now();
     const existing = this.grants.get(input.id);
 
@@ -144,6 +175,7 @@ export class InMemoryAuthorizationStore {
       observedRevision: input.observedRevision,
       ref: input.ref,
       actionKind: input.actionKind,
+      actionArgs,
       effectClass: input.effectClass,
       assurance: input.assurance,
       issuedAt,
@@ -175,6 +207,8 @@ export class InMemoryAuthorizationStore {
       grant.observedRevision !== input.observedRevision ||
       grant.ref !== input.ref ||
       grant.actionKind !== input.actionKind ||
+      grant.actionArgs !==
+        normalizedActionArgs(input.actionKind, input.actionArgs) ||
       grant.effectClass !== input.effectClass
     ) {
       return { ok: false, reason: "binding-mismatch" };

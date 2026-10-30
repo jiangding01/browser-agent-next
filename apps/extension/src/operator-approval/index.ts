@@ -6,10 +6,12 @@ import type {
 } from "../protocol/operatorApproval.js";
 import {
   type CardState,
+  approvalTitle,
   formatRemaining,
   planCardUpdate,
   shortCode,
   untrustedDisplayText,
+  writeValueDisplay,
 } from "./display.js";
 
 declare const chrome: {
@@ -253,7 +255,7 @@ function createCard(
     element(
       "h2",
       undefined,
-      "待批准的点击",
+      approvalTitle(approval.action),
     ),
     element(
       "span",
@@ -339,9 +341,38 @@ function createCard(
   ];
   actions.append(...buttons);
 
+  // 写入值来自调用方而非页面：单独成区、完整显示，只经 textContent 写入。
+  const writeValue: HTMLElement[] = [];
+  if (approval.action.kind === "setValue") {
+    const display = writeValueDisplay(
+      approval.action.value,
+    );
+    const section = element(
+      "section",
+      "write-value",
+    );
+    section.append(
+      element(
+        "div",
+        "write-value-label",
+        "将要填写的内容（来自调用方，非页面）",
+      ),
+      ...(display.text !== undefined
+        ? [element("pre", "write-value-text", display.text)]
+        : []),
+      element(
+        "div",
+        "write-value-caption",
+        display.caption,
+      ),
+    );
+    writeValue.push(section);
+  }
+
   card.append(
     head,
     origin,
+    ...writeValue,
     untrusted,
     countdown,
     actions,

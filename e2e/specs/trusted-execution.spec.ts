@@ -3381,3 +3381,369 @@ test(
     }
   },
 );
+
+test(
+  "Strict setValue：isolated world 单 task 写入、参数绑定、敏感字段与焦点竞态 fail closed、审批页显示完整值",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+    // Playwright 对接管的页面开启焦点模拟（document.hasFocus() 恒为 true），
+    // 因此本用例证明的是扩展 isolated world 中的写入链路，不能证明真实后台标签页的焦点行为。
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    let host: TrustedHostBrowser | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home, () => {
+        writeAutoActOrigins(home);
+      });
+      const active = host;
+
+      const createdPage = active.context.waitForEvent("page");
+      const open = await trustedRequest(active.rpcPort, active.token, {
+        type: "browser.open",
+        requestId: "open-strict-write",
+        url: fixtureOrigin + "/strict-write.html",
+        active: false,
+      });
+      expect(open, JSON.stringify(open)).toMatchObject({ ok: true });
+      const page = await createdPage;
+      await page.waitForLoadState("load");
+      const tabId: number = open.result.tabId;
+
+      let sequence = 0;
+      async function observe(): Promise<{
+        revision: string;
+        refOf(name: string): string;
+      }> {
+        sequence += 1;
+        const observed = await trustedRequest(active.rpcPort, active.token, {
+          type: "browser.observe",
+          requestId: "observe-strict-write-" + sequence,
+          tabId,
+          options: {
+            profile: "hybrid",
+            includeOpenShadowRoots: true,
+            maxElements: 200,
+            maxAxElements: 200,
+          },
+        });
+        expect(observed, JSON.stringify(observed)).toMatchObject({ ok: true });
+        const elements: Array<{ ref: string; semantic: { name?: string } }> =
+          observed.result.elements;
+        return {
+          revision: observed.result.revision.id,
+          refOf(name: string) {
+            const found = elements.filter((element) => element.semantic.name === name);
+            if (found.length !== 1) {
+              throw new Error("expected exactly one element named " + name + ", got " + found.length);
+            }
+            return found[0]!.ref;
+          },
+        };
+      }
+
+      const verification = (ref: string) => ({
+        mode: "all",
+        conditions: [{ type: "ref_exists", ref }],
+      });
+
+      async function issue(name: string, value: string, suffix: string) {
+        const { revision, refOf } = await observe();
+        const ref = refOf(name);
+        const response = await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.issue-strict-action",
+          requestId: "issue-" + suffix,
+          authorizationId: "auth-" + suffix,
+          tabId,
+          observedRevision: revision,
+          ref,
+          ttlMs: 30_000,
+          action: { kind: "setValue", value },
+        });
+        return { response, revision, ref };
+      }
+
+      async function write(
+        name: string,
+        value: string,
+        suffix: string,
+        grantValue = value,
+      ) {
+        const issued = await issue(name, grantValue, suffix);
+        expect(issued.response, JSON.stringify(issued.response)).toMatchObject({ ok: true });
+        return trustedRequest(active.rpcPort, active.token, {
+          type: "execution.execute-strict-action",
+          requestId: "execute-" + suffix,
+          actionId: "act-" + suffix,
+          authorizationId: "auth-" + suffix,
+          tabId,
+          observedRevision: issued.revision,
+          ref: issued.ref,
+          action: { kind: "setValue", value },
+          verification: verification(issued.ref),
+          verifyTimeoutMs: 0,
+        });
+      }
+
+      const valueOf = (selector: string) => page.locator(selector).inputValue();
+
+      // 1. 普通文本框：覆盖原值，页面收到可信的 insertText 输入事件。
+      const name = await write("Full name", "张三 Zhang", "name");
+      expect(name, JSON.stringify(name)).toMatchObject({
+        ok: true,
+        result: { execution: { status: "executed", valueMatched: true } },
+      });
+      expect(JSON.stringify(name)).not.toContain("张三");
+      expect(await valueOf("#name")).toBe("张三 Zhang");
+      const log = await page.evaluate(
+        () => (window as unknown as { inputLog: unknown[] }).inputLog,
+      );
+      expect(log).toContainEqual({ id: "name", trusted: true, inputType: "insertText" });
+
+      // 2. textarea、email、清空非空字段、已为空字段写空值。
+      for (const [label, selector, value, suffix] of [
+        ["Notes", "#notes", "single line note", "notes"],
+        ["Email", "#email", "someone@example.test", "email"],
+        ["Clear me", "#clearme", "", "clear"],
+        ["Already empty", "#empty", "", "empty"],
+      ] as const) {
+        const result = await write(label, value, suffix);
+        expect(result, label + " " + JSON.stringify(result)).toMatchObject({
+          ok: true,
+          result: { execution: { valueMatched: true } },
+        });
+        expect(await valueOf(selector)).toBe(value);
+      }
+
+      // 3. open shadow root 与同进程 child frame 中的输入框。
+      const shadowResult = await write("Shadow field", "inside shadow", "shadow");
+      expect(shadowResult, JSON.stringify(shadowResult)).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: true } },
+      });
+      expect(await valueOf("#shadow-input")).toBe("inside shadow");
+      // 命中测试在 shadow root 上进行，但覆盖在其上的光照 DOM 遮罩仍判为遮挡。
+      await page.evaluate(() => {
+        const rect = document.querySelector("#shadow-host")!.getBoundingClientRect();
+        const veil = document.createElement("div");
+        veil.id = "shadow-veil";
+        Object.assign(veil.style, {
+          position: "fixed",
+          left: rect.left + "px",
+          top: rect.top + "px",
+          width: rect.width + "px",
+          height: rect.height + "px",
+          background: "white",
+        });
+        document.body.appendChild(veil);
+      });
+      expect(await write("Shadow field", "veiled", "shadow-veiled")).toMatchObject({
+        ok: false,
+        error: { code: "TARGET_OCCLUDED" },
+      });
+      expect(await valueOf("#shadow-input")).toBe("inside shadow");
+      await page.evaluate(() => document.querySelector("#shadow-veil")!.remove());
+
+      // 同一 shadow root 内的遮罩同样判为遮挡，字段从未获得焦点。
+      expect(await write("Shadow covered", "nope", "shadow-covered")).toMatchObject({
+        ok: false,
+        error: { code: "TARGET_OCCLUDED" },
+      });
+      expect(
+        await page.evaluate(() =>
+          (document.querySelector("#shadow-host")!.shadowRoot!
+            .getElementById("shadow-covered") as HTMLInputElement).value,
+        ),
+      ).toBe("");
+
+      // 命中测试修正同样让 Strict click 能作用于 open shadow root 内的按钮。
+      const shadowClick = await observe();
+      const shadowButtonRef = shadowClick.refOf("Shadow button");
+      expect(
+        await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.issue-strict-action",
+          requestId: "issue-shadow-click",
+          authorizationId: "auth-shadow-click",
+          tabId,
+          observedRevision: shadowClick.revision,
+          ref: shadowButtonRef,
+          ttlMs: 30_000,
+          action: { kind: "click" },
+        }),
+      ).toMatchObject({ ok: true });
+      const clicked = await trustedRequest(active.rpcPort, active.token, {
+        type: "execution.execute-strict-action",
+        requestId: "execute-shadow-click",
+        actionId: "act-shadow-click",
+        authorizationId: "auth-shadow-click",
+        tabId,
+        observedRevision: shadowClick.revision,
+        ref: shadowButtonRef,
+        action: { kind: "click" },
+        verification: verification(shadowButtonRef),
+        verifyTimeoutMs: 0,
+      });
+      expect(clicked, JSON.stringify(clicked)).toMatchObject({ ok: true });
+      expect(
+        await page.evaluate(() => (window as unknown as { shadowClicks: number }).shadowClicks),
+      ).toBe(1);
+      expect(await write("Child field", "inside child", "child")).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: true } },
+      });
+      expect(
+        await page.frameLocator("#child-frame").locator("#child-input").inputValue(),
+      ).toBe("inside child");
+
+      // 4. maxlength：写入成功但 valueMatched 如实为 false。
+      expect(await write("Code", "abcdef", "limited")).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: false } },
+      });
+      expect(await valueOf("#limited")).toBe("abc");
+
+      // 5. focus 回调把焦点移到另一个输入框：两个字段都保持为空，结果为 outcome unknown。
+      expect(await write("Focus thief", "stolen?", "victim")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN", outcomeMayHaveChanged: true },
+      });
+      expect(await valueOf("#victim")).toBe("");
+      expect(await valueOf("#thief")).toBe("");
+
+      // 6. focus 回调把字段改成 password：不写入，outcome unknown。
+      expect(await write("Flips to password", "secret", "flip")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN" },
+      });
+      expect(await valueOf("#flip")).toBe("");
+
+      // 7. 签发阶段就拒绝：password、只读、number。
+      for (const [label, code] of [
+        ["Password", "POLICY_BLOCKED"],
+        ["One-time code", "POLICY_BLOCKED"],
+        ["Masked", "POLICY_BLOCKED"],
+        ["Read only", "ACTION_NOT_SUPPORTED"],
+        ["Age", "ACTION_NOT_SUPPORTED"],
+      ] as const) {
+        const issued = await issue(label, "x", "refuse-" + label.replace(/\s/g, ""));
+        expect(issued.response, label).toMatchObject({ ok: false, error: { code } });
+      }
+      expect(await valueOf("#password")).toBe("");
+      expect(await valueOf("#readonly")).toBe("fixed");
+      const focused = () =>
+        page.evaluate(() => (window as unknown as { focusLog: string[] }).focusLog);
+      // 对照：确实写入过的字段出现在 focusLog 中，证明该断言不是空转。
+      expect(await focused()).toContain("name");
+      for (const id of ["password", "otp", "masked", "readonly", "age"]) {
+        expect(await focused(), id).not.toContain(id);
+      }
+
+      // focus 回调给字段加上 -webkit-text-security：同一 task 内复核拒绝，outcome unknown。
+      expect(await write("Masks on focus", "secret", "masks")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_OUTCOME_UNKNOWN" },
+      });
+      expect(await valueOf("#masks")).toBe("");
+
+      // 8. 被遮罩覆盖：prepare 阶段拒绝，不写入。
+      expect(await write("Covered", "hidden", "covered")).toMatchObject({
+        ok: false,
+        error: { code: "TARGET_OCCLUDED" },
+      });
+      expect(await valueOf("#covered")).toBe("");
+      expect(await focused()).not.toContain("covered");
+
+      // 9. 用“A”的 grant 执行“B”：授权不匹配，不写入。
+      expect(await write("Full name", "B", "mismatch", "A")).toMatchObject({
+        ok: false,
+        error: { code: "AUTHORIZATION_REQUIRED" },
+      });
+      expect(await valueOf("#name")).toBe("张三 Zhang");
+
+      // 10. 旧 click 消息携带 action：协议层拒绝，不会被当成 click 执行。
+      const legacy = await observe();
+      const legacyResponse = await trustedRequest(active.rpcPort, active.token, {
+        type: "authorization.issue-strict-click",
+        requestId: "legacy-with-action",
+        authorizationId: "auth-legacy",
+        tabId,
+        observedRevision: legacy.revision,
+        ref: legacy.refOf("Full name"),
+        ttlMs: 30_000,
+        action: { kind: "setValue", value: "legacy" },
+      });
+      expect(legacyResponse).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_TRUSTED_HOST_REQUEST" },
+      });
+
+      // 11. operator 审批页显示“待批准的填写”与完整值，页内批准后执行。
+      const approvalTarget = await observe();
+      const notesRef = approvalTarget.refOf("Notes");
+      const approvalValue = "  approved  text ";
+      const requested = await trustedRequest(active.rpcPort, active.token, {
+        type: "authorization.request-strict-action-approval",
+        requestId: "approval-request",
+        authorizationId: "auth-approval",
+        tabId,
+        observedRevision: approvalTarget.revision,
+        ref: notesRef,
+        ttlMs: 30_000,
+        approvalTtlMs: 60_000,
+        action: { kind: "setValue", value: approvalValue },
+      });
+      expect(requested, JSON.stringify(requested)).toMatchObject({ ok: true });
+      const approvalId: string = requested.result.approvalRequestId;
+
+      const extensionId = await extensionIdOf(active.context);
+      const popup = await active.context.newPage();
+      await popup.goto("chrome-extension://" + extensionId + "/operator-approval.html");
+      await popup.bringToFront();
+      const card = popup.locator(`[data-approval-id="${approvalId}"]`);
+      await expect(card.locator("h2")).toHaveText("待批准的填写");
+      await expect(card.locator(".write-value-text")).toHaveText(approvalValue, {
+        useInnerText: false,
+      });
+      await expect(card.locator(".write-value-caption")).toHaveText(
+        "共 17 个字符；开头有空格；结尾有空格；含连续空格",
+      );
+      await expect(card.locator("button.primary")).toBeEnabled({ timeout: 5_000 });
+      await card.locator("button.primary").click();
+
+      await expect.poll(async () => {
+        const status = await trustedRequest(active.rpcPort, active.token, {
+          type: "authorization.operator-approval-status",
+          requestId: "approval-status-" + Date.now(),
+          approvalRequestId: approvalId,
+        });
+        return status.result?.state;
+      }).toBe("approved");
+
+      const approvedExecution = await trustedRequest(active.rpcPort, active.token, {
+        type: "execution.execute-strict-action",
+        requestId: "approval-execute",
+        actionId: "act-approval",
+        authorizationId: "auth-approval",
+        tabId,
+        observedRevision: approvalTarget.revision,
+        ref: notesRef,
+        action: { kind: "setValue", value: approvalValue },
+        verification: verification(notesRef),
+        verifyTimeoutMs: 0,
+      });
+      expect(approvedExecution, JSON.stringify(approvedExecution)).toMatchObject({
+        ok: true,
+        result: { execution: { valueMatched: true } },
+      });
+      expect(await valueOf("#notes")).toBe(approvalValue);
+    } finally {
+      await host?.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);

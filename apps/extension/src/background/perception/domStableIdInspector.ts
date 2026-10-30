@@ -188,8 +188,13 @@ export class IsolatedWorldDomStableIdInspector
               const x = inViewport ? (left + right) / 2 : rect.left + rect.width / 2;
               const y = inViewport ? (top + bottom) / 2 : rect.top + rect.height / 2;
 
+              // document.elementFromPoint 会把 shadow tree 内的命中重定向为 shadow host；
+              // 在元素自身的 root 上测试，覆盖在其上的光照 DOM 元素仍按原样返回（判为遮挡）。
+              const root = element.getRootNode();
+              const hitScope =
+                typeof root.elementFromPoint === "function" ? root : document;
               const hit = inViewport
-                ? document.elementFromPoint(x, y)
+                ? hitScope.elementFromPoint(x, y)
                 : null;
 
               const hitTestable =

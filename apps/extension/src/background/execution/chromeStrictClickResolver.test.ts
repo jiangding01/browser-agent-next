@@ -130,7 +130,89 @@ function webNavigation(documentId = "doc-a") {
   };
 }
 
+function happyPathResolver(refs: InMemoryPersistentRefStore) {
+  return new ChromeStrictMainFrameClickResolver(
+    refs,
+    webNavigation(),
+    {
+      async send(_tabId, method) {
+        if (method === "Page.getFrameTree") {
+          return { frameTree: { frame: { id: "cdp-main" } } } as never;
+        }
+        return {
+          nodes: [
+            {
+              role: { value: "button" },
+              name: { value: "Save" },
+              backendDOMNodeId: 42,
+              properties: [{ name: "disabled", value: { value: false } }],
+            },
+          ],
+        } as never;
+      },
+      async sendInSession() {
+        throw new Error("main-frame test 不应使用 child session");
+      },
+    },
+    {
+      async stableIdsForBackendNodes() {
+        return new Map([[42, "s1"]]);
+      },
+    },
+    {
+      async inspect() {
+        return {
+          visible: true,
+          enabled: true,
+          inViewport: true,
+          hitTestable: true,
+          rect: { x: 10, y: 20, width: 100, height: 30 },
+          point: { x: 60, y: 35 },
+        };
+      },
+    },
+    {
+      bindingForFrame() {
+        return {
+          frameEpoch: "frame-a",
+          cdpFrameId: "cdp-main",
+          documentEpoch: "chrome-document:doc-a",
+        };
+      },
+    },
+  );
+}
+
 describe("ChromeStrictMainFrameClickResolver", () => {
+  it("setValue 与 click 走同一身份复核；其它动作仍 fail closed", async () => {
+    const refs = new InMemoryPersistentRefStore();
+    const { observation, ref } = fixture(refs);
+    const resolver = happyPathResolver(refs);
+    const expected = observation.elements.find((element) => element.ref === ref)!;
+    const resolve = (kind: "setValue" | "selectOption") =>
+      resolver.resolve({
+        tabId: 7,
+        action: {
+          actionId: "a-1",
+          kind,
+          observedRevision: observation.revision.id,
+          target: { ref },
+        },
+        observation,
+        expected,
+      });
+
+    expect(await resolve("setValue")).toMatchObject({
+      documentCompatible: true,
+      identityMatches: true,
+      prepared: { backendNodeId: 42, stableId: "s1" },
+    });
+    expect(await resolve("selectOption")).toMatchObject({
+      identityMatches: false,
+      reason: expect.stringContaining("only supports click and setValue"),
+    });
+  });
+
   it("live DOM+AX identity 与语义均一致时生成 ephemeral click target", async () => {
     const refs = new InMemoryPersistentRefStore();
     const { observation, ref } = fixture(refs);

@@ -520,3 +520,83 @@ describe("connectTrustedNativeIngress", () => {
     });
   });
 });
+
+describe("connectTrustedNativeIngress strict-action 消息", () => {
+  it("三条新消息把 action 原样交给 service", async () => {
+    let listener: ((message: unknown) => void) | undefined;
+    const calls: Array<[string, unknown]> = [];
+    const service = {
+      issueStrictClickAuthorization(input: unknown) {
+        calls.push(["issue", input]);
+        return { id: "auth" };
+      },
+      requestOperatorApproval(input: unknown) {
+        calls.push(["approval", input]);
+        return { approvalRequestId: "approval-1" };
+      },
+      async executeStrictClickAndVerify(input: unknown) {
+        calls.push(["execute", input]);
+        return { execution: { status: "executed", valueMatched: true } };
+      },
+    };
+    connectTrustedNativeIngress(
+      {
+        connectNative() {
+          return {
+            postMessage() {},
+            disconnect() {},
+            onMessage: {
+              addListener(next: (message: unknown) => void) {
+                listener = next;
+              },
+              removeListener() {},
+            },
+            onDisconnect: { addListener() {}, removeListener() {} },
+          };
+        },
+      },
+      service as never,
+    );
+
+    const action = { kind: "setValue", value: "张三" };
+    const common = {
+      authorizationId: "auth",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+    };
+    listener?.({ type: "authorization.issue-strict-action", requestId: "r1", ...common, ttlMs: 1_000, action });
+    listener?.({
+      type: "authorization.request-strict-action-approval",
+      requestId: "r2",
+      ...common,
+      ttlMs: 1_000,
+      approvalTtlMs: 5_000,
+      action,
+    });
+    listener?.({
+      type: "execution.execute-strict-action",
+      requestId: "r3",
+      ...common,
+      actionId: "a-1",
+      action,
+      verification: { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual([
+      ["issue", { ...common, ttlMs: 1_000, action }],
+      ["approval", { ...common, ttlMs: 1_000, approvalTtlMs: 5_000, action }],
+      [
+        "execute",
+        {
+          ...common,
+          actionId: "a-1",
+          action,
+          verification: { mode: "all", conditions: [{ type: "ref_exists", ref: "@e_1" }] },
+        },
+      ],
+    ]);
+  });
+});

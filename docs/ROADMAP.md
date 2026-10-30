@@ -88,6 +88,11 @@
 - [x] 7-0a 决策评测 harness：DecisionFixture 校验、参考 CandidateBuilder、Recall@K 与 Conditional Accuracy 分离统计、第一批 14 个对抗 fixture
 - [x] 7-0b model-facing MCP 脱敏 trace + 有界 JSONL sink + trace 汇总（默认关闭）
 
+## Strict 写入类动作
+- [x] S1 trusted 路径 setValue：参数绑定 grant、敏感字段拒绝、isolated world 单 task 写入、独立协议消息、审批页显示值
+- [ ] S2 selectOption / submitForm / pressKey
+- [ ] S3 向模型开放写入（强制 operator 审批）
+
 ## Phase 7 — Intelligence
 - [ ] deterministic router
 - [ ] Jev CandidateBuilder

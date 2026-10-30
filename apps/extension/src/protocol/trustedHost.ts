@@ -1,8 +1,11 @@
-import type {
-  BrowserActInput,
-  BrowserObserveOptions,
-  VerificationSpec,
-  VerifyCondition,
+import {
+  isStrictValueAllowed,
+  parseStrictActionArgs,
+  type BrowserActInput,
+  type BrowserObserveOptions,
+  type StrictActionArgs,
+  type VerificationSpec,
+  type VerifyCondition,
 } from "@browser-agent-next/core";
 import {
   isEnterpriseAuthorizationEnvelope,
@@ -26,6 +29,43 @@ export type TrustedHostRequest =
       observedRevision: string;
       ref: string;
       ttlMs: number;
+    }
+  | {
+      /**
+       * 签发任意 strict 动作（含写入类）。写入参数只能走这类独立消息：
+       * 旧实现会忽略未知字段，若在 click 消息上携带写入参数会被执行成 click（不变量 139）。
+       */
+      type: "authorization.issue-strict-action";
+      requestId: string;
+      authorizationId: string;
+      tabId: number;
+      observedRevision: string;
+      ref: string;
+      ttlMs: number;
+      action: StrictActionArgs;
+    }
+  | {
+      type: "authorization.request-strict-action-approval";
+      requestId: string;
+      authorizationId: string;
+      tabId: number;
+      observedRevision: string;
+      ref: string;
+      ttlMs: number;
+      approvalTtlMs?: number;
+      action: StrictActionArgs;
+    }
+  | {
+      type: "execution.execute-strict-action";
+      requestId: string;
+      actionId: string;
+      authorizationId: string;
+      tabId: number;
+      observedRevision: string;
+      ref: string;
+      action: StrictActionArgs;
+      verification: VerificationSpec;
+      verifyTimeoutMs?: number;
     }
   | {
       type: "authorization.request-operator-approval";
@@ -233,11 +273,26 @@ function isVerificationSpec(
   );
 }
 
+function isStrictActionArgs(value: unknown): value is StrictActionArgs {
+  try {
+    parseStrictActionArgs(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isBrowserActAction(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const action = value as Record<string, unknown>;
+  const kindAndValue =
+    action.kind === "click"
+      ? action.value === undefined
+      : action.kind === "setValue" &&
+        typeof action.value === "string" &&
+        isStrictValueAllowed(action.value);
   return (
-    action.kind === "click" &&
+    kindAndValue &&
     nonEmptyString(action.actionId) &&
     nonEmptyString(action.observedRevision) &&
     nonEmptyString(action.ref) &&
@@ -259,8 +314,10 @@ export function isTrustedHostRequest(
         request.origins.length <= 100 &&
         request.origins.every(nonEmptyString);
 
+    // 旧 click 消息不承载写入参数：带 action 的请求一律拒绝（不变量 139）。
     case "authorization.issue-strict-click":
       return request.assurance === undefined &&
+        request.action === undefined &&
         nonEmptyString(request.authorizationId) &&
         tabId(request.tabId) &&
         nonEmptyString(request.observedRevision) &&
@@ -271,6 +328,7 @@ export function isTrustedHostRequest(
     case "authorization.request-operator-approval":
       return request.assurance === undefined &&
         request.source === undefined &&
+        request.action === undefined &&
         nonEmptyString(request.authorizationId) &&
         request.authorizationId.length <= 256 &&
         tabId(request.tabId) &&
@@ -284,6 +342,88 @@ export function isTrustedHostRequest(
           request.approvalTtlMs === undefined ||
           boundedInteger(request.approvalTtlMs, 1, 120_000)
         );
+
+    case "authorization.issue-strict-action":
+      return hasOnlyKeys(
+        request,
+        [
+          "type",
+          "requestId",
+          "authorizationId",
+          "tabId",
+          "observedRevision",
+          "ref",
+          "ttlMs",
+          "action",
+        ],
+      ) &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256 &&
+        tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        request.observedRevision.length <= 256 &&
+        nonEmptyString(request.ref) &&
+        request.ref.length <= 256 &&
+        boundedInteger(request.ttlMs, 1, 60_000) &&
+        isStrictActionArgs(request.action);
+
+    case "authorization.request-strict-action-approval":
+      return hasOnlyKeys(
+        request,
+        [
+          "type",
+          "requestId",
+          "authorizationId",
+          "tabId",
+          "observedRevision",
+          "ref",
+          "ttlMs",
+          "approvalTtlMs",
+          "action",
+        ],
+      ) &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256 &&
+        tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        request.observedRevision.length <= 256 &&
+        nonEmptyString(request.ref) &&
+        request.ref.length <= 256 &&
+        boundedInteger(request.ttlMs, 1, 60_000) &&
+        (
+          request.approvalTtlMs === undefined ||
+          boundedInteger(request.approvalTtlMs, 1, 120_000)
+        ) &&
+        isStrictActionArgs(request.action);
+
+    case "execution.execute-strict-action":
+      return hasOnlyKeys(
+        request,
+        [
+          "type",
+          "requestId",
+          "actionId",
+          "authorizationId",
+          "tabId",
+          "observedRevision",
+          "ref",
+          "action",
+          "verification",
+          "verifyTimeoutMs",
+        ],
+      ) &&
+        nonEmptyString(request.actionId) &&
+        request.actionId.length <= 256 &&
+        nonEmptyString(request.authorizationId) &&
+        request.authorizationId.length <= 256 &&
+        tabId(request.tabId) &&
+        nonEmptyString(request.observedRevision) &&
+        request.observedRevision.length <= 256 &&
+        nonEmptyString(request.ref) &&
+        request.ref.length <= 256 &&
+        isStrictActionArgs(request.action) &&
+        isVerificationSpec(request.verification) &&
+        optionalFiniteNumber(request.verifyTimeoutMs, 0, 5_000);
 
     case "authorization.operator-approval-status":
       return nonEmptyString(request.approvalRequestId) &&
@@ -313,7 +453,8 @@ export function isTrustedHostRequest(
         });
 
     case "execution.execute-strict-click":
-      return nonEmptyString(request.actionId) &&
+      return request.action === undefined &&
+        nonEmptyString(request.actionId) &&
         nonEmptyString(request.authorizationId) &&
         tabId(request.tabId) &&
         nonEmptyString(request.observedRevision) &&

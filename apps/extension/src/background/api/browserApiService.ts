@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  parseStrictActionArgs,
   type BrowserActInput,
   type BrowserExtractInput,
   type BrowserExtractResult,
@@ -11,6 +12,7 @@ import {
   type BrowserVerifyInput,
   type BrowserWaitInput,
   type BrowserWaitResult,
+  type StrictActionArgs,
   type VerificationResult,
   type VerificationSpec,
 } from "@browser-agent-next/core";
@@ -516,19 +518,30 @@ export class HighLevelBrowserApiService {
       5_000,
     );
 
-    if (input.action.kind !== "click") {
+    if (
+      input.action.kind !== "click" &&
+      input.action.kind !== "setValue"
+    ) {
       throw new BrowserRuntimeError(
         "ACTION_NOT_SUPPORTED",
-        "browser.act currently supports strict click only",
+        "browser.act currently supports strict click and setValue only",
       );
     }
 
     if (!input.action.ref || !input.action.authorizationId) {
       throw new BrowserRuntimeError(
         "AUTHORIZATION_REQUIRED",
-        "browser.act strict click requires ref and authorizationId",
+        "browser.act strict actions require ref and authorizationId",
       );
     }
+
+    const action: StrictActionArgs =
+      input.action.kind === "setValue"
+        ? parseStrictActionArgs({
+            kind: "setValue",
+            value: input.action.value,
+          })
+        : { kind: "click" };
 
     return this.trustedExecution.executeStrictClickAndVerify({
       actionId: input.action.actionId,
@@ -536,6 +549,7 @@ export class HighLevelBrowserApiService {
       tabId: input.tabId,
       observedRevision: input.action.observedRevision,
       ref: input.action.ref,
+      action,
       verification: input.verification,
       ...(verifyTimeoutMs !== undefined
         ? { verifyTimeoutMs }

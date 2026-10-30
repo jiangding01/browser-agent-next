@@ -218,6 +218,84 @@ const pages = new Map([
     </script>
   </body>
 </html>`],
+  ["/strict-write.html", `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Strict Write Fixture</title>
+    <style>
+      body { font: 12px sans-serif; margin: 4px; }
+      label { display: inline-block; margin: 2px 8px 2px 0; }
+      textarea { height: 18px; vertical-align: middle; }
+      #covered-wrap { position: relative; display: inline-block; }
+      #cover { position: absolute; inset: 0; background: rgba(0,0,0,0.3); }
+      #masked { -webkit-text-security: disc; }
+    </style>
+  </head>
+  <body>
+    <label>Full name <input aria-label="Full name" id="name" value="old value"></label>
+    <label>Notes <textarea aria-label="Notes" id="notes"></textarea></label>
+    <label>Email <input aria-label="Email" id="email" type="email"></label>
+    <label>Password <input aria-label="Password" id="password" type="password"></label>
+    <label>Read only <input aria-label="Read only" id="readonly" readonly value="fixed"></label>
+    <label>Age <input aria-label="Age" id="age" type="number"></label>
+    <label>Code <input aria-label="Code" id="limited" maxlength="3"></label>
+    <label>Clear me <input aria-label="Clear me" id="clearme" value="to clear"></label>
+    <label>Already empty <input aria-label="Already empty" id="empty"></label>
+    <label>Focus thief <input aria-label="Focus thief" id="victim"></label>
+    <label>Stolen <input aria-label="Stolen" id="thief"></label>
+    <label>Flips to password <input aria-label="Flips to password" id="flip"></label>
+    <label>One-time code <textarea aria-label="One-time code" id="otp" autocomplete="one-time-code"></textarea></label>
+    <label>Masked <input aria-label="Masked" id="masked"></label>
+    <label>Masks on focus <input aria-label="Masks on focus" id="masks"></label>
+    <span id="covered-wrap"><label>Covered <input aria-label="Covered" id="covered"></label><span id="cover"></span></span>
+    <div id="shadow-host"></div>
+    <iframe id="child-frame" src="/strict-write-child.html" width="400" height="60"></iframe>
+    <script>
+      window.inputLog = [];
+      const record = (event) => {
+        const target = event.composedPath()[0];
+        window.inputLog.push({
+          id: target.id,
+          trusted: event.isTrusted,
+          inputType: event.inputType,
+        });
+      };
+      document.addEventListener("input", record, true);
+      window.focusLog = [];
+      document.addEventListener("focusin", (event) => {
+        window.focusLog.push(event.composedPath()[0].id);
+      }, true);
+      document.getElementById("victim").addEventListener("focus", () => {
+        document.getElementById("thief").focus();
+      });
+      document.getElementById("flip").addEventListener("focus", (event) => {
+        event.target.type = "password";
+      });
+      document.getElementById("masks").addEventListener("focus", (event) => {
+        event.target.style.webkitTextSecurity = "disc";
+      });
+      const root = document.getElementById("shadow-host").attachShadow({ mode: "open" });
+      root.innerHTML =
+        '<style>.wrap{position:relative;display:inline-block}.veil{position:absolute;inset:0;background:rgba(0,0,0,.3)}</style>' +
+        '<label>Shadow field <input aria-label="Shadow field" id="shadow-input"></label>' +
+        '<span class="wrap"><label>Shadow covered <input aria-label="Shadow covered" id="shadow-covered"></label><span class="veil"></span></span>' +
+        '<button id="shadow-button">Shadow button</button>';
+      root.addEventListener("input", record, true);
+      window.shadowClicks = 0;
+      root.getElementById("shadow-button").addEventListener("click", (event) => {
+        if (event.isTrusted) window.shadowClicks += 1;
+      });
+    </script>
+  </body>
+</html>`],
+  ["/strict-write-child.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Strict Write Child</title></head>
+  <body>
+    <label>Child field <input aria-label="Child field" id="child-input"></label>
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {

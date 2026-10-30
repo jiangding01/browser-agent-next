@@ -69,6 +69,11 @@ export interface ElementState {
     pressed?: boolean;
     required?: boolean;
     readonly?: boolean;
+    /**
+     * DOM 源对凭据 / 支付字段（type=password、凭据或支付类 autocomplete）的标记。
+     * 只是布尔标记，不含值；写入类动作在签发前据此拒绝（不变量 141）。
+     */
+    sensitive?: true;
   };
   value?: { kind: "text" | "number" | "selection" | "boolean" | "date" | "unknown"; display?: unknown };
   geometry?: { rect: Rect; inViewport: boolean; hitTestable?: boolean };

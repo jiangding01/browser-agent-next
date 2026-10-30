@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  type StrictActionArgs,
 } from "@browser-agent-next/core";
 import type {
   MutableExactOriginAllowlist,
@@ -7,10 +8,11 @@ import type {
 import type {
   TabStateStore,
 } from "@browser-agent-next/runtime";
-import type {
-  StrictClickAuthorizationInput,
-  StrictClickAuthorizationIssuanceService,
-  StrictClickAuthorizationResult,
+import {
+  assertStrictActionTarget,
+  type StrictClickAuthorizationInput,
+  type StrictClickAuthorizationIssuanceService,
+  type StrictClickAuthorizationResult,
 } from "./authorizationIssuanceService.js";
 
 export type OperatorApprovalState =
@@ -40,6 +42,8 @@ export interface OperatorApprovalSummary {
   pageTitle: string;
   targetRole: string;
   targetName?: string;
+  /** 批准后签发的正是这个动作；审批页据此显示“点击”或“填写”及完整值。 */
+  action: StrictActionArgs;
   requestedAt: number;
   expiresAt: number;
   authorizationTtlMs: number;
@@ -232,6 +236,11 @@ export class OperatorApprovalStore {
       );
     }
 
+    const action: StrictActionArgs =
+      input.action ?? { kind: "click" };
+    // 入队前拒绝敏感 / 无效目标：审批页永远不显示凭据字段的待写入值（不变量 141）。
+    assertStrictActionTarget(element, action);
+
     if (
       !this.origins.isAllowed(
         stored.observation.tab.origin,
@@ -272,6 +281,7 @@ export class OperatorApprovalStore {
                   .slice(0, 500),
             }
           : {}),
+        action,
         requestedAt,
         expiresAt:
           requestedAt +
@@ -297,6 +307,7 @@ export class OperatorApprovalStore {
             input.observedRevision,
           ref: input.ref,
           ttlMs: input.ttlMs,
+          action,
         },
       },
     );

@@ -120,6 +120,20 @@ trace 默认关闭，只有 operator 设置 `BROWSER_AGENT_NEXT_TRACE_DIR` 才�
 
 已接受的残余：trace 记录访问过的 origin（都在 operator 已配置的 allowlist 内）与操作时间线；trace 文件的访问控制依赖 OS 用户隔离，与 trusted token 相同；模型输入校验失败在 adapter 里同为 `POLICY_BLOCKED`，会计入 policy 层；进程退出时队列中未写出的事件会丢失。
 
+## Strict 写入边界（setValue，S1）
+
+S1 只在 trusted 路径开放（`authorization.issue-strict-action`、`authorization.request-strict-action-approval`、`execution.execute-strict-action` 与 trusted `browser.act`）；model-facing `browser.act` 仍只接受 click。设计与威胁模型见 `docs/STRICT-WRITE-ACTIONS.md`。
+
+- **参数绑定**：grant 绑定 `actionKind` 与规范化参数（含值原文），消费时逐字比较；为“填 A”签发的授权不能用于填 B，也不能用于 click，反之亦然。enterprise-policy 的签名结构只绑定 click，因此拒绝为写入签发。
+- **版本错配**：写入只走独立的 strict-action 消息；旧 click 消息带 `action` 字段一律以 `INVALID_TRUSTED_HOST_REQUEST` 拒绝，旧扩展收到新消息类型同样拒绝，写入永远不会被执行成 click。
+- **敏感字段**：password、`<input>` / `<textarea>` 上的凭据 / 支付 autocomplete、`-webkit-text-security` 遮盖的字段在感知阶段标记为 `sensitive`，签发与审批请求入队前就拒绝，审批页永远不显示这类字段的待写入值；写入函数在 focus 前后用同一组判定再复核。这是按已知形态列举的判定，不是完备的“敏感”定义。
+- **单 task 写入**：在目标帧中唯一的、origin 为本扩展的 isolated world 里，一个同步函数内完成字段检查 → focus → 确认 `activeElement` → 复核 → `select()` → `execCommand`；不向“恰好有焦点的元素”发送 CDP 输入，不在另一个上下文重试。只写单行原生文本字段；OOPIF 中的目标在任何输入之前 fail closed。
+- **结果语义**：focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`，禁止自动重试；执行结果只带 `valueMatched` 布尔值，错误为固定文本，均不含值。动作后验证是普通 observation：trusted 路径与 `browser.observe` 一样能看到字段当前值，model-facing 出口去掉 `observed` 与未获允许的 `value`。
+- **审批页**：值的字符集在所有入口限定为审批页能如实显示的字符（拒绝控制、格式、默认可忽略字符、非 U+0020 空格、U+2800、孤立代理项）；值完整显示、不截断、不设高度上限，附字符数与首尾 / 连续空格提示，并标注“来自调用方，非页面”；清空字段的说明显示在值框之外。
+- **命中测试**：Strict 命中测试在目标自身的 tree scope 上进行，open shadow root 内的目标可以被 click 或写入，覆盖其上的元素（同一 shadow root、外层 tree 或其它 shadow host）仍判为遮挡。
+
+已接受的残余：`element.focus()` 会触发页面的 focus / blur 回调；页面可以在 `input` 事件里改写值，`valueMatched` 如实反映；签发阶段无法预知的拒绝（`contenteditable`、OOPIF）在 grant 消费之后发生，浪费一次授权但 fail closed；Playwright 的焦点模拟使 E2E 无法证明真实后台标签页下的行为。
+
 ## Unknown Effect
 
 Generic click 默认 effect=unknown、confidence=unknown。

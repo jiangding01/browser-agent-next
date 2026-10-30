@@ -180,3 +180,66 @@ describe("InMemoryAuthorizationStore", () => {
     });
   });
 });
+
+describe("InMemoryAuthorizationStore 动作参数绑定", () => {
+  const A = JSON.stringify({ kind: "setValue", value: "A" });
+  const B = JSON.stringify({ kind: "setValue", value: "B" });
+
+  function issued(actionArgs?: string, actionKind: "click" | "setValue" = "setValue") {
+    const store = new InMemoryAuthorizationStore({ now: () => 1000 });
+    store.issue({
+      id: "grant",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind,
+      ...(actionArgs !== undefined ? { actionArgs } : {}),
+      effectClass: "unknown",
+      assurance: "control-plane",
+      ttlMs: 5000,
+      source: "trusted-host",
+    });
+    return store;
+  }
+
+  function consume(
+    store: InMemoryAuthorizationStore,
+    actionKind: "click" | "setValue",
+    actionArgs?: string,
+  ) {
+    return store.consume({
+      id: "grant",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind,
+      ...(actionArgs !== undefined ? { actionArgs } : {}),
+      effectClass: "unknown",
+    });
+  }
+
+  it("只有参数逐字相等才能消费", () => {
+    expect(consume(issued(A), "setValue", A)).toMatchObject({ ok: true });
+    expect(consume(issued(A), "setValue", B)).toEqual({ ok: false, reason: "binding-mismatch" });
+    expect(consume(issued(A), "setValue")).toEqual({ ok: false, reason: "binding-mismatch" });
+  });
+
+  it("click grant 不能用于 setValue，setValue grant 也不能用于 click", () => {
+    expect(consume(issued(undefined, "click"), "setValue", A)).toEqual({
+      ok: false,
+      reason: "binding-mismatch",
+    });
+    expect(consume(issued(A), "click")).toEqual({ ok: false, reason: "binding-mismatch" });
+    expect(consume(issued(undefined, "click"), "click")).toMatchObject({ ok: true });
+  });
+
+  it("非 click 动作签发时必须绑定参数", () => {
+    expect(() => issued(undefined, "setValue")).toThrow(/must bind its action arguments/);
+  });
+
+  it("不匹配的消费不会消耗 grant", () => {
+    const store = issued(A);
+    expect(consume(store, "setValue", B)).toMatchObject({ ok: false });
+    expect(consume(store, "setValue", A)).toMatchObject({ ok: true });
+  });
+});

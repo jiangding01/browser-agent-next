@@ -147,3 +147,12 @@
 135. trace 不得成为授权、执行或验证的前置条件：未配置、队列满、文件满或写入失败时，工具结果、错误 code、授权与执行路径必须与关闭 trace 时一致；trace 内部的异常不得抛入工具路径。
 136. trace 对模型不可见：目录只能来自 operator 进程环境，且必须是当前用户拥有、非 symlink、`mode & 0o077 === 0` 的真实目录；trace 文件只能在该目录中以 `O_EXCL | O_NOFOLLOW` 新建为 `0600` 普通文件，绝不打开、追加或截断已存在的文件。
 137. trace 必须有界：内存队列、单条事件字段与文件总大小都有上限，达到上限只能停止写入，不得阻塞工具调用；act 事件必须有普通事件无法占用的保留容量。
+138. Strict 动作的 grant 必须精确绑定规范化的动作参数（`actionKind` + `actionArgs`）；消费时参数不完全相同即 `binding-mismatch`，为一个值签发的 grant 不能用于输入另一个值。
+139. 写入类动作必须使用独立的 strict-action 协议消息；不得在既有 click 消息上以可选字段承载写入参数（旧实现会忽略未知字段而执行 click）。
+140. setValue 的焦点确认、字段复核与插入必须在同一个 isolated-world task 内完成，只作用于由强身份解析出的元素，只在唯一确定的本扩展 isolated world 中运行；绝不向“当前恰好有焦点的元素”发送输入，也不在另一个上下文中重试。
+141. 敏感字段（`type=password`、`<input>` / `<textarea>` 上的凭据 / 支付类 `autocomplete`、`-webkit-text-security` 遮盖）的写入必须在签发与审批请求阶段就被拒绝，审批页永远不显示这类字段的待写入值；执行时在 focus 前后各复核一次，页面内复核与感知层使用同一组判定。
+142. 动作参数在所有入口拒绝控制字符、格式字符与所有默认可忽略字符、行 / 段分隔符、非 U+0020 的空格分隔符、U+2800 与孤立代理项；operator 审批页必须完整显示将要输入的值（不截断、不设高度上限），并与页面派生文本分开标注来源；清空字段的说明显示在值框之外，不能与任何字面量值混淆。
+143. 写入类动作的 effect 保持 `unknown`，最低 assurance 与 click 相同；在 effect 分类器能证明更窄的 effect 之前不得降级。
+144. 写入类动作的执行结果与错误不得回显输入值；只允许返回 `valueMatched` 这样的布尔执行证据。动作后验证的 evidence 属于 observation，按既有 trusted / model-facing 划分处理：model-facing 出口必须去掉 `observed` 与未获允许的 `value`。
+145. focus 一旦执行，之后的任何失败都必须报告为 `ACTION_OUTCOME_UNKNOWN`；目标位于 OOPIF child session 的写入在任何输入之前 fail closed（`ACTION_NOT_SUPPORTED`）。
+146. Strict 命中测试必须在目标自身所在的 tree scope（`getRootNode()`，document 或 shadow root）上进行：`document.elementFromPoint` 会把 shadow tree 内的命中重定向为 shadow host，使 shadow root 内的目标永远判为遮挡；按 tree scope 测试时，覆盖在目标之上的同一 shadow root、外层 tree 或其它 shadow host 中的元素仍然不等于、也不包含目标，照样判为 `TARGET_OCCLUDED`。该规则同时适用于 click 与 setValue。

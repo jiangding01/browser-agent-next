@@ -629,3 +629,174 @@ describe("PolicyGatedStrictClickExecutor presentation fence", () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("PolicyGatedStrictClickExecutor setValue", () => {
+  const VALUE = "张三-CANARY";
+  const args = (value: string) => JSON.stringify({ kind: "setValue", value });
+
+  function setValueStore(value = VALUE): InMemoryAuthorizationStore {
+    const authorizations = new InMemoryAuthorizationStore();
+    authorizations.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind: "setValue",
+      actionArgs: args(value),
+      effectClass: "unknown",
+      assurance: "control-plane",
+      ttlMs: 5000,
+      source: "trusted-host",
+    });
+    return authorizations;
+  }
+
+  function executor(
+    options: {
+      authorizations?: InMemoryAuthorizationStore;
+      preparedTarget?: Record<string, unknown>;
+      write?: (target: unknown, value: string) => Promise<{ valueMatched: boolean }>;
+      withWriter?: boolean;
+    } = {},
+  ) {
+    const prepare = vi.fn(async (_tabId: number, action: { kind: string }) => {
+      const base = prepared();
+      return {
+        ...base,
+        action,
+        prepared: { ...base.prepared, ...options.preparedTarget },
+      } as never;
+    });
+    const dispatch = vi.fn(async () => undefined);
+    const write = vi.fn(options.write ?? (async () => ({ valueMatched: true })));
+    const instance = new PolicyGatedStrictClickExecutor(
+      { prepare } as never,
+      { dispatch } as never,
+      options.authorizations ?? setValueStore(),
+      { isAllowed: () => true },
+      noPresentationFence(),
+      options.withWriter === false ? undefined : { write },
+    );
+    const run = (value = VALUE, authorizationId: string | null = "grant-1") =>
+      instance.execute({
+        tabId: 7,
+        actionId: "a1",
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        ...(authorizationId !== null ? { authorizationId } : {}),
+        action: { kind: "setValue", value },
+      });
+    return { run, prepare, dispatch, write };
+  }
+
+  it("精确绑定参数的 grant 才写入；两次 prepare；不走坐标 dispatch；结果不含值", async () => {
+    const { run, prepare, dispatch, write } = executor();
+
+    const result = await run();
+
+    expect(result).toEqual({
+      actionId: "a1",
+      status: "executed",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      effect: expect.objectContaining({ class: "unknown" }),
+      valueMatched: true,
+    });
+    expect(JSON.stringify(result)).not.toContain("CANARY");
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls.every(([, action]) => action.kind === "setValue")).toBe(true);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(write).toHaveBeenCalledWith(
+      { tabId: 7, cdpFrameId: "cdp-main", frameEpoch: "frame-a", stableId: "s1" },
+      VALUE,
+    );
+  });
+
+  it("参数不同、click grant 或没有 grant 时都不写入", async () => {
+    for (const setup of [
+      executor({ authorizations: setValueStore("另一个值") }),
+      executor({ authorizations: authorizedStore() }),
+    ]) {
+      await expect(setup.run()).rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
+      expect(setup.write).not.toHaveBeenCalled();
+    }
+    const unauthorized = executor();
+    await expect(unauthorized.run(VALUE, null)).rejects.toMatchObject({
+      code: "AUTHORIZATION_REQUIRED",
+    });
+    expect(unauthorized.write).not.toHaveBeenCalled();
+  });
+
+  it("OOPIF child session 中的目标在写入前 fail closed", async () => {
+    const { run, write } = executor({ preparedTarget: { cdpSessionId: "child-session" } });
+
+    await expect(run()).rejects.toMatchObject({ code: "ACTION_NOT_SUPPORTED" });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("写入器的错误码原样传出", async () => {
+    const { run } = executor({
+      write: async () => {
+        throw new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "focus lost");
+      },
+    });
+
+    await expect(run()).rejects.toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN" });
+  });
+
+  it("没有写入器时不执行", async () => {
+    const { run } = executor({ withWriter: false });
+
+    await expect(run()).rejects.toMatchObject({ code: "ACTION_NOT_SUPPORTED" });
+  });
+
+  it("grant 在第二次 prepare 期间到期时不写入", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    try {
+      const authorizations = new InMemoryAuthorizationStore();
+      authorizations.issue({
+        id: "grant-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@e_1",
+        actionKind: "setValue",
+        actionArgs: args(VALUE),
+        effectClass: "unknown",
+        assurance: "control-plane",
+        ttlMs: 10,
+        source: "trusted-host",
+      });
+      const prepare = vi
+        .fn()
+        .mockImplementationOnce(async () => prepared() as never)
+        .mockImplementationOnce(async () => {
+          vi.setSystemTime(2000);
+          return prepared() as never;
+        });
+      const write = vi.fn(async () => ({ valueMatched: true }));
+      const instance = new PolicyGatedStrictClickExecutor(
+        { prepare } as never,
+        { dispatch: vi.fn() } as never,
+        authorizations,
+        { isAllowed: () => true },
+        noPresentationFence(),
+        { write },
+      );
+
+      await expect(
+        instance.execute({
+          tabId: 7,
+          actionId: "a1",
+          observedRevision: "rev-1",
+          ref: "@e_1",
+          authorizationId: "grant-1",
+          action: { kind: "setValue", value: VALUE },
+        }),
+      ).rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

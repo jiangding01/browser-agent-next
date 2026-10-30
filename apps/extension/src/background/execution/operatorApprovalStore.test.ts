@@ -170,7 +170,7 @@ describe(
         );
 
         expect(issued)
-          .toEqual([input]);
+          .toEqual([{ ...input, action: { kind: "click" } }]);
 
         expect(
           store.status(
@@ -806,7 +806,7 @@ describe(
             );
 
             expect(issued)
-              .toEqual([input]);
+              .toEqual([{ ...input, action: { kind: "click" } }]);
             expect(issued[0])
               .not.toHaveProperty(
                 "approvalTtlMs",
@@ -1213,5 +1213,51 @@ describe("OperatorApprovalStore.nextExpiryAt", () => {
     store.request(input);
     store.approve("operator-1");
     expect(store.nextExpiryAt()).toBeUndefined();
+  });
+});
+
+describe("OperatorApprovalStore 写入类动作", () => {
+  function field(state: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+    return {
+      kind: "field",
+      semantic: { role: "textbox", name: "Name" },
+      state: { visible: true, enabled: true, focused: false, ...state },
+      capabilities: [{ kind: "setValue", valueType: "text" }],
+      provenance: { dom: true, ax: true },
+      ...extra,
+    };
+  }
+
+  it("summary 带 action，批准时用同一 action 签发", () => {
+    const { store, issued, entries } = setup();
+    entries.get("rev-1").byRef.set("@e_1", field());
+    const action = { kind: "setValue" as const, value: "张三" };
+
+    const summary = store.request({ ...input, action });
+    expect(summary.action).toEqual(action);
+    expect(store.listPending()[0]?.action).toEqual(action);
+
+    store.approve(summary.approvalRequestId);
+    expect(issued).toEqual([{ ...input, action }]);
+  });
+
+  it("敏感、只读或无 setValue capability 的目标在入队前被拒绝，审批页看不到值", () => {
+    const action = { kind: "setValue" as const, value: "hunter2" };
+    for (const [target, code] of [
+      [field({ sensitive: true }), "POLICY_BLOCKED"],
+      [field({ readonly: true }), "ACTION_NOT_SUPPORTED"],
+      [field({ enabled: false }), "ACTION_NOT_SUPPORTED"],
+      [field({}, { semantic: { role: "spinbutton", name: "Age" } }), "ACTION_NOT_SUPPORTED"],
+      [field({}, { provenance: { ax: true } }), "ACTION_NOT_SUPPORTED"],
+      [field({}, { capabilities: [{ kind: "click" }] }), "TARGET_CAPABILITY_MISSING"],
+    ] as const) {
+      const { store, entries } = setup();
+      entries.get("rev-1").byRef.set("@e_1", target);
+
+      expect(() => store.request({ ...input, action }), code).toThrow(
+        expect.objectContaining({ code }),
+      );
+      expect(store.listPending()).toEqual([]);
+    }
   });
 });

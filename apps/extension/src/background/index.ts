@@ -92,6 +92,9 @@ import {
   bindOperatorApprovalBadge,
 } from "./execution/approvalBadge.js";
 import {
+  IsolatedWorldStrictValueWriter,
+} from "./execution/chromeStrictValueWriter.js";
+import {
   BrowserChangeSignalHub,
   registerBrowserChangeSignals,
 } from "./api/browserChangeSignalHub.js";
@@ -99,7 +102,8 @@ import {
 interface ChromeBackgroundApi extends ChromeLifecycleApi {
   runtime:
     & BackgroundRuntimeApi
-    & TrustedNativeRuntimeApi;
+    & TrustedNativeRuntimeApi
+    & { readonly id: string };
   debugger: ChromeDebuggerApi;
   action: ApprovalBadgeActionApi;
   tabs:
@@ -240,6 +244,13 @@ const clickDispatcher =
     debuggerTransport,
   );
 
+// 写入只在本扩展的 isolated world 中进行：按 origin 精确定位，不尝试其它上下文。
+const strictValueWriter =
+  new IsolatedWorldStrictValueWriter(
+    debuggerTransport,
+    "chrome-extension://" + chrome.runtime.id,
+  );
+
 const policyGatedClick =
   new PolicyGatedStrictClickExecutor(
     strictCoordinator,
@@ -249,6 +260,7 @@ const policyGatedClick =
     createRootPresentationFence(
       debuggerTransport,
     ),
+    strictValueWriter,
   );
 
 const trustedHostService =

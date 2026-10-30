@@ -96,6 +96,8 @@ export interface BrowserActInput {
     observedRevision: RevisionId;
     ref?: string;
     authorizationId?: string;
+    /** 仅 kind === "setValue"：要写入的单行值。 */
+    value?: string;
   };
   verification: VerificationSpec;
   verifyTimeoutMs?: number;

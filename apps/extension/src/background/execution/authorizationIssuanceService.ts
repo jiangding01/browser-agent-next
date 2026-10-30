@@ -1,6 +1,9 @@
 import {
   BrowserRuntimeError,
+  canonicalStrictActionArgs,
   type AuthorizationAssurance,
+  type ElementState,
+  type StrictActionArgs,
 } from "@browser-agent-next/core";
 import {
   authorizationAssuranceSatisfies,
@@ -19,6 +22,8 @@ export interface StrictClickAuthorizationInput {
   observedRevision: string;
   ref: string;
   ttlMs: number;
+  /** 缺省为 click；写入类动作的参数会被 grant 精确绑定（不变量 138）。 */
+  action?: StrictActionArgs;
 }
 
 export interface StrictClickAuthorizationResult {
@@ -42,7 +47,42 @@ const SOURCE_PROOF: Record<
 };
 
 /**
- * Strict Click 的统一受信签发核心。
+ * 写入类动作在签发（以及审批请求入队）之前、按 retained observation 的早期拒绝：
+ * 在 grant 被消耗或审批页显示任何值之前挡住明显无效或敏感的目标（不变量 141）。
+ */
+export function assertStrictActionTarget(
+  element: ElementState,
+  action: StrictActionArgs,
+): void {
+  if (action.kind !== "setValue") return;
+
+  if (!element.capabilities.some((capability) => capability.kind === "setValue")) {
+    throw new BrowserRuntimeError(
+      "TARGET_CAPABILITY_MISSING",
+      "the observed target does not accept setValue",
+    );
+  }
+  if (element.state.sensitive === true) {
+    throw new BrowserRuntimeError(
+      "POLICY_BLOCKED",
+      "setValue is not allowed on credential or payment fields",
+    );
+  }
+  if (
+    element.state.readonly === true ||
+    !element.state.enabled ||
+    element.semantic.role === "spinbutton" ||
+    element.provenance.dom !== true
+  ) {
+    throw new BrowserRuntimeError(
+      "ACTION_NOT_SUPPORTED",
+      "setValue supports only enabled, editable native text fields confirmed by DOM perception",
+    );
+  }
+}
+
+/**
+ * Strict 动作的统一受信签发核心（历史名称 StrictClick…；现在签发任意 strict 动作）。
  *
  * 外部调用方不能传 assurance/source；每个 public 方法把 provenance 固定在
  * 代码路径上，再统一执行 retained observation、ref、origin、最低 assurance
@@ -111,6 +151,15 @@ export class StrictClickAuthorizationIssuanceService {
       );
     }
 
+    const action: StrictActionArgs = input.action ?? { kind: "click" };
+    // 企业 assertion 的签名结构只绑定 click。
+    if (source === "enterprise-policy" && action.kind !== "click") {
+      throw new BrowserRuntimeError(
+        "AUTHORIZATION_REQUIRED",
+        "enterprise-policy authorization only covers strict click",
+      );
+    }
+
     const stored = this.states.get(
       input.tabId,
       input.observedRevision,
@@ -123,12 +172,14 @@ export class StrictClickAuthorizationIssuanceService {
       );
     }
 
-    if (!stored.byRef.has(input.ref)) {
+    const element = stored.byRef.get(input.ref);
+    if (!element) {
       throw new BrowserRuntimeError(
         "REF_NOT_IN_OBSERVATION",
         "cannot authorize a ref outside the retained observation",
       );
     }
+    assertStrictActionTarget(element, action);
 
     if (!this.origins.isAllowed(stored.observation.tab.origin)) {
       throw new BrowserRuntimeError(
@@ -169,7 +220,8 @@ export class StrictClickAuthorizationIssuanceService {
       tabId: input.tabId,
       observedRevision: input.observedRevision,
       ref: input.ref,
-      actionKind: "click",
+      actionKind: action.kind,
+      actionArgs: canonicalStrictActionArgs(action),
       effectClass: "unknown",
       assurance,
       ttlMs: input.ttlMs,

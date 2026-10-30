@@ -10,6 +10,8 @@ import {
   shortCode,
   untrustedDisplayText,
   type CardState,
+  approvalTitle,
+  writeValueDisplay,
 } from "./display.js";
 
 const cp = (...codes: number[]) => String.fromCodePoint(...codes);
@@ -354,5 +356,41 @@ describe("planCardUpdate", () => {
     planCardUpdate(previous, ["c"], 5_000);
 
     expect(previous).toEqual(snapshot);
+  });
+});
+
+describe("approvalTitle", () => {
+  it("区分点击与填写", () => {
+    expect(approvalTitle({ kind: "click" })).toBe("待批准的点击");
+    expect(approvalTitle({ kind: "setValue" })).toBe("待批准的填写");
+  });
+});
+
+describe("writeValueDisplay", () => {
+  it("完整显示值，不截断，并给出字符数", () => {
+    const long = "张".repeat(1_024);
+    expect(writeValueDisplay(long)).toEqual({
+      text: long,
+      caption: "共 1024 个字符",
+    });
+    expect(writeValueDisplay("👍 ok").caption).toBe("共 4 个字符");
+  });
+
+  it("标出首尾空格与连续空格", () => {
+    expect(writeValueDisplay(" a  b ").caption).toBe(
+      "共 6 个字符；开头有空格；结尾有空格；含连续空格",
+    );
+    expect(writeValueDisplay(" ").caption).toBe("共 1 个字符；开头有空格；结尾有空格");
+  });
+
+  it("空值不进入值框，只在说明里写明清空，与任何字面量值都不同", () => {
+    expect(writeValueDisplay("")).toEqual({
+      text: undefined,
+      caption: "将清空该字段（不输入任何内容）",
+    });
+    expect(writeValueDisplay("（清空该字段）")).toEqual({
+      text: "（清空该字段）",
+      caption: "共 7 个字符",
+    });
   });
 });
