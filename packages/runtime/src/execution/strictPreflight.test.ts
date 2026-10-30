@@ -160,6 +160,36 @@ describe("evaluateStrictPreflight", () => {
     });
   });
 
+  it("applies the geometry requirements to every strict action kind (invariant 150)", () => {
+    const field: ElementState = {
+      ...observedButton("Field"),
+      kind: "field",
+      semantic: { role: "combobox", name: "Field" },
+      capabilities: [{ kind: "selectOption" }, { kind: "submit" }, { kind: "focus" }],
+    };
+    for (const actionKind of ["selectOption", "submit", "pressKey"] as const) {
+      const run = (geometry: { inViewport: boolean; hitTestable: boolean }) =>
+        evaluateStrictPreflight({
+          expected: field,
+          live: {
+            semantic: { role: "combobox", name: "Field" },
+            state: { visible: true, enabled: true },
+            geometry,
+          },
+          actionKind,
+          documentCompatible: true,
+          identityMatches: true,
+        });
+      expect(run({ inViewport: true, hitTestable: true }), actionKind).toEqual({ ok: true });
+      expect(run({ inViewport: false, hitTestable: true }), actionKind).toMatchObject({
+        code: "TARGET_OUT_OF_VIEWPORT",
+      });
+      expect(run({ inViewport: true, hitTestable: false }), actionKind).toMatchObject({
+        code: "TARGET_OCCLUDED",
+      });
+    }
+  });
+
   it("rejects document replacement even when identity-like metadata looks unchanged", () => {
     expect(evaluateStrictPreflight({
       expected: observedButton(),

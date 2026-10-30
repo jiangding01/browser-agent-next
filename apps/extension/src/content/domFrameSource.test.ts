@@ -25,6 +25,7 @@ describe("isSensitiveField", () => {
     }
   }
   class FakeTextArea extends FakeInput {}
+  class FakeSelect extends FakeInput {}
 
   const win = {
     getComputedStyle: (element: FakeInput) => ({
@@ -34,14 +35,19 @@ describe("isSensitiveField", () => {
   } as unknown as Window;
 
   function withFakes(run: () => void): void {
-    const scope = globalThis as { HTMLInputElement?: unknown; HTMLTextAreaElement?: unknown };
-    const previous = [scope.HTMLInputElement, scope.HTMLTextAreaElement];
+    const scope = globalThis as {
+      HTMLInputElement?: unknown;
+      HTMLTextAreaElement?: unknown;
+      HTMLSelectElement?: unknown;
+    };
+    const previous = [scope.HTMLInputElement, scope.HTMLTextAreaElement, scope.HTMLSelectElement];
     scope.HTMLInputElement = FakeInput;
     scope.HTMLTextAreaElement = FakeTextArea;
+    scope.HTMLSelectElement = FakeSelect;
     try {
       run();
     } finally {
-      [scope.HTMLInputElement, scope.HTMLTextAreaElement] = previous;
+      [scope.HTMLInputElement, scope.HTMLTextAreaElement, scope.HTMLSelectElement] = previous;
     }
   }
 
@@ -54,6 +60,8 @@ describe("isSensitiveField", () => {
       expect(sensitive(new FakeInput("text", null, "disc"))).toBe(true);
       expect(sensitive(new FakeTextArea("textarea", null, "square"))).toBe(true);
       expect(sensitive(new FakeInput("text", null, "none"))).toBe(false);
+      expect(sensitive(new FakeSelect("select-one", "cc-exp-month"))).toBe(true);
+      expect(sensitive(new FakeSelect("select-one", "country"))).toBe(false);
     });
   });
 

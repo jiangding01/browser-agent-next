@@ -478,3 +478,28 @@ S2 不改变 click 与 setValue 的行为；新增的 `submit` capability 只是
 | `<optgroup hidden>` 中的 `<option>` | 选项自身的计算样式 `display` 仍为 `block`——隐藏检查必须覆盖祖先 |
 
 最脆弱的假设：pressKey 依赖“CDP 键盘事件送到当前聚焦的帧与元素，且 isolated world 的窗口捕获监听器先于页面目标阶段处理器观察到它”。spike 在主帧证实了这一点；同进程 child frame 与 shadow root 内的目标由 E2E 复验。若某一形态下不成立，监听器记录为空或目标不符，结果是 fail closed 的 outcome unknown，不会误报成功。
+
+## S2 实现进度（交接，WIP）
+
+分支 `claude/magical-thompson-h5zzdu` 上的 S2 实现**尚未完成，不可合并**。下一会话从这里继续，流程同前：实现 → E2E → check 审查循环 → 文档 → PR → CI → 合并 → 汇报。
+
+已完成（未经审查）：
+
+- core：`StrictActionArgs` 增加 `selectOption` / `submit` / `pressKey`，`STRICT_KEYS` / `isStrictKey`，`strictArgsFromActAction`（`browser.act` 参数拼装的唯一实现）及单测；`BrowserActInput.action` 增加 `label?` / `key?`；
+- 协议：`isBrowserActAction` 改用 `strictArgsFromActAction`；`browserApiService.act` 同样改用它，未支持的 kind 仍报 `ACTION_NOT_SUPPORTED`；
+- 感知：`submit` capability（只给“字段自身所在、无任何提交按钮”的表单中的字段，表单属性经原型访问）、敏感 `<select>`，及单测（`submit` capability 无 DOM 单测环境，靠 E2E 覆盖）；
+- preflight：几何检查扩展到所有 strict 动作（不变量 150）及单测；
+- resolver：白名单扩展到五种动作及单测；
+- `chromeStrictValueWriter.ts` 已 `git mv` 为 `chromeStrictIsolatedActions.ts`（测试文件同），内容重写为 `IsolatedWorldStrictActionRunner`：四个页面函数（setValue 保持 S1 语义、`execCommand` 改经原型；selectOption；submit；pressKey 的 A / B 两个函数）、各自的结果映射、按 tab 串行队列。**尚未编译验证、尚无单测。**
+
+未完成（按顺序）：
+
+1. **执行器泛化（关键）**：`policyGatedStrictClick.ts` 目前只把 `setValue` 分给写入器，其余 kind 会落进 click 路径。把第六个构造参数改为 `StrictIsolatedActionRunner`，`execute` 对所有非 click 动作走 `executeSetValue` 的同一路径（重命名为 `executeIsolatedAction`，consume 用 `args.kind` 与 `canonicalStrictActionArgs(args)`，结果只在 setValue / selectOption 带 `valueMatched`），并补每种 kind 的单测；
+2. `background/index.ts`：import 改为 `IsolatedWorldStrictActionRunner` from `./execution/chromeStrictIsolatedActions.js`；
+3. `chromeStrictIsolatedActions.test.ts`：改 import 名；S1 用例里查找 `execCommand("insertText"` 的顺序断言改为查找 `"insertText"`；新增 selectOption / submit / pressKey 的结果映射、pressKey 的 A → 按键 → B 调用顺序与失败映射、同 tab 串行、页面函数中表单访问都经原型的断言；
+4. `authorizationIssuanceService.ts` 的 `assertStrictActionTarget`：按「签发前的早期拒绝」表实现 selectOption / submit / pressKey，并补单测（审批入队复用同一函数）；
+5. 审批页 `operator-approval/display.ts` / `index.ts`：`approvalTitle` 与内容区改为穷举 switch，三种新卡片内容，未知 kind 不渲染批准按钮，及单测；
+6. E2E：按「测试计划（S2）」扩展 `e2e/server.mjs` 的 fixture 与 `e2e/specs/trusted-execution.spec.ts`；
+7. `pnpm typecheck && pnpm test && pnpm build && pnpm e2e` 全绿后进入 check 审查循环（含独立对抗式审查与变异验证）；
+8. 文档：INVARIANTS 增加 147～151，SECURITY「Strict 写入边界」补 S2，PROGRESS / ROADMAP / README / HIGH-LEVEL-API 同步，本节删除；
+9. 提交、建 PR、CI 绿后合并、同步本地、向用户汇报（用简体中文）。

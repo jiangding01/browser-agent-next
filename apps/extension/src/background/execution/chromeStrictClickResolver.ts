@@ -133,6 +133,14 @@ function liveInspection(
  * frame/session + DOM/AX live identity revalidation，但在 top-level coordinate
  * projection 完成前仍 fail closed，不会生成可 dispatch 的 prepared target。
  */
+const STRICT_RESOLVABLE_KINDS: ReadonlySet<BrowserAction["kind"]> = new Set([
+  "click",
+  "setValue",
+  "selectOption",
+  "submit",
+  "pressKey",
+]);
+
 export class ChromeStrictMainFrameClickResolver
   implements StrictLiveResolver<PreparedStrictClickTarget>
 {
@@ -152,15 +160,13 @@ export class ChromeStrictMainFrameClickResolver
     observation: BrowserObservation;
     expected: ElementState;
   }): Promise<StrictLiveResolution<PreparedStrictClickTarget>> {
-    // setValue 与 click 的身份与几何复核完全相同；写入本身由执行器完成。
-    if (
-      input.action.kind !== "click" &&
-      input.action.kind !== "setValue"
-    ) {
+    // 所有 strict 动作的身份与几何复核完全相同；动作本身由执行器完成。
+    if (!STRICT_RESOLVABLE_KINDS.has(input.action.kind)) {
       return {
         documentCompatible: true,
         identityMatches: false,
-        reason: "current Chrome strict resolver only supports click and setValue",
+        reason:
+          "current Chrome strict resolver only supports click, setValue, selectOption, submit and pressKey",
       };
     }
 

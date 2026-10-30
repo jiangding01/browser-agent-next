@@ -8,7 +8,22 @@ import { BrowserRuntimeError } from "../errors/codes.js";
  */
 export type StrictActionArgs =
   | { kind: "click" }
-  | { kind: "setValue"; value: string };
+  | { kind: "setValue"; value: string }
+  | { kind: "selectOption"; label: string }
+  | { kind: "submit" }
+  | { kind: "pressKey"; key: StrictKey };
+
+/** pressKey 只接受不带提交语义的按键（不变量 149）。 */
+export const STRICT_KEYS = ["Escape", "Tab", "ArrowUp", "ArrowDown"] as const;
+
+export type StrictKey = (typeof STRICT_KEYS)[number];
+
+export function isStrictKey(value: unknown): value is StrictKey {
+  return (
+    typeof value === "string" &&
+    (STRICT_KEYS as readonly string[]).includes(value)
+  );
+}
 
 export type StrictActionKind = StrictActionArgs["kind"];
 
@@ -85,9 +100,56 @@ export function parseStrictActionArgs(value: unknown): StrictActionArgs {
       }
       return { kind: "setValue", value: value.value };
 
+    case "selectOption":
+      if (!hasExactKeys(value, ["kind", "label"])) {
+        blocked("strict selectOption action must have exactly kind and label");
+      }
+      if (typeof value.label !== "string" || value.label === "") {
+        blocked("strict selectOption label must be a non-empty string");
+      }
+      if (!isStrictValueAllowed(value.label)) {
+        blocked(
+          "strict selectOption label is too long or contains characters that cannot be displayed for approval",
+        );
+      }
+      return { kind: "selectOption", label: value.label };
+
+    case "submit":
+      if (!hasExactKeys(value, ["kind"])) {
+        blocked("strict submit action has unexpected fields");
+      }
+      return { kind: "submit" };
+
+    case "pressKey":
+      if (!hasExactKeys(value, ["kind", "key"])) {
+        blocked("strict pressKey action must have exactly kind and key");
+      }
+      if (!isStrictKey(value.key)) {
+        blocked("strict pressKey key is not supported");
+      }
+      return { kind: "pressKey", key: value.key };
+
     default:
       return blocked("strict action kind is not supported");
   }
+}
+
+/**
+ * 从 `browser.act` 的 action（`kind` 加可选的 `value` / `label` / `key`）组装 strict 参数。
+ * 只取这三个参数字段，交给 parseStrictActionArgs 做 exact-key 校验：
+ * click 带 label、selectOption 带 value 之类的组合都会被拒绝。
+ */
+export function strictArgsFromActAction(action: {
+  kind: unknown;
+  value?: unknown;
+  label?: unknown;
+  key?: unknown;
+}): StrictActionArgs {
+  const candidate: Record<string, unknown> = { kind: action.kind };
+  if (action.value !== undefined) candidate.value = action.value;
+  if (action.label !== undefined) candidate.label = action.label;
+  if (action.key !== undefined) candidate.key = action.key;
+  return parseStrictActionArgs(candidate);
 }
 
 /** 确定的规范化字符串：固定字段顺序，用于 grant 精确匹配。 */
@@ -97,5 +159,11 @@ export function canonicalStrictActionArgs(args: StrictActionArgs): string {
       return JSON.stringify({ kind: "click" });
     case "setValue":
       return JSON.stringify({ kind: "setValue", value: args.value });
+    case "selectOption":
+      return JSON.stringify({ kind: "selectOption", label: args.label });
+    case "submit":
+      return JSON.stringify({ kind: "submit" });
+    case "pressKey":
+      return JSON.stringify({ kind: "pressKey", key: args.key });
   }
 }

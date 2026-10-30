@@ -254,12 +254,18 @@ const SENSITIVE_AUTOCOMPLETE = new RegExp(SENSITIVE_AUTOCOMPLETE_PATTERN);
 /**
  * 凭据 / 支付字段：只产生布尔标记，绝不读取值。
  *
- * password 类型、凭据 / 支付 autocomplete（input 与 textarea 都看），以及用
+ * password 类型、凭据 / 支付 autocomplete（input、textarea 与 select 都看），以及用
  * `-webkit-text-security` 遮盖输入的字段（“显示密码”切换或自绘密码框）。
  */
 export function isSensitiveField(element: Element, win: Window): boolean {
   const isInput = element instanceof HTMLInputElement;
-  if (!isInput && !(element instanceof HTMLTextAreaElement)) return false;
+  if (
+    !isInput &&
+    !(element instanceof HTMLTextAreaElement) &&
+    !(element instanceof HTMLSelectElement)
+  ) {
+    return false;
+  }
   if (isInput && element.type.toLowerCase() === "password") return true;
   if (
     SENSITIVE_AUTOCOMPLETE.test(
@@ -374,7 +380,51 @@ function capabilitiesFor(element: Element, role: string): ElementCapability[] {
     capabilities.push({ kind: "upload", multiple: element.multiple });
   }
 
+  if (
+    capabilities.some(
+      (capability) =>
+        capability.kind === "setValue" ||
+        capability.kind === "selectOption" ||
+        capability.kind === "check",
+    ) &&
+    submitsOwnFormWithoutButton(element)
+  ) {
+    capabilities.push({ kind: "submit" });
+  }
+
   return capabilities;
+}
+
+function isSubmitButton(element: Element): boolean {
+  if (element instanceof HTMLButtonElement) return element.type === "submit";
+  if (element instanceof HTMLInputElement) {
+    const type = element.type.toLowerCase();
+    return type === "submit" || type === "image";
+  }
+  return false;
+}
+
+/**
+ * Strict submit 只覆盖“字段自身所在、没有任何提交按钮”的表单（不变量 148）：
+ * 有提交按钮时用 Strict click；经 form 属性关联到别处表单的字段不提交。
+ * 表单属性经原型访问，同名控件无法覆盖（不变量 151）。
+ */
+function submitsOwnFormWithoutButton(element: Element): boolean {
+  if (
+    !(element instanceof HTMLInputElement) &&
+    !(element instanceof HTMLSelectElement) &&
+    !(element instanceof HTMLTextAreaElement)
+  ) {
+    return false;
+  }
+  const form = element.form;
+  if (!form || form !== element.closest("form")) return false;
+  const elements = Object.getOwnPropertyDescriptor(
+    HTMLFormElement.prototype,
+    "elements",
+  )?.get?.call(form) as HTMLFormControlsCollection | undefined;
+  if (!elements) return false;
+  return !Array.from(elements).some(isSubmitButton);
 }
 
 function valueFor(element: Element): ElementState["value"] | undefined {

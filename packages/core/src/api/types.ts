@@ -98,6 +98,10 @@ export interface BrowserActInput {
     authorizationId?: string;
     /** 仅 kind === "setValue"：要写入的单行值。 */
     value?: string;
+    /** 仅 kind === "selectOption"：要选择的选项 label。 */
+    label?: string;
+    /** 仅 kind === "pressKey"：Escape / Tab / ArrowUp / ArrowDown。 */
+    key?: string;
   };
   verification: VerificationSpec;
   verifyTimeoutMs?: number;

@@ -1,6 +1,6 @@
 import {
-  isStrictValueAllowed,
   parseStrictActionArgs,
+  strictArgsFromActAction,
   type BrowserActInput,
   type BrowserObserveOptions,
   type StrictActionArgs,
@@ -285,14 +285,15 @@ function isStrictActionArgs(value: unknown): value is StrictActionArgs {
 function isBrowserActAction(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const action = value as Record<string, unknown>;
-  const kindAndValue =
-    action.kind === "click"
-      ? action.value === undefined
-      : action.kind === "setValue" &&
-        typeof action.value === "string" &&
-        isStrictValueAllowed(action.value);
+  let argsValid: boolean;
+  try {
+    strictArgsFromActAction(action as Parameters<typeof strictArgsFromActAction>[0]);
+    argsValid = true;
+  } catch {
+    argsValid = false;
+  }
   return (
-    kindAndValue &&
+    argsValid &&
     nonEmptyString(action.actionId) &&
     nonEmptyString(action.observedRevision) &&
     nonEmptyString(action.ref) &&

@@ -207,9 +207,15 @@ describe("ChromeStrictMainFrameClickResolver", () => {
       identityMatches: true,
       prepared: { backendNodeId: 42, stableId: "s1" },
     });
-    expect(await resolve("selectOption")).toMatchObject({
+    for (const kind of ["selectOption", "submit", "pressKey"] as const) {
+      expect(await resolve(kind), kind).toMatchObject({
+        identityMatches: true,
+        prepared: { backendNodeId: 42, stableId: "s1" },
+      });
+    }
+    expect(await resolve("check")).toMatchObject({
       identityMatches: false,
-      reason: expect.stringContaining("only supports click and setValue"),
+      reason: expect.stringContaining("only supports click, setValue"),
     });
   });
 
