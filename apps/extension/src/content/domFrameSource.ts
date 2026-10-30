@@ -257,7 +257,7 @@ const SENSITIVE_AUTOCOMPLETE = new RegExp(SENSITIVE_AUTOCOMPLETE_PATTERN);
  * password 类型、凭据 / 支付 autocomplete（input 与 textarea 都看），以及用
  * `-webkit-text-security` 遮盖输入的字段（“显示密码”切换或自绘密码框）。
  */
-export function isSensitiveField(element: Element, win?: Window): boolean {
+export function isSensitiveField(element: Element, win: Window): boolean {
   const isInput = element instanceof HTMLInputElement;
   if (!isInput && !(element instanceof HTMLTextAreaElement)) return false;
   if (isInput && element.type.toLowerCase() === "password") return true;
@@ -269,10 +269,10 @@ export function isSensitiveField(element: Element, win?: Window): boolean {
     return true;
   }
   const masking = win
-    ?.getComputedStyle(element)
+    .getComputedStyle(element)
     .getPropertyValue("-webkit-text-security")
     .trim();
-  return masking !== undefined && masking !== "" && masking !== "none";
+  return masking !== "" && masking !== "none";
 }
 
 function stateFor(element: Element, win: Window): ElementState["state"] {

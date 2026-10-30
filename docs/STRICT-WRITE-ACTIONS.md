@@ -167,7 +167,7 @@ setValue 的流程：
 
 执行结果只带 `valueMatched` 布尔值，**从不回显值本身**；错误为固定文本。
 
-动作后验证是一次普通的 observation，遵循 trusted 路径与 model-facing 路径既有的划分：trusted 路径的 observation 本来就含字段当前值（AX 源总会给出文本框的 value，`includeValues` 只在 model egress 层过滤），调用方若在 verification 中写 `field_value` 条件，evidence 的 `observed` 会是字段写入后的实际值——这与它直接调用 `browser.observe` 能读到的内容相同，不构成新的出口。model-facing 路径的 `sanitizedVerification` 去掉 `observed`、`sanitizedElement` 按 `includeValues` 去掉 `value`，S3 开放时沿用。（方案初稿写“不打开 includeValues 即 inconclusive”，代码审查证明不成立，已更正。）
+动作后验证是一次普通的 observation，遵循 trusted 路径与 model-facing 路径既有的划分：trusted 路径的 observation 本来就含字段当前值（`includeValues` 决定 DOM 源是否读取值，但 AX 源总会给出文本框的 value；model egress 层再按 `includeValues` 去掉 `value`），调用方若在 verification 中写 `field_value` 条件，evidence 的 `observed` 会是字段写入后的实际值——这与它直接调用 `browser.observe` 能读到的内容相同，不构成新的出口。model-facing 路径的 `sanitizedVerification` 去掉 `observed`、`sanitizedElement` 按 `includeValues` 去掉 `value`，S3 开放时沿用。（方案初稿写“不打开 includeValues 即 inconclusive”，代码审查证明不成立，已更正。）
 
 ### 背景标签页与 Playwright 的局限
 

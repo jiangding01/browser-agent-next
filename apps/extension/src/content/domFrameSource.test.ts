@@ -59,7 +59,7 @@ describe("isSensitiveField", () => {
 
   it("flags password and credential / payment autocomplete inputs only", () => {
     withFakes(() => {
-      const sensitive = (input: FakeInput) => isSensitiveField(input as unknown as Element);
+      const sensitive = (input: FakeInput) => isSensitiveField(input as unknown as Element, win);
 
       expect(sensitive(new FakeInput("password"))).toBe(true);
       expect(sensitive(new FakeInput("PASSWORD"))).toBe(true);
@@ -77,7 +77,7 @@ describe("isSensitiveField", () => {
       for (const token of [null, "email", "username", "off", "name", "password-hint"]) {
         expect(sensitive(new FakeInput("text", token)), String(token)).toBe(false);
       }
-      expect(isSensitiveField({} as Element)).toBe(false);
+      expect(isSensitiveField({} as Element, win)).toBe(false);
     });
   });
 });
