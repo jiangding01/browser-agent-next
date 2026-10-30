@@ -4,6 +4,7 @@ import type {
   Rect,
   ViewportState,
 } from "@browser-agent-next/core";
+import { IMPLICIT_SUBMISSION_BLOCKING_TYPES } from "../protocol/implicitSubmission.js";
 import { SENSITIVE_AUTOCOMPLETE_PATTERN } from "../protocol/sensitiveFields.js";
 
 export interface DomFrameElement {
@@ -381,12 +382,7 @@ function capabilitiesFor(element: Element, role: string): ElementCapability[] {
   }
 
   if (
-    capabilities.some(
-      (capability) =>
-        capability.kind === "setValue" ||
-        capability.kind === "selectOption" ||
-        capability.kind === "check",
-    ) &&
+    capabilities.some((capability) => capability.kind === "setValue") &&
     submitsOwnFormWithoutButton(element)
   ) {
     capabilities.push({ kind: "submit" });
@@ -404,17 +400,20 @@ function isSubmitButton(element: Element): boolean {
   return false;
 }
 
+function blocksImplicitSubmission(element: Element): boolean {
+  return (
+    element instanceof HTMLInputElement &&
+    IMPLICIT_SUBMISSION_BLOCKING_TYPES.includes(element.type.toLowerCase())
+  );
+}
+
 /**
- * Strict submit 只覆盖“字段自身所在、没有任何提交按钮”的表单（不变量 148）：
- * 有提交按钮时用 Strict click；经 form 属性关联到别处表单的字段不提交。
- * 表单属性经原型访问，同名控件无法覆盖（不变量 151）。
+ * Strict submit 只覆盖“在该字段中按 Enter 会提交”的表单（不变量 148）：字段自身所在
+ * （非 form 属性关联）、没有任何提交按钮，且该字段是表单中唯一阻止隐式提交的字段。
+ * 有提交按钮时用 Strict click。表单属性经原型访问，同名控件无法覆盖（不变量 151）。
  */
 function submitsOwnFormWithoutButton(element: Element): boolean {
-  if (
-    !(element instanceof HTMLInputElement) &&
-    !(element instanceof HTMLSelectElement) &&
-    !(element instanceof HTMLTextAreaElement)
-  ) {
+  if (!(element instanceof HTMLInputElement) || !blocksImplicitSubmission(element)) {
     return false;
   }
   const form = element.form;
@@ -424,8 +423,10 @@ function submitsOwnFormWithoutButton(element: Element): boolean {
     "elements",
   )?.get?.call(form) as HTMLFormControlsCollection | undefined;
   if (!elements) return false;
+  const controls = Array.from(elements);
   return (
-    !Array.from(elements).some(isSubmitButton) &&
+    !controls.some(isSubmitButton) &&
+    controls.filter(blocksImplicitSubmission).length === 1 &&
     !hasImageSubmit(form)
   );
 }

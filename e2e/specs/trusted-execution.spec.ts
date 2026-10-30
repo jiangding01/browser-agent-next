@@ -3899,6 +3899,10 @@ test(
         "Remote field",
         "Loose field",
         "Shadow image field",
+        // 两个阻止隐式提交的字段：按 Enter 不会提交；select 上按 Enter 也不会提交。
+        "Two field A",
+        "Two field B",
+        "Form select",
       ]) {
         expect(hasSubmit(name), name).toBe(false);
       }
@@ -3959,6 +3963,14 @@ test(
       });
       expect(await valueOf("#reverter")).toBe("Keep");
 
+      // 5b. size > 1 的 select 在页面内渲染为列表：执行时拒绝，值不变。
+      expect(await act("Listbox select", select("Y"), "select-listbox")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED" },
+      });
+      expect(await valueOf("#listbox-select")).toBe("");
+      expect(await eventsFor("listbox-select")).toEqual([]);
+
       // 6. 签发即拒：敏感下拉框；被遮罩覆盖的下拉框在 prepare 阶段拒绝。
       expect((await issue("Exp month", select("02"), "select-sensitive")).response).toMatchObject({
         ok: false,
@@ -4012,6 +4024,38 @@ test(
       expect(await submitsOf("shadowed-form")).toEqual([
         { id: "shadowed-form", type: "submit", trusted: true, submitter: null },
       ]);
+
+      // 10b. 签发后页面给表单加了第二个文本字段：执行时复核隐式提交规则，拒绝且不提交。
+      const searchIssued = await issue("Search query", { kind: "submit" }, "submit-grown");
+      expect(searchIssued.response).toMatchObject({ ok: true });
+      await page.evaluate(() => {
+        const extra = document.createElement("input");
+        extra.id = "q-extra";
+        extra.style.width = "10px";
+        document.getElementById("search-form")!.appendChild(extra);
+      });
+      expect(
+        await trustedRequest(active.rpcPort, active.token, {
+          type: "execution.execute-strict-action",
+          requestId: "execute-submit-grown",
+          actionId: "act-submit-grown",
+          authorizationId: "auth-submit-grown",
+          tabId,
+          observedRevision: searchIssued.revision,
+          ref: searchIssued.ref,
+          action: { kind: "submit" },
+          verification: verification(searchIssued.ref),
+          verifyTimeoutMs: 0,
+        }),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: "ACTION_NOT_SUPPORTED",
+          message: "strict submit is only for forms that pressing Enter in this single field would submit",
+        },
+      });
+      expect(await submitsOf("search-form")).toHaveLength(1);
+      await page.evaluate(() => document.getElementById("q-extra")!.remove());
 
       // 11. 含 form-associated custom element：执行时拒绝，不提交。
       expect(await act("Custom form field", { kind: "submit" }, "submit-custom")).toMatchObject({
@@ -4080,6 +4124,27 @@ test(
       });
       expect(await focused()).toContain("tab-start");
       expect(await focused()).not.toContain("nofocus");
+
+      // 17b. closed + delegatesFocus 的 shadow host：焦点会落到内层 number 输入框上，
+      //      activeElement 与 composedPath 都被重定向成 host——调用 A 在 focus 之前拒绝。
+      expect(await act("Delegating host", press("ArrowUp"), "key-delegate")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED" },
+      });
+      expect(await page.evaluate(() => (window as unknown as { delegatedNumber(): string }).delegatedNumber())).toBe("3");
+      expect(await focused()).not.toContain("delegate-host");
+
+      // 17c. frame owner：按键会进入子帧——在 focus 之前拒绝，子帧没有收到按键。
+      expect(await act("Frame owner", press("Escape"), "key-frame-owner")).toMatchObject({
+        ok: false,
+        error: { code: "ACTION_NOT_SUPPORTED" },
+      });
+      expect(
+        await page.frameLocator("#key-frame").locator("body").evaluate(
+          () => (window as unknown as { keyLog: string[] }).keyLog,
+        ),
+      ).toEqual([]);
+      expect(await focused()).not.toContain("key-frame");
 
       // 18. 签发即拒：方向键作用于原生值控件、Escape 作用于搜索框、敏感下拉框。
       for (const [name, key, code] of [

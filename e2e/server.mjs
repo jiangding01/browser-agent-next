@@ -329,6 +329,7 @@ const pages = new Map([
       <select aria-label="Exp month" id="expmonth" autocomplete="cc-exp-month"><option>01</option><option>02</option></select>
       <select aria-label="Reverter" id="reverter"><option>Keep</option><option>Change</option></select>
       <span class="wrap"><select aria-label="Covered select" id="covered-select"><option>A</option><option>B</option></select><span class="veil"></span></span>
+      <select aria-label="Listbox select" id="listbox-select" size="2"><option>X</option><option>Y</option></select>
     </section>
     <section id="submit-area">
       <form id="search-form"><input aria-label="Search query" id="q"></form>
@@ -342,6 +343,8 @@ const pages = new Map([
       <input aria-label="Remote field" id="remote" form="far-form">
       <input aria-label="Loose field" id="loose">
       <span id="shadow-form-host"></span>
+      <form id="two-field-form"><input aria-label="Two field A" id="tfa"><input aria-label="Two field B" id="tfb"></form>
+      <form id="select-form"><select aria-label="Form select" id="form-select"><option>S1</option></select></form>
     </section>
     <section id="key-area">
       <input aria-label="Tab start" id="tab-start"><input aria-label="Tab next" id="tab-next">
@@ -354,6 +357,8 @@ const pages = new Map([
       <input type="search" aria-label="Search box" id="searchbox" value="keep search">
       <input type="search" role="textbox" aria-label="Disguised search" id="disguised" value="keep disguised">
       <input type="number" role="textbox" aria-label="Disguised number" id="disguised-number" value="7">
+      <span role="button" tabindex="0" aria-label="Delegating host" id="delegate-host"></span>
+      <iframe role="button" aria-label="Frame owner" id="key-frame" src="/strict-actions-frame.html" width="60" height="20"></iframe>
     </section>
     <iframe id="child-frame" src="/strict-actions-child.html" width="300" height="30"></iframe>
     <script>
@@ -378,6 +383,10 @@ const pages = new Map([
         '<form id="shadow-image-form"><input aria-label="Shadow image field" id="sif">' +
         '<input type="image" alt="Shadow img go" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></form>' +
         '<form id="shadow-plain-form"><input aria-label="Shadow plain field" id="spf"></form>';
+      // closed + delegatesFocus：focus host 实际聚焦内层 number 输入框，activeElement 被重定向成 host。
+      const delegated = document.getElementById("delegate-host").attachShadow({ mode: "closed", delegatesFocus: true });
+      delegated.innerHTML = '<input type="number" id="delegated-number" value="3" style="width:40px">';
+      window.delegatedNumber = () => delegated.getElementById("delegated-number").value;
       const rich = document.getElementById("rich-option");
       rich.appendChild(document.createElement("b")).textContent = "Rich";
       document.getElementById("reverter").addEventListener("change", (event) => {
@@ -406,6 +415,17 @@ const pages = new Map([
       document.getElementById("late-victim").addEventListener("focus", () => {
         queueMicrotask(() => thief.focus());
       });
+    </script>
+  </body>
+</html>`],
+  ["/strict-actions-frame.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Strict Actions Frame</title></head>
+  <body style="margin: 0">
+    <input aria-label="Framed field" id="framed" style="width:40px">
+    <script>
+      window.keyLog = [];
+      document.addEventListener("keydown", (event) => window.keyLog.push(event.key), true);
     </script>
   </body>
 </html>`],

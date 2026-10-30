@@ -5,6 +5,7 @@ import {
   type StrictKey,
 } from "@browser-agent-next/core";
 import { DOM_IDENTITY_BRIDGE_KEY } from "../../protocol/identityBridge.js";
+import { IMPLICIT_SUBMISSION_BLOCKING_TYPES } from "../../protocol/implicitSubmission.js";
 import { SENSITIVE_AUTOCOMPLETE_PATTERN } from "../../protocol/sensitiveFields.js";
 import type { RuntimeExecutionContext } from "../chrome/chromeDebuggerTransport.js";
 
@@ -62,6 +63,7 @@ export interface StrictIsolatedActionRunner {
 
 const TEXT_INPUT_TYPES = ["text", "search", "email", "url", "tel"];
 
+
 /** pressKey 监听器表在 isolated world 全局上的键名；页面世界无法访问。 */
 const KEY_PROBE_REGISTRY = "__browserAgentNextStrictKeyProbes";
 
@@ -106,6 +108,13 @@ const COMMON_CHECKS = String.raw`
       .getPropertyValue("-webkit-text-security")
       .trim();
     return masking !== "" && masking !== "none";
+  };
+
+  // 焦点是否就在 element 上：getRootNode 与 activeElement 一律经原型读取（不变量 151）。
+  const focusedHere = () => {
+    const root = view.Node.prototype.getRootNode.call(element);
+    const proto = root instanceof view.Document ? view.Document.prototype : view.ShadowRoot.prototype;
+    return Object.getOwnPropertyDescriptor(proto, "activeElement").get.call(root) === element;
   };
 
   const visibleAndEnabled = () => {
@@ -163,7 +172,7 @@ export const STRICT_SET_VALUE_FUNCTION = String.raw`function(stableId, value) {
 
   // 从这里开始页面回调可能已经运行：之后的任何异常都是 outcome unknown。
   element.focus({ preventScroll: true });
-  if (element.getRootNode().activeElement !== element) {
+  if (!focusedHere()) {
     return { status: "focus-lost" };
   }
   if (check() !== undefined) {
@@ -201,7 +210,8 @@ export const STRICT_SELECT_OPTION_FUNCTION = String.raw`function(stableId, label
   }
   ${COMMON_CHECKS}
 
-  if (!(element instanceof view.HTMLSelectElement) || element.multiple) {
+  // size > 1 的 select 在页面内渲染为列表，选项可被页面 CSS 改写显示内容。
+  if (!(element instanceof view.HTMLSelectElement) || element.multiple || element.size > 1) {
     return { status: "rejected", reason: "unsupported" };
   }
   if (isSensitive()) {
@@ -256,7 +266,8 @@ export const STRICT_SELECT_OPTION_FUNCTION = String.raw`function(stableId, label
 }`;
 
 /**
- * Strict submit：只提交字段自身所在、没有任何提交按钮的表单（不变量 148）。
+ * Strict submit：只提交字段自身所在、没有任何提交按钮、且目标是其中唯一阻止隐式提交的
+ * 字段的表单——即用户在该字段中按 Enter 会提交的表单（不变量 148）。
  *
  * 表单对象的属性与方法一律经原型访问，同名控件无法覆盖（不变量 151）；
  * 有效性预检是纯读取，失败时页面代码尚未运行；只以观察到的可信 submit 事件为准。
@@ -268,14 +279,12 @@ export const STRICT_SUBMIT_FUNCTION = String.raw`function(stableId) {
   }
   ${COMMON_CHECKS}
 
-  if (
-    !(element instanceof view.HTMLInputElement) &&
-    !(element instanceof view.HTMLSelectElement) &&
-    !(element instanceof view.HTMLTextAreaElement)
-  ) {
-    return { status: "rejected", reason: "unsupported" };
-  }
-  if (!visibleAndEnabled()) {
+  const implicitTypes = ${JSON.stringify(IMPLICIT_SUBMISSION_BLOCKING_TYPES)};
+  const blocksImplicitSubmission = (control) =>
+    control instanceof view.HTMLInputElement &&
+    implicitTypes.includes(control.type.toLowerCase());
+
+  if (!blocksImplicitSubmission(element) || !visibleAndEnabled()) {
     return { status: "rejected", reason: "unsupported" };
   }
 
@@ -306,6 +315,12 @@ export const STRICT_SUBMIT_FUNCTION = String.raw`function(stableId) {
     inputs.some((input) => input.type.toLowerCase() === "image" && input.form === form);
   if (hasSubmitButton) {
     return { status: "rejected", reason: "has-submit-button" };
+  }
+
+  // HTML 隐式提交：没有提交按钮时，只有表单中恰好一个阻止隐式提交的字段，按 Enter 才会提交；
+  // 否则 requestSubmit 会提交一个用户按 Enter 也提交不了的表单，与审批说明不符。
+  if (controls.filter(blocksImplicitSubmission).length !== 1) {
+    return { status: "rejected", reason: "no-implicit-submission" };
   }
 
   // form-associated custom element 经 ElementInternals 校验，isolated world 读不到它的 validity。
@@ -370,6 +385,19 @@ export const STRICT_KEY_ARM_FUNCTION = String.raw`function(stableId, key, token)
       return "unsupported";
     }
     if (!visibleAndEnabled()) return "unsupported";
+    // 焦点委托会让 activeElement 与 composedPath 被重定向成 host，按键实际落在 shadow 内的控件上；
+    // frame owner 把按键送进子帧。两者都无法证明按键只作用于被识别的目标。
+    const domApi = globalThis.chrome && globalThis.chrome.dom;
+    if (!domApi || typeof domApi.openOrClosedShadowRoot !== "function") return "unsupported";
+    if (domApi.openOrClosedShadowRoot(element)) return "unsupported";
+    if (
+      element instanceof view.HTMLIFrameElement ||
+      element instanceof view.HTMLFrameElement ||
+      element instanceof view.HTMLObjectElement ||
+      element instanceof view.HTMLEmbedElement
+    ) {
+      return "unsupported";
+    }
     const focusable =
       element.tabIndex >= 0 ||
       element.hasAttribute("tabindex") ||
@@ -407,7 +435,7 @@ export const STRICT_KEY_ARM_FUNCTION = String.raw`function(stableId, key, token)
 
   // 从这里开始页面回调可能已经运行：之后的任何失败都是 outcome unknown。
   element.focus({ preventScroll: true });
-  if (element.getRootNode().activeElement !== element) {
+  if (!focusedHere()) {
     disarm();
     return { status: "focus-lost" };
   }
@@ -511,6 +539,11 @@ const REJECTIONS: Record<string, RejectionMapping> = {
     message: "requires a field inside the form it submits",
     withReason: true,
   },
+  "no-implicit-submission": {
+    code: "ACTION_NOT_SUPPORTED",
+    message: "is only for forms that pressing Enter in this single field would submit",
+    withReason: true,
+  },
   "has-submit-button": {
     code: "ACTION_NOT_SUPPORTED",
     message: "is only for forms without a submit button; click the submit button instead",
@@ -607,6 +640,7 @@ export function interpretSubmitResult(value: unknown): StrictIsolatedActionResul
       "unsupported",
       "not-own-form",
       "has-submit-button",
+      "no-implicit-submission",
       "custom-control",
       "form-invalid",
     ]);

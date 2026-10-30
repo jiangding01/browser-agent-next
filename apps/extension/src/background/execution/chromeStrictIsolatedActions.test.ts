@@ -173,7 +173,7 @@ describe("interpretWriteResult", () => {
 
   it("re-checks the field after focus and before inserting, inside one function", () => {
     const focusAt = STRICT_SET_VALUE_FUNCTION.indexOf("element.focus(");
-    const activeCheckAt = STRICT_SET_VALUE_FUNCTION.indexOf("activeElement !== element");
+    const activeCheckAt = STRICT_SET_VALUE_FUNCTION.indexOf("if (!focusedHere())");
     const recheckAt = STRICT_SET_VALUE_FUNCTION.indexOf("if (check() !== undefined)");
     const insertAt = STRICT_SET_VALUE_FUNCTION.indexOf('"insertText"');
 
@@ -315,7 +315,7 @@ describe("interpretSelectResult / interpretSubmitResult / interpretKeyArmResult 
       code: "NO_EFFECT",
       details: { reason: "form-invalid" },
     });
-    for (const reason of ["has-submit-button", "not-own-form", "custom-control"]) {
+    for (const reason of ["has-submit-button", "no-implicit-submission", "not-own-form", "custom-control"]) {
       expect(outcome(interpretSubmitResult, { status: "rejected", reason })).toMatchObject({
         code: "ACTION_NOT_SUPPORTED",
         details: { reason },
@@ -612,6 +612,38 @@ describe("S2 页面函数源码", () => {
     // 表单实例上不得直接读写任何属性（同名控件会覆盖它们）。
     expect(STRICT_SUBMIT_FUNCTION).not.toMatch(/\bform\.\w/);
     expect(STRICT_SUBMIT_FUNCTION).not.toMatch(/\bdoc\.\w/);
+  });
+
+  it("reads focus through prototypes in every function that focuses", () => {
+    for (const source of [STRICT_SET_VALUE_FUNCTION, STRICT_KEY_ARM_FUNCTION]) {
+      expect(source).toContain('Object.getOwnPropertyDescriptor(proto, "activeElement").get.call(root)');
+      expect(source).toContain("view.Node.prototype.getRootNode.call(element)");
+      expect(source).toContain("if (!focusedHere())");
+      expect(source).not.toMatch(/getRootNode\(\)\.activeElement/);
+    }
+  });
+
+  it("refuses shadow hosts and frame owners before focusing for pressKey", () => {
+    const hostCheckAt = STRICT_KEY_ARM_FUNCTION.indexOf("domApi.openOrClosedShadowRoot(element)");
+    const frameCheckAt = STRICT_KEY_ARM_FUNCTION.indexOf("element instanceof view.HTMLIFrameElement");
+    const focusAt = STRICT_KEY_ARM_FUNCTION.indexOf("element.focus(");
+    expect(hostCheckAt).toBeGreaterThan(0);
+    expect(frameCheckAt).toBeGreaterThan(0);
+    expect(focusAt).toBeGreaterThan(hostCheckAt);
+    expect(focusAt).toBeGreaterThan(frameCheckAt);
+    // 拿不到 chrome.dom 时无法看见 closed shadow root：一律拒绝。
+    expect(STRICT_KEY_ARM_FUNCTION).toContain(
+      'if (!domApi || typeof domApi.openOrClosedShadowRoot !== "function") return "unsupported";',
+    );
+  });
+
+  it("submits only when the target is the single field that blocks implicit submission", () => {
+    expect(STRICT_SUBMIT_FUNCTION).toContain("if (!blocksImplicitSubmission(element) || !visibleAndEnabled())");
+    expect(STRICT_SUBMIT_FUNCTION).toContain("controls.filter(blocksImplicitSubmission).length !== 1");
+    expect(STRICT_SUBMIT_FUNCTION.indexOf("controls.filter(blocksImplicitSubmission)")).toBeLessThan(
+      STRICT_SUBMIT_FUNCTION.indexOf("formProto.requestSubmit.call(form)"),
+    );
+    expect(STRICT_SELECT_OPTION_FUNCTION).toContain("element.multiple || element.size > 1");
   });
 
   it("calls execCommand through the Document prototype", () => {
