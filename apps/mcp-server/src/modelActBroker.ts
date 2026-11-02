@@ -3,6 +3,7 @@ import type { TraceAuthorization } from "@browser-agent-next/core";
 import {
   BrowserRuntimeError,
   type BrowserObservation,
+  type StrictActionArgs,
 } from "@browser-agent-next/core";
 import { ExactOriginAllowlist } from "@browser-agent-next/policy";
 import { effectiveFrameUrl } from "./frameOrigin.js";
@@ -10,6 +11,7 @@ import type { ModelActApprovalMode } from "./mcpConfig.js";
 import type { ModelActInput } from "./modelToolInput.js";
 import type {
   TrustedActBrokerRuntimeClient,
+  TrustedActResult,
   TrustedStrictClickGrantInput,
 } from "./trustedRuntimeClient.js";
 
@@ -59,10 +61,14 @@ export interface ModelToolCallContext {
  * fresh observation 上计算的，可能编码隐藏 frame、redacted value 或
  * 非 read origin URL，因此在这里整体丢弃；模型可见的 verification 由 adapter
  * 在已投影、已入出境 store 的 observation 上本地重算。
+ *
+ * valueMatched 只是透传扩展的布尔结果（setValue / selectOption），
+ * 是否交给模型由 adapter 按 includeValues 决定（不变量 154）。
  */
 export interface ModelActExecution {
   status: "executed";
   effectClass: "unknown";
+  valueMatched?: boolean;
 }
 
 export interface ModelActBroker {
@@ -148,11 +154,16 @@ function sanitizedRuntimeError(
 /**
  * MCP 进程内的 model act broker。
  *
- * 模型只能提出“点击某个已出境 ref”，授权 id、action id 与授权路径都由这里生成：
+ * 模型只能提出“对某个已出境 ref 做某个 strict 动作”，授权 id、action id 与授权路径
+ * 都由这里生成：
  * - act origin 是独立于 read/navigation 的 plane；
- * - 每个连接有独立预算，同一 (tab, revision, ref) 至多发起一次，标记先于 dispatch；
- * - 默认 operator approval；agent-owned-auto 仅对 ownedBySession 且未降级的 tab 生效；
- * - ACTION_OUTCOME_UNKNOWN 后该 tab 永久降级为 operator approval。
+ * - 每个连接有独立预算，同一 (tab, revision, ref) 至多发起一次（不分动作与参数），
+ *   标记先于 dispatch；
+ * - 默认 operator approval；agent-owned-auto 仅对 click、ownedBySession 且未降级的 tab 生效；
+ * - 写入类动作（setValue / selectOption / submit / pressKey）恒走 operator approval，
+ *   broker 从不为写入签发 grant（不变量 152）；
+ * - ACTION_OUTCOME_UNKNOWN 后该 tab 永久降级为 operator approval；本连接请求过任何写入
+ *   之后，所有 tab 的 click 都改走 operator approval（写入获批后不能再经 auto click 提交）。
  */
 export function createModelActBroker(
   runtime: TrustedActBrokerRuntimeClient,
@@ -188,6 +199,8 @@ export function createModelActBroker(
   );
   const consumed = new Set<string>();
   const degradedTabs = new Set<number>();
+  // 本连接请求过任何写入之后，所有 tab 的 click 都不再走 auto（见 act 中的说明）。
+  let writeRequested = false;
 
   async function authorizationCall<T>(
     call: () => Promise<T>,
@@ -246,19 +259,30 @@ export function createModelActBroker(
    * 等待 operator 审批；authorization.approval 记录授权阶段的最终状态，
    * 供 trace 使用（这些分支都返回 AUTHORIZATION_REQUIRED，无法从 code 区分）。
    * 审批请求或状态轮询的 RPC 本身失败时不设置 approval。
+   *
+   * click 沿用 request-operator-approval（消息与 S3 之前相同）；写入类动作经
+   * request-strict-action-approval 携带 action，扩展批准后签发的 grant 绑定该参数。
+   * 轮询、超时、取消与撤销两者共用。
    */
   async function awaitOperatorApproval(
     grant: TrustedStrictClickGrantInput,
+    action: StrictActionArgs,
     context: ModelToolCallContext | undefined,
     authorization: TraceAuthorization,
   ): Promise<void> {
     const signal = context?.signal;
     const deadline = now() + approvalTimeoutMs;
     const request = await authorizationCall(() =>
-      runtime.requestOperatorApproval(
-        grant,
-        approvalTimeoutMs,
-      )
+      action.kind === "click"
+        ? runtime.requestOperatorApproval(
+            grant,
+            approvalTimeoutMs,
+          )
+        : runtime.requestStrictActionApproval(
+            grant,
+            action,
+            approvalTimeoutMs,
+          )
     );
     let progress = 0;
 
@@ -317,7 +341,7 @@ export function createModelActBroker(
         case "rejected":
           throw new BrowserRuntimeError(
             "AUTHORIZATION_REQUIRED",
-            "operator rejected the click",
+            "operator rejected the action",
           );
         case "expired":
           throw new BrowserRuntimeError(
@@ -414,6 +438,14 @@ export function createModelActBroker(
     }
     consumed.add(key);
 
+    // 本连接请求过写入之后，任何 tab 的 click 都不再走 auto：否则 operator 只批准了
+    // “填写”，模型随后自动点击提交按钮（或在另一个同源 tab 里点击“发送”已自动保存的草稿）
+    // 就能把写入的值提交出去，无需再审批（不变量 152）。
+    // 同步标记、先于任何 trusted 请求，审批被拒或失败也不撤销。
+    if (input.action.kind !== "click") {
+      writeRequested = true;
+    }
+
     const grant: TrustedStrictClickGrantInput = {
       authorizationId: uuid(),
       tabId: input.tabId,
@@ -426,9 +458,11 @@ export function createModelActBroker(
     let authorization: TraceAuthorization | undefined;
 
     try {
-      // 4. 授权路径。
+      // 4. 授权路径。auto 只适用于 click：写入类动作无论 approvalMode 都走 operator。
       const autoIssue =
+        input.action.kind === "click" &&
         approvalMode === "agent-owned-auto" &&
+        !writeRequested &&
         observation.tab.ownedBySession === true &&
         !degradedTabs.has(input.tabId);
       const stage: TraceAuthorization = {
@@ -442,7 +476,12 @@ export function createModelActBroker(
             runtime.issueStrictClick(grant)
           );
         } else {
-          await awaitOperatorApproval(grant, context, stage);
+          await awaitOperatorApproval(
+            grant,
+            input.action,
+            context,
+            stage,
+          );
         }
 
         // act 之前最后一次检查；此后 signal 不再生效。
@@ -460,13 +499,16 @@ export function createModelActBroker(
       // 5. 执行。verifyTimeoutMs 恒为 0：扩展只做一次验证、不轮询，
       // act 耗时不随隐藏状态变化。verification spec 仅因扩展协议要求非空而传入，
       // 其返回值整体丢弃，不参与任何返回值或分支判断。
+      // 执行请求带与审批 / 签发时同一个 action，扩展侧 grant 按参数精确匹配。
+      let executed: TrustedActResult;
       try {
-        await runtime.act({
+        executed = await runtime.act({
           tabId: input.tabId,
           actionId: uuid(),
           observedRevision: input.observedRevision,
           ref: input.ref,
           authorizationId: grant.authorizationId,
+          action: input.action,
           verification: input.verification,
           verifyTimeoutMs: 0,
         });
@@ -477,10 +519,13 @@ export function createModelActBroker(
         );
       }
 
-      // 7. 只返回“已执行、效果未知”。
+      // 7. 只返回“已执行、效果未知”，以及扩展给出的布尔 valueMatched。
       return {
         status: "executed",
         effectClass: "unknown",
+        ...(typeof executed.valueMatched === "boolean"
+          ? { valueMatched: executed.valueMatched }
+          : {}),
       };
     } catch (error) {
       // 6. 结果未知后该 tab 永久降级为 operator approval。

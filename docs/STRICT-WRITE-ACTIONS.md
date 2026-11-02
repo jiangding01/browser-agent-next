@@ -1,7 +1,7 @@
 # Strict 写入类动作：setValue / selectOption / submit / pressKey
 
-状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 已合并（PR #19）；S2 方案已对照代码细化（含 spike），经独立对抗式审查一轮（2 HIGH、3 MEDIUM、4 LOW，已全部并入）；S2 已实现（实现阶段的审查发现见「S2 实现记录」，已并入下文）；S3 待批准
-最后更新：2026-10-30
+状态：方案经独立对抗式审查一轮（S1 3 HIGH、S2 1 HIGH、若干 MEDIUM / LOW，已全部并入下文）；S1 已合并（PR #19）；S2 方案已对照代码细化（含 spike），经独立对抗式审查一轮（2 HIGH、3 MEDIUM、4 LOW，已全部并入）；S2 已实现（实现阶段的审查发现见「S2 实现记录」，已并入下文）；S3 方案已对照代码细化，经独立对抗式审查一轮（0 HIGH、4 MEDIUM、4 LOW，已全部并入）；S3 已实现（实现阶段的审查发现见「S3 实现记录」）
+最后更新：2026-11-02
 
 ## 为什么做
 
@@ -118,7 +118,7 @@ E2E 增加一条版本错配用例：向扩展发送带 `action` 字段的旧 cl
 `OperatorApprovalStore` 的 pending 记录与 `OperatorApprovalSummary` 增加 `action: StrictActionArgs`；批准时用同一个 `action` 签发。审批页（`apps/extension/src/operator-approval/`）：
 
 - 卡片标题按动作显示“待批准的点击” / “待批准的填写”；
-- setValue 显示“将要填写的内容（来自调用方，非页面）”，与不可信页面文本使用不同样式；值**完整显示**在 `white-space: pre-wrap` 的框中，附“共 N 个字符”，首尾空格用可见标记提示；只经 `textContent` 写入；
+- setValue 显示“将要填写的内容（来自调用方，非页面）”（S3 起改为“由调用方提供，可能是 AI 模型；内容可能抄自网页”，见 S3「扩展与审批页」），与不可信页面文本使用不同样式；值**完整显示**在 `white-space: pre-wrap` 的框中，附“共 N 个字符”，首尾空格用可见标记提示；只经 `textContent` 写入；
 - 空字符串显示为“（清空该字段）”。
 
 ### 执行：`PolicyGatedStrictActionExecutor`
@@ -352,7 +352,7 @@ A 中 focus 之后的任何失败、CDP 派发失败、B 的任何失败都是 `
 
 | 动作 | 标题 | 来自调用方的内容（单独成区，只经 `textContent`） |
 |---|---|---|
-| selectOption | 待批准的选择 | “将要选择的选项（来自调用方，非页面）”+ 值框（同 setValue 的完整显示与空格提示） |
+| selectOption | 待批准的选择 | “将要选择的选项（来自调用方，非页面）”+ 值框（同 setValue 的完整显示与空格提示）；S3 起标签说明改为“由调用方提供，可能是 AI 模型；内容可能抄自网页” |
 | submit | 待批准的表单提交 | 固定说明：“将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）” |
 | pressKey | 待批准的按键 | “将要按下的键”：Esc / Tab / ↑ / ↓（固定映射，不显示调用方字符串） |
 
@@ -434,14 +434,139 @@ S2 不改变 click 与 setValue 的行为；新增的 `submit` capability 只是
 
 ## S3：向模型开放
 
-- `ModelActInput` 的 `kind` 接受 `setValue` / `selectOption` / `submit` / `pressKey`，参数按 `parseStrictActionArgs` 校验；`MODEL_INPUT_LIMITS` 中写入值的上限与 `STRICT_VALUE_MAX_LENGTH`（1024）一致，JSON Schema 同源；
-- **写入类动作强制 operator 审批**：`agent-owned-auto` 只适用于 click。否则模型可以把在别处读到的数据（最多 1024 字符）写进 act origin 的字段而无人审查；
-- Act broker 用 `authorization.request-strict-action-approval` 请求审批；审批页对模型发起的请求标注“将要填写的内容（来自模型，非页面）”；
-- 单次执行账本仍为 `(tab, revision, ref)` 至多一次，**不把参数纳入键**：否则模型可以在同一 revision 上用不同值反复探测；
-- `valueMatched` 是对模型不可见值的等值预言机，因此**只在 operator 配置 `includeValues=true` 时返回给模型**，否则丢弃；trusted client 需要新增对执行结果中 `valueMatched` 的解析（现有 `pickActResult` 会丢弃执行细节）；
-- trace：`browser.act` 事件增加 `actionKind` 枚举字段，不记录参数；`validateTraceEvent` 同步；
-- `docs/MODEL-FACING-ADAPTER.md` 与 SECURITY 的 broker 边界更新；
-- wire 测试：setValue 全链路（operator 批准，审批请求带参数），`agent-owned-auto` 下写入仍走 operator，参数不同不能复用 grant，结果与 trace 中不含值，`includeValues=false` 时不返回 `valueMatched`。
+S3 让 model-facing `browser.act` 接受 setValue / selectOption / submit / pressKey，写入类动作**无论 `BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL` 取什么值都必须经 operator 审批**。click 的授权路径（含 `agent-owned-auto`）与所用的 trusted 消息不变；`ModelActInput` 的形状、`browser.act` 的 title / description 与拒绝文案对 click 同样改变。扩展侧的签发、协议与执行与 S1 / S2 相同，审批页只改写入值的来源标注文案；S3 主要改 MCP server 的模型输入、Act broker、trusted client 与结果投影。
+
+方案经独立对抗式审查一轮（0 HIGH、4 MEDIUM、4 LOW，已并入本节）：结构上写入只能经 operator 审批成立，扩展侧的 grant 参数绑定（不变量 138）是兜底——broker 分支即使写错，click grant 也无法用于写入（binding-mismatch）。
+
+**能力扩张**：已为 click 开启 `browser.act`（`BROWSER_AGENT_NEXT_MODEL_TOOLS`）并配置 act origin 的部署，升级后模型即可请求写入。不为此新增配置项：`browser.act` 本身是 operator 显式开启的 side-effect 工具，每个写入都单独审批，审批卡片标题区分点击 / 填写 / 选择 / 表单提交 / 按键；SECURITY 与 `docs/MODEL-FACING-ADAPTER.md` 写明这一扩张。
+
+### 数据流
+
+```text
+模型 browser.act {kind, value|label|key, tabId, observedRevision, ref, verification}
+  → modelToolInput.parseModelActInput：exact-key + strictArgsFromActAction（POLICY_BLOCKED）
+  → modelFacingAdapter：revision 已出境、ref 在投影 observation 中
+  → modelActBroker：act origin → 预算 −1 → 单次执行账本 [tab, revision, ref]
+       click：沿用 agent-owned-auto / operator 两条路径（issue-strict-click / request-operator-approval）
+       写入：恒走 operator —— authorization.request-strict-action-approval {grant…, action}
+             → 轮询 operator-approval-status
+  → trusted client browser.act {action: {kind, actionId, observedRevision, ref, authorizationId, value|label|key}}
+  → 扩展：签发前早期拒绝（入队时）· grant 绑定参数 · 两次 prepare · isolated world 执行
+  → pickActResult：execution.status + valueMatched（布尔，可选）
+  → adapter：includeValues=true 时才把 valueMatched 交给模型；本地重验证（includeValues=true 时验证 observe 带值）
+```
+
+### 模型输入与 JSON Schema
+
+- `ModelActInput` 改为 `{ tabId, observedRevision, ref, action: StrictActionArgs, verification, verifyTimeoutMs? }`；模型侧字段仍是扁平的 `kind` / `value` / `label` / `key`，白名单键加入这三个，参数由 `strictArgsFromActAction` 组装与校验（exact 组合、长度 ≤ `STRICT_VALUE_MAX_LENGTH`、审批页可显示的字符集、按键枚举），任何不合法输入一律 `invalidInput`（`POLICY_BLOCKED`，固定文本，不回显参数）。
+- `MODEL_INPUT_LIMITS` 增加 `maxWriteValueLength: STRICT_VALUE_MAX_LENGTH`；`modelToolCatalog` 的 `browser.act` schema：`kind` 为 `enum`（取自 core 的 strict 动作列表），`value` 为 `maxLength` 同上的 string（允许空串，表示清空），`label` 另加 `minLength: 1`，`key` 为 `enum`（`STRICT_KEYS`）；title 改为 “Act on an observed element”，description 写明每种 kind 需要的字段、值必须是单行且不含控制 / 格式 / 不可见字符、写入类动作每次都由 operator 在扩展审批页看到完整参数后批准、结果不回显参数、`includeValues` 未开启时 `field_value` 验证为 inconclusive。schema 用扁平形状而不是 `oneOf`（部分 MCP 客户端不支持复合 schema），组合约束由服务端校验。JSON Schema 的 `maxLength` 按码点计数而 core 按 UTF-16 单元计数，schema 因此可能比服务端宽，以服务端为准。
+
+### Act broker
+
+- **授权分支**：`autoIssue` 增加条件 `action.kind === "click"`。写入类动作走新的 `awaitOperatorApproval` 分支，调用 trusted client 新方法 `requestStrictActionApproval(grant, action, approvalTtlMs)`（消息 `authorization.request-strict-action-approval`，带 action）；轮询、超时、取消、撤销（`cancel-strict-click` 按 `authorizationId` 撤销 grant 与待审批请求，与动作类型无关）全部复用现有逻辑。broker **从不**调用 `issue-strict-click` / `issue-strict-action` 为写入签发。
+- **固定文案**：“operator rejected the click” 等改为不含动作参数的通用文本（“operator rejected the action”）。
+- **预算与单次执行账本**：不变，预算在审批前扣除、不退还；账本键仍为 `[tabId, revision, ref]`，不含参数与 kind——同一次观察中的同一 ref 至多尝试一次任何动作（并发的第二个请求在任何 RPC 之前被拒）。每次 observe 都产生新 revision，所以账本**不能**阻止模型重新 observe 后换值再写；限制反复写入的是“每个写入单独审批”与预算。不另设按 ref 的写入次数上限：修正一次输错的值就需要第二次写入，而每次写入本就由 operator 逐一批准。
+- **执行**：`TrustedActInput` 增加 `action: StrictActionArgs`，trusted client 的 `act` 按 action 拼 `browser.act` 的 `action`（`kind` 与 `value` / `label` / `key`），不再写死 click。
+- **降级**：沿用“ACTION_OUTCOME_UNKNOWN 或非 Runtime 异常 → tab 永久降级”；另外，**本连接请求过任何写入之后，所有 tab 的 click 都不再走 auto**（同步标记、先于任何 trusted 请求，审批被拒或失败也不撤销），之后的 click 必须经 operator 审批。否则 operator 只批准了“填写”，模型随后对提交按钮发 click 就会自动执行，把写入的值提交出去；只降级写入的那个 tab 也不够——页面可能已在 input 事件里自动保存草稿，模型可以在另一个同源 tab 里点击“发送”（实现阶段两轮审查发现，见「S3 实现记录」）。
+- **不加写入签发能力**：`TrustedActBrokerRuntimeClient` 不增加任何写入签发方法，`issueStrictClick` 的参数类型不含 action；用类型测试（`@ts-expect-error`）锁住。扩展允许 control-plane 在归 session 所有的 tab 上签发写入 grant，所以“模型写入只能经 operator”在 MCP 这一侧靠这条约束，扩展侧以参数绑定兜底。
+
+### 结果与 valueMatched
+
+- `pickActResult` 额外读取 `execution.valueMatched`（仅当为布尔值）；`TrustedActResult` 与 broker 返回的 `ModelActExecution` 增加可选 `valueMatched`，adapter 的 `ModelActResult` 增加可选 `valueMatched`（MCP 工具没有输出 schema，新增可选字段不影响客户端）。
+- adapter 只在 operator 配置 `BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES=true` 时把 `valueMatched` 放进模型结果，否则丢弃。值是模型自己给的，`valueMatched` 泄露不了字段原值，只反映页面（maxlength、格式化、change 处理器）是否改写了它；但它仍是关于字段当前值的信息，按“字段值只在 operator 允许时出境”的统一规则处理。这里只看 operator 配置（act 没有逐次的 `includeValues` 参数）。
+- 同理，`includeValues=true` 时写入类动作之后本地重验证的 `pollVerification` 传入 `options: { includeValues: true }`（click 不变，字段值仍需模型在 observe 时逐次请求）（`modelObserveOptions` 仍与 operator 配置取与，其它 observe 选项保持默认），否则 `field_value` 条件恒为 inconclusive，模型会误以为写入失败而重试、制造更多审批；`includeValues=false` 时行为不变，并在工具 description 中写明。
+- 模型结果、错误与 progress 中都不出现 value / label / key；错误仍只保留 code（S2 的 `TARGET_CAPABILITY_MISSING`、`NO_EFFECT` 等都在 `RUNTIME_ERROR_CODES` 中，按 code 原样出境，不会被误判为 outcome unknown）。
+
+### trace
+
+不改 trace schema：现有 act 事件只有运行时生成的标识、枚举与数字，校验器丢弃任何带未知键的事件，写入参数进不了 trace。草稿中的 `actionKind` 字段不是安全所需，推迟到评测确实需要区分动作类型时再加（也省掉旧校验器丢弃新字段行的回滚问题）。
+
+### 扩展与审批页
+
+不改协议。模型发起的写入审批与 trusted 调用方发起的完全相同：入队前 `assertStrictActionTarget` 早期拒绝，卡片按动作显示完整参数。
+
+审批页只改一处文案：setValue / selectOption 值框的标签从“将要填写的内容（来自调用方，非页面）”改为“将要填写的内容（由调用方提供，可能是 AI 模型；内容可能抄自网页）”（selectOption 同理为“将要选择的选项（…）”）。原文案会让 operator 把模型从注入页面抄来的值当成可信的非页面内容。
+
+拒绝的替代：给审批请求加 `requester: "model"` 字段，让卡片按来源显示。这个字段由调用方自报（MCP server 与其它本地 trusted 客户端经同一个 native host、同一种凭据接入），扩展无法验证；同一凭据下恶意本地客户端本就能直接走 control-plane 签发，伪造标签没有意义，但也不能把它当作安全边界。为一个仅供显示的提示扩展协议与审批 summary，不如统一文案。
+
+### 不做
+
+- 不向模型暴露 `<select>` 的选项列表（observation 不含 option；模型只能用页面文本中看到的 label，选错时得到 `TARGET_CAPABILITY_MISSING`）；
+- 不开放 `agent-owned-auto` 的写入、不做批量审批、不放宽单次执行账本；
+- 不改 click 的授权路径与 trusted 消息（`issue-strict-click` / `request-operator-approval` / `cancel-strict-click`），click 的 `browser.act` 请求体字段与取值和之前相同；
+- 不改 trusted 协议中 `browser.act` 的 action 校验：它目前不是 exact-key（多余字段被忽略），这是既有问题，S3 的请求由 trusted client 自行拼装、不含多余字段，留待单独处理；
+- 不新增配置项（理由见上文「能力扩张」）；
+- 不改 trace schema（`actionKind` 推迟）。
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `apps/mcp-server/src/modelToolInput.ts` | `ModelActInput.action: StrictActionArgs`；白名单加 `value` / `label` / `key`；`strictArgsFromActAction` 校验；`MODEL_INPUT_LIMITS.maxWriteValueLength` |
+| `apps/mcp-server/src/modelToolCatalog.ts` | `browser.act` 的 title / description / schema（`kind` / `key` 枚举、长度上限取自 core 常量） |
+| `apps/mcp-server/src/modelActBroker.ts` | `autoIssue` 只适用于 click；写入走 `requestStrictActionApproval`；执行带 action；结果带 `valueMatched`；拒绝文案通用化 |
+| `apps/mcp-server/src/trustedRuntimeClient.ts` | `TrustedActInput.action`；`act` 按 action 拼请求体；新方法 `requestStrictActionApproval`（`TrustedActBrokerRuntimeClient` 接口同步）；`pickActResult` 解析 `valueMatched` |
+| `apps/mcp-server/src/modelFacingAdapter.ts` | `valueMatched` 按 `includeValues` 出境；写入后验证按 `includeValues` 带值 |
+| `apps/mcp-server/src/testing/fakeTrustedRuntime.ts` | 新增 `authorization.request-strict-action-approval` 的处理与可带 setValue capability 的元素构造 |
+| 上述各文件的 `*.test.ts`，`sideEffect.wire.test.ts`、`trace.wire.test.ts` | 见测试计划 |
+| `apps/extension/src/operator-approval/display.ts` 与 `display.test.ts` | 写入值 / 选项标签文案 |
+| `e2e/specs/trusted-execution.spec.ts` | 新增 S3 E2E；S2 用例中断言旧标签文案处同步 |
+| 文档 | 见下节 |
+
+### 文档
+
+- `docs/INVARIANTS.md` 增加 152～155；
+- `docs/MODEL-FACING-ADAPTER.md`「Act broker」：流程图（不再是 kind≠click 即拒绝）、“模型能提供什么”（五种 kind 与 value / label / key）、“两条授权路径”（写入恒走 operator）、“结果投影与本地重验证”（`valueMatched` 与写入后验证按 `includeValues`）、错误码表补 S2 的写入错误码、能力扩张说明；
+- `docs/SECURITY.md`「Model act broker 边界」与「Strict 写入边界」：model-facing 写入恒需 operator、能力扩张、审批页标签；
+- `docs/PROGRESS.md`、`docs/ROADMAP.md`（勾掉 S3）、`README.md`、`docs/HIGH-LEVEL-API.md`（model-facing 形态）、`apps/mcp-server/README.md`（`browser.act` 的参数与审批说明）；
+- 本文档顶部状态与「S3 实现记录」。
+
+### 新增不变量（S3）
+
+152. model-facing 写入类动作（setValue / selectOption / submit / pressKey）只能以 operator-approved grant 执行：Act broker 对写入只发 `authorization.request-strict-action-approval`，broker 的 trusted client 接口不提供任何写入签发方法；`BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL=agent-owned-auto` 只放宽 click，且本连接请求过任何写入之后，该连接中所有 tab 的 click 都不再自动签发。扩展侧的 grant 参数绑定（138）是兜底。
+153. 模型给出的写入参数只出现在发往扩展的审批请求与执行请求中：不得出现在模型可见的结果、错误、progress 与 trace 中；trusted client 解析审批 summary 时丢弃其中的 action。
+154. `valueMatched` 只在 operator 配置 `includeValues=true` 时交给模型。
+155. 审批页不得把调用方提供的写入参数标注为可信内容：标签必须说明参数可能来自 AI 模型、内容可能抄自网页。
+
+### 威胁模型（S3）
+
+| # | 威胁 | 对策 |
+|---|---|---|
+| M1 | 页面注入诱导模型把读到的数据写进字段（再 submit 外传） | 写入恒需 operator 审批，审批页完整显示值与动作（152、142）；act origin 白名单限定可写的站点 |
+| M2 | 模型在 `agent-owned-auto` 下绕过审批写入 | auto 只适用于 click（152） |
+| M3 | 模型重新 observe 后换值反复写同一字段，借页面反应探测或刷审批 | 每个写入单独审批、预算不退还；`valueMatched` 默认不出境（154）。账本只防同一次观察内的重复执行 |
+| M4 | 写入参数经结果、错误、progress 或 trace 泄漏到模型或日志 | 固定错误文本、只出境 code，trace schema 拒绝未知键，审批 summary 的 action 被丢弃（153） |
+| M5 | 被拒绝 / 超时的写入审批之后迟到签发 | 沿用按 `authorizationId` 撤销与扩展侧 tombstone（126） |
+| M6 | operator 把模型从注入页面抄来的值当成可信内容批准 | 审批页标签说明参数可能来自 AI 模型、内容可能抄自网页（155） |
+| M7 | `agent-owned-auto` 下写入获批后，模型自动 click 提交按钮（或在另一个同源 tab 里点击“发送”自动保存的草稿），把写入的值提交出去而无需再审批 | 本连接请求过任何写入之后，所有 tab 的 click 都要审批（152）。残余：这一状态与预算、账本、降级一样只在单个 MCP 连接内有效，重连或另开 MCP 进程后重置——扩展无法区分请求来自模型还是 trusted 本地程序，在扩展侧禁止“写入过的 tab 上自动 click”会破坏 trusted host 合法的“填写后点提交” |
+
+已接受的残余：operator 若不看内容直接批准，模型可以把最多 1024 字符写进 act origin 的字段并提交——审批是唯一的人工防线；每个写入都消耗一次预算与一次审批。
+
+### 测试计划（S3）
+
+单元：
+- `parseModelActInput`：五种 kind 的合法形状；click 带 value、setValue 缺 value、selectOption 带 key、未知 key、超长值、被拒字符、多余字段都以 `POLICY_BLOCKED` 拒绝，错误消息不含参数；
+- catalog schema 的 kind / key 枚举与长度上限取自 core 常量（改常量即改 schema）；
+- broker：写入在 `agent-owned-auto` 且 tab 归 session 所有时仍走 `requestStrictActionApproval`、从不调用任何 issue 方法；审批请求与执行请求带同一 action；拒绝 / 超时 / 取消时撤销且不执行；同一次观察中同一 ref 的并发第二个请求（值不同、kind 不同）在任何 RPC 之前被拒；本连接请求过写入之后（获批、被拒、`ACTION_OUTCOME_UNKNOWN` 都一样）所有 tab 的 click 不再走 auto，写入审批仍在等待时并发的 click 也不走 auto，写入之前的 click 仍走 auto（对照）；click 路径的 RPC 调用序列与 S3 之前相同；`TrustedActBrokerRuntimeClient` 没有写入签发方法（`@ts-expect-error` 类型测试）；
+- trusted client：`act` 的请求体按 action 带对应字段；`requestStrictActionApproval` 的消息形状；`pickActResult` 只接受布尔 `valueMatched`；审批 summary 中带金丝雀值的 action 不出现在解析结果中；
+- adapter：`includeValues=false` 时结果无 `valueMatched`、验证 observe 不带值；`true` 时两者都有；
+- 审批页：新标签文案。
+
+wire（`sideEffect.wire.test.ts`、`trace.wire.test.ts`，真实 MCP wire + fake trusted runtime）：setValue 全链路（审批请求带 action、批准后执行请求带同一参数）；`agent-owned-auto` 下写入仍请求审批；结果、错误、progress、trace 中不含值（金丝雀字符串，含 fake runtime 在审批 summary 里回传该值的情况）；`includeValues` 两种取值下的 `valueMatched`。
+
+Real Chromium E2E（在现有“模型经 MCP 子进程 stdio 发起 browser.act”用例旁新增一条，MCP 以 `agent-owned-auto` 启动、目标是 session 自己打开的 tab）：模型经 MCP 对 `/strict-write.html` 的文本框 setValue，审批卡片仍然出现（auto 不放宽写入），显示“待批准的填写”、新标签与完整值，批准后字段被写入；另一字段的写入在审批页被拒绝后字段不变、模型得到拒绝错误，该审批无法再被批准；MCP 结果与 trace 文件不含任何写入值；同一次观察中对同一 ref 再写被拒。S1 / S2 E2E 中断言旧标签文案的地方同步更新。
+
+### S3 实现记录
+
+- 实现按方案完成；core 新增 `STRICT_ACTION_KINDS`（带编译期检查，保证与 `StrictActionArgs` 的 kind 一致），供 schema 枚举使用。
+- E2E 在真实 Chromium 中证实：MCP 以 `agent-owned-auto` 启动、在 session 自己的 tab 上，click 自动执行（对照组），setValue 仍出现审批卡片，批准后写入、拒绝后字段不变，同一次观察中重复写同一 ref 在审批之前被拒，MCP 结果、progress 与 trace 文件中都没有写入值。
+- 代码审查（check Deep + 两轮独立对抗式审查）：0 HIGH；1 MEDIUM 已修复——`agent-owned-auto` 下写入获批后，模型可以自动 click 同一页面的提交按钮把写入的值提交出去，“submit 恒需审批”对有提交按钮的表单形同虚设；第一轮改为请求过写入的 tab 永久降级，第二轮复审指出跨 tab 仍可绕过（自动保存的草稿在另一个同源 tab 里被“发送”），改为本连接请求过任何写入之后所有 tab 都停用 auto（M7）；第二轮另一条 MEDIUM（这一状态不跨 MCP 连接）作为已接受残余写入 M7 与 SECURITY。LOW 已修复：`includeValues=true` 时写入后验证带值的改动连 click 也一起改变，改为只对写入类动作生效；E2E 的 progress 金丝雀断言缺对照组；工具 description 未说明 submit / pressKey 的限制；补“写入审批仍在等待时并发的 click 也不走 auto”的并发用例，锁住标记先于任何 trusted 请求。核实后不改：写入签发方法的类型锁已用 `keyof` 锁住完整方法集合；schema 与服务端长度计法差异已在文档写明。
+- 变异验证：12 种变异（auto 不限 click、写入改用不带 action 的旧审批消息、valueMatched 不按 includeValues 门控、写入后验证从不带值、发往扩展的 setValue 丢掉 value、输入校验回显 core 错误、审批页标签改回“可信”说法、执行请求恒为 click、写入后仍允许 auto click、写入标记推迟到执行之后、click 的验证也带值）均被单测或 E2E 抓到。另有一种是等价变异：`includeValues=false` 时强行给验证 observe 传 `includeValues: true`，`modelObserveOptions` 仍与 operator 配置取与，行为不变。
+- 顺带修复 S2 E2E 的偶发超时：frame owner 用例在 iframe 内执行脚本读取按键记录时偶发挂起（插桩连跑 8 次失败 2 次，都卡在这一步）。改为子帧把按键记到父页面（同源），并补“按键送进子帧字段时记录确实出现”的对照组，连跑 8 次全部通过。
+
+### 回滚
+
+只改 MCP server 与审批页文案；协议、扩展执行路径与 trace schema 不变。revert 即可，无数据迁移。
 
 ---
 

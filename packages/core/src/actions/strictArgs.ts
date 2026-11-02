@@ -27,6 +27,27 @@ export function isStrictKey(value: unknown): value is StrictKey {
 
 export type StrictActionKind = StrictActionArgs["kind"];
 
+/**
+ * 全部 strict 动作的 kind，顺序固定；model-facing `browser.act` 的 kind 枚举取自这里。
+ * 下面的类型断言保证它与 StrictActionArgs 的 kind 完全一致。
+ */
+export const STRICT_ACTION_KINDS = [
+  "click",
+  "setValue",
+  "selectOption",
+  "submit",
+  "pressKey",
+] as const satisfies readonly StrictActionKind[];
+
+type MissingStrictActionKind = Exclude<
+  StrictActionKind,
+  (typeof STRICT_ACTION_KINDS)[number]
+>;
+const STRICT_ACTION_KINDS_COMPLETE: [MissingStrictActionKind] extends [never]
+  ? true
+  : never = true;
+void STRICT_ACTION_KINDS_COMPLETE;
+
 /** 单行表单值的上限（UTF-16 单元）；同时保证审批页能完整显示。 */
 export const STRICT_VALUE_MAX_LENGTH = 1_024;
 

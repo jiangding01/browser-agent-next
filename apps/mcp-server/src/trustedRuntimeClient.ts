@@ -17,6 +17,7 @@ import {
   type BrowserOpenInput,
   type BrowserOpenResult,
   type RuntimeErrorCode,
+  type StrictActionArgs,
   type VerificationEvidence,
   type VerificationResult,
   type VerificationSpec,
@@ -86,6 +87,8 @@ export interface TrustedActInput {
   observedRevision: string;
   ref: string;
   authorizationId: string;
+  /** 与授权时绑定的同一个动作；扩展侧 grant 按参数精确匹配（不变量 138）。 */
+  action: StrictActionArgs;
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
 }
@@ -101,11 +104,15 @@ export interface TrustedStrictClickGrantInput {
 /**
  * act 在 trusted client 这一层就丢弃 execution 细节、
  * freshRevision 与 postActionObservationError。
+ *
+ * valueMatched 只在扩展返回布尔值时保留（setValue / selectOption）；
+ * 是否交给模型由 adapter 按 operator 的 includeValues 配置决定（不变量 154）。
  */
 export interface TrustedActResult {
   status: "executed";
   verification: VerificationResult;
   verificationAttempts: number;
+  valueMatched?: boolean;
 }
 
 export interface TrustedIssuedAuthorization {
@@ -136,6 +143,10 @@ export interface TrustedOperatorApprovalStatus {
  * 仅供 model act broker 使用的 trusted Runtime client。
  *
  * 刻意不并入 ModelBrowserRuntimeClient：后者保持只有 open / observe。
+ *
+ * 唯一的签发方法是 issueStrictClick，其参数类型不含 action；写入类动作只能经
+ * requestStrictActionApproval 请求 operator 审批（不变量 152）。不要在这里增加
+ * issue-strict-action 之类的写入签发方法。
  */
 export interface TrustedActBrokerRuntimeClient {
   act(input: TrustedActInput): Promise<TrustedActResult>;
@@ -144,6 +155,16 @@ export interface TrustedActBrokerRuntimeClient {
   ): Promise<TrustedIssuedAuthorization>;
   requestOperatorApproval(
     input: TrustedStrictClickGrantInput,
+    approvalTtlMs?: number,
+  ): Promise<TrustedOperatorApprovalRequest>;
+  /**
+   * authorization.request-strict-action-approval：请求 operator 审批任意 strict 动作，
+   * 批准后扩展签发的 grant 绑定这个 action。返回值与 requestOperatorApproval 相同，
+   * 审批 summary 中回传的 action 在解析时丢弃（不变量 153）。
+   */
+  requestStrictActionApproval(
+    input: TrustedStrictClickGrantInput,
+    action: StrictActionArgs,
     approvalTtlMs?: number,
   ): Promise<TrustedOperatorApprovalRequest>;
   operatorApprovalStatus(
@@ -877,8 +898,9 @@ function pickVerificationResult(
 }
 
 /**
- * browser.act 响应：只挑出 status / verification / verificationAttempts。
- * execution 细节、freshRevision、postActionObservationError 在此丢弃。
+ * browser.act 响应：只挑出 status / verification / verificationAttempts，
+ * 以及布尔的 execution.valueMatched（其它类型视为缺省）。
+ * execution 的其它细节、freshRevision、postActionObservationError 在此丢弃。
  */
 function pickActResult(
   value: unknown,
@@ -911,7 +933,44 @@ function pickActResult(
     verification,
     verificationAttempts:
       result.verificationAttempts,
+    ...(typeof execution.valueMatched ===
+    "boolean"
+      ? {
+          valueMatched:
+            execution.valueMatched,
+        }
+      : {}),
   };
+}
+
+/**
+ * 发往扩展的动作参数：只按 kind 拷贝 core 定义的字段（审批请求与 browser.act 共用）。
+ * click 只有 kind，因此 click 的 browser.act 请求体与 S3 之前逐字段相同。
+ */
+function strictActionFields(
+  action: StrictActionArgs,
+): StrictActionArgs {
+  switch (action.kind) {
+    case "click":
+      return { kind: "click" };
+    case "submit":
+      return { kind: "submit" };
+    case "setValue":
+      return {
+        kind: "setValue",
+        value: action.value,
+      };
+    case "selectOption":
+      return {
+        kind: "selectOption",
+        label: action.label,
+      };
+    case "pressKey":
+      return {
+        kind: "pressKey",
+        key: action.key,
+      };
+  }
 }
 
 function pickIssuedAuthorization(
@@ -1009,7 +1068,8 @@ function pickOperatorApprovalStatus(
  *
  * 公共能力只有 browser.open / browser.observe（ModelBrowserRuntimeClient），
  * 以及 act broker 专用的 act / issueStrictClick / requestOperatorApproval /
- * operatorApprovalStatus（TrustedActBrokerRuntimeClient）。
+ * requestStrictActionApproval / operatorApprovalStatus / cancelStrictClick
+ * （TrustedActBrokerRuntimeClient）。
  * 内部 HTTP bridge 不暴露 generic type/payload passthrough。
  */
 export class TrustedRuntimeHttpClient
@@ -1136,7 +1196,7 @@ implements
         type: "browser.act",
         tabId: input.tabId,
         action: {
-          kind: "click",
+          ...strictActionFields(input.action),
           actionId: input.actionId,
           observedRevision:
             input.observedRevision,
@@ -1229,6 +1289,47 @@ implements
       throw operationFailure(
         "authorize",
         "trusted Runtime returned a malformed authorization.request-operator-approval result",
+      );
+    }
+
+    return picked;
+  }
+
+  async requestStrictActionApproval(
+    input: TrustedStrictClickGrantInput,
+    action: StrictActionArgs,
+    approvalTtlMs?: number,
+  ): Promise<TrustedOperatorApprovalRequest> {
+    const result = await this.call(
+      "authorize",
+      {
+        type:
+          "authorization.request-strict-action-approval",
+        authorizationId:
+          input.authorizationId,
+        tabId: input.tabId,
+        observedRevision:
+          input.observedRevision,
+        ref: input.ref,
+        ttlMs: input.ttlMs,
+        ...(approvalTtlMs !== undefined
+          ? { approvalTtlMs }
+          : {}),
+        action: strictActionFields(action),
+      },
+    );
+
+    // 扩展返回的是含 action 的审批 summary；只挑出
+    // approvalRequestId / expiresAt，写入参数不进入任何后续消费者。
+    const picked =
+      pickOperatorApprovalRequest(
+        result,
+        input.authorizationId,
+      );
+    if (!picked) {
+      throw operationFailure(
+        "authorize",
+        "trusted Runtime returned a malformed authorization.request-strict-action-approval result",
       );
     }
 

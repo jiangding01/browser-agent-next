@@ -155,6 +155,7 @@ function adapter(
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
     actBroker?: ModelActBroker;
+    egress?: { includeValues?: boolean };
   } = {},
 ): ModelFacingBrowserAdapter {
   return new ModelFacingBrowserAdapter(runtime, {
@@ -464,11 +465,13 @@ function actAdapter(
   runtime: ModelBrowserRuntimeClient,
   actBroker: ModelActBroker | undefined,
   tools = ACT_TOOLS,
+  egress?: { includeValues?: boolean },
 ) {
   const clock = fakeClock();
   const service = adapter(runtime, tools, {
     ...clock,
     ...(actBroker !== undefined ? { actBroker } : {}),
+    ...(egress !== undefined ? { egress } : {}),
   });
   return { service, clock };
 }
@@ -500,6 +503,7 @@ function trustedRuntime(): TrustedActBrokerRuntimeClient & {
       expiresAt: 1,
     })),
     requestOperatorApproval: vi.fn(),
+    requestStrictActionApproval: vi.fn(),
     operatorApprovalStatus: vi.fn(),
     cancelStrictClick: vi.fn(async () => {}),
   };
@@ -596,7 +600,14 @@ describe("ModelFacingBrowserAdapter browser.act", () => {
       unknown,
       BrowserObservation,
     ];
-    expect(input).toEqual(actRequest({ verifyTimeoutMs: 500 }));
+    expect(input).toEqual({
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@top",
+      action: { kind: "click" },
+      verification: ACT_VERIFICATION,
+      verifyTimeoutMs: 500,
+    });
     expect(projected.tab.ownedBySession).toBe(true);
     expect(projected.elements.map((element) => element.ref)).toEqual([
       "@top",
@@ -779,5 +790,153 @@ describe("ModelFacingBrowserAdapter browser.act", () => {
     await expect(service.invoke("browser.act", actRequest()))
       .rejects.toMatchObject({ code: "AUTHORIZATION_REQUIRED" });
     expect(runtime.observe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ModelFacingBrowserAdapter browser.act 写入（S3）", () => {
+  const CANARY = "CANARY-adapter-write-2d8e";
+  // 验证条件是模型自己给的、会出现在本地验证结果里；与写入值分开，才能断言写入值不出境。
+  const TYPED = "typed-value";
+
+  function writeRequest(
+    patch: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return actRequest({
+      ref: "@field",
+      kind: "setValue",
+      value: CANARY,
+      verification: {
+        mode: "all",
+        conditions: [{
+          type: "field_value",
+          ref: "@field",
+          equals: TYPED,
+        }],
+      },
+      verifyTimeoutMs: 0,
+      ...patch,
+    });
+  }
+
+  function valueBroker(valueMatched: boolean) {
+    return {
+      act: vi.fn(async (): Promise<ModelActExecution> => ({
+        ...EXECUTED,
+        valueMatched,
+      })),
+    };
+  }
+
+  it("broker 收到组装好的 StrictActionArgs，模型侧扁平字段不再出现", async () => {
+    const broker = valueBroker(true);
+    const { service } = actAdapter(sequencedRuntime(), broker);
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    await service.invoke("browser.act", writeRequest());
+
+    const [input] = broker.act.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+    ];
+    expect(input.action).toEqual({ kind: "setValue", value: CANARY });
+    expect(input).not.toHaveProperty("kind");
+    expect(input).not.toHaveProperty("value");
+  });
+
+  it("非法写入参数在 broker 之前以 POLICY_BLOCKED 拒绝，消息不含参数", async () => {
+    const broker = valueBroker(true);
+    const { service } = actAdapter(sequencedRuntime(), broker);
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    for (const patch of [
+      { value: CANARY + "\n" },
+      { kind: "click" },
+      { kind: "pressKey", value: undefined, key: CANARY },
+    ]) {
+      const error = await service
+        .invoke("browser.act", writeRequest(patch))
+        .catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code: "POLICY_BLOCKED" });
+      expect((error as Error).message).not.toContain(CANARY);
+    }
+    expect(broker.act).not.toHaveBeenCalled();
+  });
+
+  it("includeValues=false：结果无 valueMatched，写入后验证的 observe 不带值", async () => {
+    const broker = valueBroker(false);
+    const runtime = sequencedRuntime([
+      () => observation("rev-2", { fieldValue: TYPED }),
+    ]);
+    const { service } = actAdapter(runtime, broker);
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    const result = await service.invoke(
+      "browser.act",
+      writeRequest(),
+    ) as ModelActResult;
+
+    expect(result).not.toHaveProperty("valueMatched");
+    expect(Object.keys(result).sort()).toEqual([
+      "effectClass",
+      "status",
+      "verification",
+      "verificationAttempts",
+    ]);
+    const verifyObserve = runtime.observe.mock.calls[1]![0] as BrowserObserveInput;
+    expect(verifyObserve.options?.includeValues).toBe(false);
+    // 值被 redaction：field_value 无法确认。
+    expect(result.verification.verified).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(CANARY);
+  });
+
+  it("includeValues=true：结果带 valueMatched，写入后验证的 observe 带值", async () => {
+    const broker = valueBroker(false);
+    const runtime = sequencedRuntime([
+      () => observation("rev-2", { fieldValue: TYPED }),
+    ]);
+    const { service } = actAdapter(
+      runtime,
+      broker,
+      ACT_TOOLS,
+      { includeValues: true },
+    );
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    const result = await service.invoke(
+      "browser.act",
+      writeRequest(),
+    ) as ModelActResult;
+
+    expect(result.valueMatched).toBe(false);
+    const verifyObserve = runtime.observe.mock.calls[1]![0] as BrowserObserveInput;
+    expect(verifyObserve.options?.includeValues).toBe(true);
+    expect(result.verification).toMatchObject({
+      verified: true,
+      conclusive: true,
+      revision: "rev-2",
+    });
+    expect(result).not.toHaveProperty("value");
+    expect(result).not.toHaveProperty("action");
+    expect(JSON.stringify(result)).not.toContain(CANARY);
+  });
+
+  it("includeValues=true 时 click 的验证 observe 仍不带值（字段值需模型逐次请求），结果也没有 valueMatched", async () => {
+    const broker = fakeBroker();
+    const runtime = sequencedRuntime();
+    const { service } = actAdapter(
+      runtime,
+      broker,
+      ACT_TOOLS,
+      { includeValues: true },
+    );
+    await service.invoke("browser.observe", { tabId: 7 });
+
+    const result = await service.invoke(
+      "browser.act",
+      actRequest({ verifyTimeoutMs: 0 }),
+    ) as ModelActResult;
+
+    expect(result).not.toHaveProperty("valueMatched");
+    const verifyObserve = runtime.observe.mock.calls[1]![0] as BrowserObserveInput;
+    expect(verifyObserve.options?.includeValues).toBe(false);
   });
 });

@@ -63,6 +63,8 @@ export interface ModelFacingAdapterOptions {
  *
  * verification / verificationAttempts 由 adapter 在动作后、已投影且已进入本连接
  * 出境 store 的 observation 上本地计算；扩展侧 verification 从不出境。
+ * valueMatched 只在 operator 配置 includeValues=true 时出现（不变量 154）。
+ * 结果从不包含模型给出的 value / label / key（不变量 153）。
  */
 export interface ModelActResult extends ModelActExecution {
   verification: VerificationResult;
@@ -94,8 +96,8 @@ type ModelToolResult =
  * extract/verify/wait 都在已经通过 model-egress policy 的 observation 上本地执行，
  * 避免模型通过隐藏 frame、未出境 revision 或 verification boolean 形成旁路读取。
  * authorization issuance、auto-act policy mutation、raw trusted RPC 从类型和工具目录上都不可达；
- * browser.act 只能把已出境 revision 中已投影的 ref 交给 MCP 进程内的 act broker，
- * 授权 id 与授权路径由 broker 决定，模型不可提供。
+ * browser.act 只能把已出境 revision 中已投影的 ref 与经 core 校验的 strict 动作参数
+ * 交给 MCP 进程内的 act broker，授权 id 与授权路径由 broker 决定，模型不可提供。
  */
 export class ModelFacingBrowserAdapter {
   private readonly includeValues: boolean;
@@ -411,6 +413,8 @@ export class ModelFacingBrowserAdapter {
     );
 
     // 动作已执行：此后任何 observe 失败都只让 verification inconclusive。
+    // operator 允许字段值出境时，验证用的 observe 带值，否则 field_value 恒为
+    // inconclusive，模型会误以为写入失败而重试、制造更多审批。
     const polled = await this.pollVerification(
       {
         tabId: input.tabId,
@@ -418,6 +422,10 @@ export class ModelFacingBrowserAdapter {
         timeoutMs:
           input.verifyTimeoutMs ??
           MODEL_ACT_DEFAULT_VERIFY_TIMEOUT_MS,
+        // 只对写入类动作：click 的验证保持“字段值需模型逐次请求”的语义。
+        ...(this.includeValues && input.action.kind !== "click"
+          ? { options: { includeValues: true } }
+          : {}),
       },
       false,
     );
@@ -425,6 +433,11 @@ export class ModelFacingBrowserAdapter {
     return {
       status: execution.status,
       effectClass: execution.effectClass,
+      // valueMatched 是关于字段当前值的信息，按“字段值只在 operator 允许时出境”处理。
+      ...(this.includeValues &&
+      typeof execution.valueMatched === "boolean"
+        ? { valueMatched: execution.valueMatched }
+        : {}),
       // 有投影 observation 时 verification 来自本地验证（revision 已入出境 store）；
       // 否则给出固定的 inconclusive，不透传 lastObservationError 原文。
       verification:

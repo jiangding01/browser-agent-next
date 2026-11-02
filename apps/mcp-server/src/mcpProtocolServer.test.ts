@@ -270,6 +270,7 @@ describe("ModelFacingMcpBridge browser.act", () => {
         approvalRequestId: "approval-1",
         expiresAt: 1,
       })),
+      requestStrictActionApproval: vi.fn(),
       operatorApprovalStatus: vi.fn(async () => ({
         state: "approved" as const,
       })),

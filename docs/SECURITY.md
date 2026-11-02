@@ -63,7 +63,15 @@ Native host 在每次启动（即扩展连接）时读取 `~/.browser-agent-next
 
 ## Model act broker 边界
 
-Phase 6.6a 起，operator 可以显式把 side-effect tier 的 `browser.act` 暴露给模型。模型只能提出“点击某个已出境 ref”，授权 id、action id 与授权路径都由 MCP 进程内的 Act broker 生成（见 `docs/MODEL-FACING-ADAPTER.md`）。
+Phase 6.6a 起，operator 可以显式把 side-effect tier 的 `browser.act` 暴露给模型。模型只能提出“对某个已出境 ref 做某个 strict 动作”，授权 id、action id 与授权路径都由 MCP 进程内的 Act broker 生成（见 `docs/MODEL-FACING-ADAPTER.md`）。
+
+S3 起模型还可以请求写入类动作（setValue / selectOption / submit / pressKey）。这是一次**能力扩张**：已为 click 开启 `browser.act` 的部署，升级后模型即可请求写入，没有单独的开关。约束如下：
+
+- **写入恒需 operator 审批**：无论 `MODEL_ACT_APPROVAL` 取什么值，写入都经 `authorization.request-strict-action-approval` 请求扩展审批页批准；broker 的 trusted client 接口没有任何写入签发方法（不变量 152）。扩展侧 grant 精确绑定动作与参数（不变量 138），是 broker 写错时的兜底：click 的授权无法用于写入。
+- **参数不出境**：模型给出的 value / label / key 只出现在发往扩展的审批请求与执行请求中，不出现在模型可见的结果、错误、progress 与 trace 中；审批 summary 中回传的 action 被 trusted client 丢弃（不变量 153）。
+- **写入后不能自动提交**：本连接请求过任何写入之后，该连接中所有 tab 的 click 都必须经 operator 审批；否则 `agent-owned-auto` 下模型可以在写入获批后自动点击提交按钮，或在另一个同源 tab 里点击“发送”已自动保存的草稿，把写入的值提交出去。
+- **字段值信息只在 operator 允许时出境**：`valueMatched` 与写入后验证带字段值都只在 `includeValues=true` 时生效（不变量 154）。
+- **审批页不把参数标成可信**：标签说明参数由调用方提供、可能是 AI 模型、内容可能抄自网页（不变量 155）。模型可能被页面注入诱导，把读到的数据写进字段再提交；审批页完整显示值，是这一场景下唯一的人工防线。
 
 ### broker scope 与威胁模型
 
@@ -73,7 +81,7 @@ broker 的 scope 是 MCP 进程内的代码约束：它限制的是只能通过�
 
 - `browser.act` 默认不在 `MODEL_TOOLS` 里；
 - act origin 默认为空，且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）都必须在 act allowlist 内；
-- 授权路径默认是 operator approval；`agent-owned-auto` 仅对 `ownedBySession` 且未降级的 tab 生效；
+- 授权路径默认是 operator approval；`agent-owned-auto` 仅对 click、`ownedBySession` 且未降级的 tab 生效，写入类动作恒走 operator approval，本连接请求过任何写入之后，所有 tab 的 click 也恒走 operator approval（防止写入获批后自动提交）；
 - `ACTION_OUTCOME_UNKNOWN`（授权或执行阶段）或非 Runtime 异常之后，该 tab 在当前连接内永久降级为 operator approval。
 
 ### operator approval 的证明来源
@@ -92,7 +100,8 @@ MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。M
 - 撤销是尽力而为：cancel RPC 不可达或失败（例如 native 通道已断开），或 tombstone 被驱逐后同 id 的 request 才迟到，扩展里仍可能遗留 pending request，事后批准会产生一个无人消费的 grant。该 grant 的 id 随机、单次使用、TTL 30 秒、精确绑定 `(tab, revision, ref)`，任意 navigation 或 tab removal 会撤销它；pending request 的有效期也已与 broker 等待时间对齐（`approvalTtlMs`）；
 - 扩展的待审批池是全局共享的（上限 32），一个 MCP 连接高频发起审批可以把其它连接较早的待审批请求挤出为 `invalidated`。这只影响可用性（fail closed，不产生授权），尚未按连接分配配额；
 - 读路径（`browser.observe`、`browser.wait` 轮询）没有速率或预算限制，一次长 wait 可触发数百次完整采集，属于对用户浏览器的资源放大，不突破安全边界；
-- 同一 tab 上并发的两次 act，先结束的那次触发的降级对已经越过降级检查的另一次不生效；该窗口受预算与单次执行约束。
+- 同一 tab 上并发的两次 act，先结束的那次触发的降级对已经越过降级检查的另一次不生效；该窗口受预算与单次执行约束；
+- 写入类动作：operator 若不看内容直接批准，模型可以把最多 1024 字符写进 act origin 的字段并提交；单次执行账本只防同一次观察内的重复执行，模型重新 observe 后可以换值再写，每次都消耗预算并需要一次审批；模型看不到 `<select>` 的选项列表，选错时得到 `TARGET_CAPABILITY_MISSING`；“写入后停用 auto click”与预算、账本、降级一样只在单个 MCP 连接内有效，重连或另开一个 MCP 进程后重置（扩展无法区分请求来自模型还是 trusted 本地程序，不能在扩展侧强制）。
 
 ### 取消与撤销（Phase 6.6b-A）
 
@@ -129,7 +138,7 @@ S1（setValue）与 S2（selectOption、submit、pressKey）只在 trusted 路�
 - **敏感字段**：password、`<input>` / `<textarea>` 上的凭据 / 支付 autocomplete、`-webkit-text-security` 遮盖的字段在感知阶段标记为 `sensitive`，签发与审批请求入队前就拒绝，审批页永远不显示这类字段的待写入值；写入函数在 focus 前后用同一组判定再复核。这是按已知形态列举的判定，不是完备的“敏感”定义。
 - **单 task 写入**：在目标帧中唯一的、origin 为本扩展的 isolated world 里，一个同步函数内完成字段检查 → focus → 确认 `activeElement` → 复核 → `select()` → `execCommand`；不向“恰好有焦点的元素”发送 CDP 输入，不在另一个上下文重试。只写单行原生文本字段；OOPIF 中的目标在任何输入之前 fail closed。
 - **结果语义**：focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`，禁止自动重试；执行结果只带 `valueMatched` 布尔值，错误为固定文本，均不含值。动作后验证是普通 observation：trusted 路径与 `browser.observe` 一样能看到字段当前值，model-facing 出口去掉 `observed` 与未获允许的 `value`。
-- **审批页**：值的字符集在所有入口限定为审批页能如实显示的字符（拒绝控制、格式、默认可忽略字符、非 U+0020 空格、U+2800、孤立代理项）；值完整显示、不截断、不设高度上限，附字符数与首尾 / 连续空格提示，并标注“来自调用方，非页面”；清空字段的说明显示在值框之外。
+- **审批页**：值的字符集在所有入口限定为审批页能如实显示的字符（拒绝控制、格式、默认可忽略字符、非 U+0020 空格、U+2800、孤立代理项）；值完整显示、不截断、不设高度上限，附字符数与首尾 / 连续空格提示，并标注“由调用方提供，可能是 AI 模型；内容可能抄自网页”（S3 起；原文案“来自调用方，非页面”会让 operator 把模型从注入页面抄来的值当成可信内容）；清空字段的说明显示在值框之外。
 - **命中测试**：Strict 命中测试在目标自身的 tree scope 上进行，open shadow root 内的目标可以被 click 或写入，覆盖其上的元素（同一 shadow root、外层 tree 或其它 shadow host）仍判为遮挡。可见、in-viewport 与命中测试适用于全部 strict 动作。
 - **selectOption**：只作用于原生单选、`size` 不大于 1、非 `base-select` 的 `<select>`，按 `option.label` 在未禁用、自身与 optgroup 均未隐藏、无元素子节点、`label` 属性与文本一致的选项中精确匹配；不存在或不唯一时在修改之前拒绝；不 focus，设置与事件派发在同一个 isolated-world task 内完成。敏感 autocomplete 的 `<select>`（如信用卡有效期）同样在签发前拒绝。
 - **submit**：不提供 Enter 键。`submit` 只适用于用户在该字段中按 Enter 会提交的表单：字段自身所在（非 `form` 属性关联）、没有任何提交按钮（含 `type=image` 与经 `form` 属性关联进来的按钮），且目标是其中唯一阻止隐式提交的文本类 `<input>`（`requestSubmit()` 不受隐式提交规则限制，必须显式复核，否则会绕过页面以 `type=button` 加脚本确认的提交）；有效性预检是纯读取、在任何页面代码运行之前完成，含 form-associated custom element 的表单拒绝；不带 submitter 调用 `requestSubmit()`，只有观察到可信的 submit 事件才报告成功。

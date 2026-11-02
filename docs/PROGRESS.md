@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#19 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1 完成；Strict 写入 S2（trusted 路径 selectOption / submit / pressKey）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#20 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1、S2 完成；Strict 写入 S3（向模型开放写入，强制 operator 审批）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -37,6 +37,7 @@ Phase 7-0a 决策评测 harness + 对抗 fixture      ✅
 Phase 7-0b 脱敏 trace + 有界 sink              ✅
 Strict 写入 S1 trusted 路径 setValue          ✅
 Strict 写入 S2 trusted 路径 selectOption / submit / pressKey ✅
+Strict 写入 S3 model-facing 写入（强制 operator 审批）✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -419,10 +420,29 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 变异验证：26 种变异均被单测或 E2E 抓到（明细见 `docs/STRICT-WRITE-ACTIONS.md`「S2 实现记录」）✅
 - 代码经 check（Deep）审查与独立对抗式审查（两轮）：0 HIGH；2 MEDIUM（焦点委托 / frame owner 让 pressKey 落到未经检查的控件、submit 能提交按 Enter 提交不了的表单）与 2 LOW（activeElement 经实例读取、size > 1 的 select）已修复，修复部分经变异验证与第二轮独立审查；1 LOW（二次 prepare 在串行队列之外）作为已接受残余写入 SECURITY；第二轮只审修复部分，0 HIGH / MEDIUM，3 LOW 已修复（补 fencedframe、B 复核目标未在按键前变成 shadow host、E2E 拒绝断言补固定消息），1 LOW（multiple / size > 1 的 select 签发通过、执行时拒绝）作为已接受残余 ✅
 
+## Strict 写入 S3：model-facing 写入，强制 operator 审批
+
+方案见 `docs/STRICT-WRITE-ACTIONS.md`「S3」（对照代码细化，独立对抗式审查一轮，0 HIGH、4 MEDIUM、4 LOW 在实现前并入方案）。
+
+- 模型输入：`browser.act` 接受 click / setValue / selectOption / submit / pressKey，扁平的 `kind` / `value` / `label` / `key` 经 core 的 `strictArgsFromActAction` 校验，非法输入固定文本 `POLICY_BLOCKED`；schema 的 kind / key 枚举与长度上限取自 core 常量（新增 `STRICT_ACTION_KINDS`）；
+- Act broker：写入无论授权模式都经 `authorization.request-strict-action-approval` 请求 operator 审批，执行请求带同一 action；`agent-owned-auto` 只放宽 click，且本连接请求过任何写入之后所有 tab 的 click 都改走 operator；broker 的 trusted client 接口没有写入签发方法（类型测试锁住）；
+- 结果：模型给出的参数不出现在结果、错误、progress 与 trace 中；`valueMatched` 与写入后验证带字段值只在 operator 开启 includeValues 时生效；
+- 审批页：写入值标签说明参数由调用方提供、可能是 AI 模型、内容可能抄自网页；
+- 新增不变量 152～155，SECURITY、MODEL-FACING-ADAPTER、HIGH-LEVEL-API、mcp-server README 同步，写明这是一次能力扩张。
+
+### 门禁
+
+- TypeScript typecheck ✅
+- Unit / integration tests（918 个，含 wire：写入全链路、`agent-owned-auto` 下写入仍审批且写入之后 click 改走 operator、金丝雀值不出现在结果 / 错误 / progress / trace、includeValues 两种取值）✅
+- Workspace build ✅
+- Real Chromium E2E（16 个，新增 S3 用例：MCP 子进程以 `agent-owned-auto` 运行，写入前的 click 自动执行（对照组）、setValue 出现审批卡片且显示新标签与完整值、批准后写入、同一次观察中重复写被拒、审批页拒绝后字段不变、写入后的 click 出现审批卡片且拒绝后未点击、progress 与 trace 文件不含写入值）✅
+- 变异验证：12 种变异均被单测或 E2E 抓到，另有 1 种等价变异已说明（明细见 `docs/STRICT-WRITE-ACTIONS.md`「S3 实现记录」）✅
+- 代码经 check（Deep）审查与两轮独立对抗式审查：0 HIGH；1 MEDIUM（`agent-owned-auto` 下写入获批后自动 click 提交按钮）分两轮修复为“本连接请求过写入后所有 tab 停用 auto”；1 MEDIUM（该状态不跨 MCP 连接）作为已接受残余写入 SECURITY；LOW 均已修复或核实 ✅
+- 顺带修复 S2 E2E 的偶发超时：frame owner 用例在 iframe 内执行脚本读取按键记录时偶发挂起（连跑 8 次失败 2 次），改为子帧把按键记到父页面并补对照组，连跑 8 次全部通过
+
 ## 下一步
 
-1. Strict 写入 S3：向模型开放写入（强制 operator 审批），待批准；
-2. Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。
+1. Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。
 
 ## 文档
 

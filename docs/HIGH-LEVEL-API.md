@@ -172,12 +172,15 @@ Stored Observation
 tabId
 observedRevision     必须是已对本连接出境的 revision
 ref                  必须在该 revision 投影后的 observation 里
-kind                 固定为 "click"
+kind                 click / setValue / selectOption / submit / pressKey
+value?               仅 setValue：单行文本，≤ 1024 个 UTF-16 单元，允许空串（清空）
+label?               仅 selectOption：选项 label，非空，规则同 value
+key?                 仅 pressKey：Escape / Tab / ArrowUp / ArrowDown
 verification         VerificationSpec
 verifyTimeoutMs?     0..5000，默认 1500
 ```
 
-模型不能提供 `authorizationId`、`actionId`、`assurance`、`source` 等字段：这些字段由 broker 生成或固定，传入任何多余字段都会以 `POLICY_BLOCKED` 拒绝。授权路径默认是 operator approval，只有 operator 配置 `agent-owned-auto` 且 tab 为 `ownedBySession` 且未降级时才走 control-plane grant。
+模型不能提供 `authorizationId`、`actionId`、`assurance`、`source` 等字段：这些字段由 broker 生成或固定，传入任何多余字段都会以 `POLICY_BLOCKED` 拒绝。kind 与参数的组合必须精确（click 带 `label` 等都拒绝）。授权路径默认是 operator approval，只有动作是 click、operator 配置 `agent-owned-auto` 且 tab 为 `ownedBySession` 且未降级时才走 control-plane grant；写入类动作（Strict 写入 S3）恒走 operator approval，审批页完整显示参数。
 
 返回结构：
 
@@ -186,9 +189,12 @@ verifyTimeoutMs?     0..5000，默认 1500
   status: "executed",
   effectClass: "unknown",
   verification,            // 在投影后的 observation 上本地重算，evidence 不含 observed
-  verificationAttempts
+  verificationAttempts,
+  valueMatched?            // 仅 setValue / selectOption，且 operator 配置 includeValues=true
 }
 ```
+
+结果、错误与 progress 都不回显模型给出的 value / label / key。
 
 扩展侧的 `verification`、`verificationAttempts`、`freshRevision`、`postActionObservationError` 与 execution 细节都不会出境：trusted `browser.act` 以 `verifyTimeoutMs=0` 调用，返回值只用于确认“已执行”。act 之后如果本地 observe 不可用，返回 executed + inconclusive，而不是错误。运行时失败只保留 error code，message 换成固定文本。
 

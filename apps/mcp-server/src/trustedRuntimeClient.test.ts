@@ -15,6 +15,7 @@ import {
 } from "vitest";
 import type {
   BrowserObservation,
+  StrictActionArgs,
   VerificationSpec,
 } from "@browser-agent-next/core";
 import {
@@ -455,6 +456,7 @@ const ACT_INPUT = {
   observedRevision: "rev-1",
   ref: "@save",
   authorizationId: "auth-1",
+  action: { kind: "click" },
   verification: VERIFICATION,
 } as const;
 
@@ -1328,6 +1330,14 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
         code: "AUTHORIZATION_REQUIRED",
       });
       await expect(
+        client.requestStrictActionApproval(
+          GRANT_INPUT,
+          { kind: "submit" },
+        ),
+      ).rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+      });
+      await expect(
         client.operatorApprovalStatus(
           "operator-1",
         ),
@@ -1400,6 +1410,11 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
       () =>
         client.requestOperatorApproval(
           GRANT_INPUT,
+        ),
+      () =>
+        client.requestStrictActionApproval(
+          GRANT_INPUT,
+          { kind: "submit" },
         ),
       () =>
         client.operatorApprovalStatus(
@@ -1558,4 +1573,288 @@ describe("TrustedRuntimeHttpClient act broker 四方法", () => {
         .authorization,
     ).toBe("Bearer " + TOKEN);
   });
+});
+
+const WRITE_CANARY = "CANARY-trusted-write-71ac";
+
+describe("TrustedRuntimeHttpClient strict 写入（S3）", () => {
+  it("click 的 browser.act 请求体与 S3 之前逐字节相同（字段、取值与顺序）", async () => {
+    const calls: Array<
+      Record<string, unknown>
+    > = [];
+    await respondWith(
+      actResult(),
+      calls,
+    ).act({
+      ...ACT_INPUT,
+      verifyTimeoutMs: 0,
+    });
+
+    // S3 之前 act 写死的请求体（kind 固定为 click，无 value / label / key）。
+    expect(JSON.stringify(calls[0])).toBe(
+      JSON.stringify({
+        type: "browser.act",
+        tabId: 7,
+        action: {
+          kind: "click",
+          actionId: "action-1",
+          observedRevision: "rev-1",
+          ref: "@save",
+          authorizationId: "auth-1",
+        },
+        verification: VERIFICATION,
+        verifyTimeoutMs: 0,
+        requestId: "req-fixed",
+      }),
+    );
+  });
+
+  it.each([
+    [
+      { kind: "setValue", value: WRITE_CANARY },
+      { kind: "setValue", value: WRITE_CANARY },
+    ],
+    [
+      { kind: "setValue", value: "" },
+      { kind: "setValue", value: "" },
+    ],
+    [
+      { kind: "selectOption", label: WRITE_CANARY },
+      { kind: "selectOption", label: WRITE_CANARY },
+    ],
+    [{ kind: "submit" }, { kind: "submit" }],
+    [
+      { kind: "pressKey", key: "Escape" },
+      { kind: "pressKey", key: "Escape" },
+    ],
+    // 异形 action 的多余字段不会被拷进请求体。
+    [
+      {
+        kind: "setValue",
+        value: WRITE_CANARY,
+        label: "extra",
+        key: "Tab",
+      },
+      { kind: "setValue", value: WRITE_CANARY },
+    ],
+    [
+      { kind: "click", value: "extra" },
+      { kind: "click" },
+    ],
+  ] as Array<[Record<string, unknown>, Record<string, unknown>]>)(
+    "act 的请求体按 action %j 只带对应字段",
+    async (action, fields) => {
+      const calls: Array<
+        Record<string, unknown>
+      > = [];
+      await respondWith(
+        actResult(),
+        calls,
+      ).act({
+        ...ACT_INPUT,
+        action: action as StrictActionArgs,
+      });
+
+      expect(calls[0]!.action).toEqual({
+        ...fields,
+        actionId: "action-1",
+        observedRevision: "rev-1",
+        ref: "@save",
+        authorizationId: "auth-1",
+      });
+    },
+  );
+
+  it("requestStrictActionApproval 发送独立消息并携带 action；approvalTtlMs 省略时不带该 key", async () => {
+    const calls: Array<
+      Record<string, unknown>
+    > = [];
+    const client: TrustedActBrokerRuntimeClient =
+      respondWith(
+        {
+          approvalRequestId: "operator-1",
+          expiresAt: 2_000,
+        },
+        calls,
+      );
+
+    await client.requestStrictActionApproval(
+      GRANT_INPUT,
+      { kind: "setValue", value: WRITE_CANARY },
+      45_000,
+    );
+    await client.requestStrictActionApproval(
+      GRANT_INPUT,
+      { kind: "pressKey", key: "Tab" },
+    );
+    await client.requestStrictActionApproval(
+      GRANT_INPUT,
+      {
+        kind: "selectOption",
+        label: WRITE_CANARY,
+        value: "extra",
+      } as unknown as StrictActionArgs,
+    );
+
+    expect(calls).toEqual([
+      {
+        type: "authorization.request-strict-action-approval",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        ttlMs: 30_000,
+        approvalTtlMs: 45_000,
+        action: { kind: "setValue", value: WRITE_CANARY },
+      },
+      {
+        type: "authorization.request-strict-action-approval",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        ttlMs: 30_000,
+        action: { kind: "pressKey", key: "Tab" },
+      },
+      {
+        type: "authorization.request-strict-action-approval",
+        requestId: "req-fixed",
+        authorizationId: "auth-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@save",
+        ttlMs: 30_000,
+        action: {
+          kind: "selectOption",
+          label: WRITE_CANARY,
+        },
+      },
+    ]);
+    expect("approvalTtlMs" in calls[1]!).toBe(false);
+  });
+
+  it("审批 summary 中回传的 action（含金丝雀值）不出现在解析结果中", async () => {
+    const result = await respondWith({
+      approvalRequestId: "operator-1",
+      authorizationId: "auth-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@save",
+      origin: "https://allowed.test",
+      pageTitle: "Page",
+      targetRole: "textbox",
+      targetName: WRITE_CANARY,
+      action: { kind: "setValue", value: WRITE_CANARY },
+      requestedAt: 1,
+      expiresAt: 2_000,
+      authorizationTtlMs: 30_000,
+    }).requestStrictActionApproval(
+      GRANT_INPUT,
+      { kind: "setValue", value: WRITE_CANARY },
+    );
+
+    expect(result).toEqual({
+      approvalRequestId: "operator-1",
+      expiresAt: 2_000,
+    });
+    expect(JSON.stringify(result)).not.toContain(WRITE_CANARY);
+  });
+
+  it.each([
+    ["缺少 approvalRequestId", { expiresAt: 2_000 }],
+    [
+      "回显的 authorizationId 不一致",
+      {
+        approvalRequestId: "operator-1",
+        authorizationId: "auth-other",
+        expiresAt: 2_000,
+      },
+    ],
+    ["result 为 null", null],
+  ])(
+    "requestStrictActionApproval 响应异形（%s）映射为 AUTHORIZATION_REQUIRED",
+    async (_name, result) => {
+      await expect(
+        respondWith(result)
+          .requestStrictActionApproval(
+            GRANT_INPUT,
+            { kind: "submit" },
+          ),
+      ).rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+        message: expect.stringContaining(
+          "malformed authorization.request-strict-action-approval",
+        ),
+      });
+    },
+  );
+
+  it("requestStrictActionApproval 的已知错误码保留、message 为固定文本", async () => {
+    const client =
+      new TrustedRuntimeHttpClient({
+        token: TOKEN,
+        requestId: () => "req-known",
+        fetchImpl: async () =>
+          new Response(JSON.stringify({
+            type: "trusted-host.result",
+            requestId: "req-known",
+            ok: false,
+            error: {
+              code: "TARGET_CAPABILITY_MISSING",
+              message: "no option " + WRITE_CANARY,
+            },
+          }), { status: 200 }),
+      });
+
+    const error = await client
+      .requestStrictActionApproval(
+        GRANT_INPUT,
+        { kind: "selectOption", label: WRITE_CANARY },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      code: "TARGET_CAPABILITY_MISSING",
+      message:
+        "trusted Runtime rejected the authorize request: TARGET_CAPABILITY_MISSING",
+    });
+  });
+
+  it.each([
+    [true, { valueMatched: true }],
+    [false, { valueMatched: false }],
+    ["true", {}],
+    [1, {}],
+    [null, {}],
+    [undefined, {}],
+  ])(
+    "pickActResult 只接受布尔 execution.valueMatched（%j）",
+    async (valueMatched, expected) => {
+      const base = actResult();
+      const result = await respondWith({
+        ...base,
+        execution: {
+          ...(base.execution as Record<string, unknown>),
+          ...(valueMatched !== undefined
+            ? { valueMatched }
+            : {}),
+        },
+      }).act({
+        ...ACT_INPUT,
+        action: { kind: "setValue", value: WRITE_CANARY },
+      });
+
+      expect(Object.keys(result).sort()).toEqual(
+        [
+          "status",
+          "verification",
+          "verificationAttempts",
+          ...Object.keys(expected),
+        ].sort(),
+      );
+      expect(result).toMatchObject(expected);
+    },
+  );
 });

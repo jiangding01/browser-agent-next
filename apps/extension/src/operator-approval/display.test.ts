@@ -384,7 +384,7 @@ describe("approvalActionView", () => {
       title: "待批准的填写",
       approvable: true,
       detail: {
-        label: "将要填写的内容（来自调用方，非页面）",
+        label: "将要填写的内容（由调用方提供，可能是 AI 模型；内容可能抄自网页）",
         value: writeValueDisplay(" 张三 "),
       },
     });
@@ -392,7 +392,7 @@ describe("approvalActionView", () => {
       title: "待批准的选择",
       approvable: true,
       detail: {
-        label: "将要选择的选项（来自调用方，非页面）",
+        label: "将要选择的选项（由调用方提供，可能是 AI 模型；内容可能抄自网页）",
         value: { text: "上海  浦东", caption: "共 6 个字符；含连续空格" },
       },
     });

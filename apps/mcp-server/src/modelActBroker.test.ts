@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   BrowserRuntimeError,
   type BrowserObservation,
+  type StrictActionArgs,
   type VerificationResult,
 } from "@browser-agent-next/core";
 import {
@@ -17,6 +18,7 @@ import type {
   TrustedActBrokerRuntimeClient,
   TrustedActResult,
   TrustedOperatorApprovalState,
+  TrustedStrictClickGrantInput,
 } from "./trustedRuntimeClient.js";
 
 function observation(
@@ -110,7 +112,7 @@ function actInput(
     tabId: 7,
     observedRevision: "rev-1",
     ref,
-    kind: "click",
+    action: { kind: "click" },
     verification: {
       mode: "all",
       conditions: [{ type: "text_present", text: "Saved" }],
@@ -135,6 +137,7 @@ interface FakeRuntime extends TrustedActBrokerRuntimeClient {
   act: ReturnType<typeof vi.fn>;
   issueStrictClick: ReturnType<typeof vi.fn>;
   requestOperatorApproval: ReturnType<typeof vi.fn>;
+  requestStrictActionApproval: ReturnType<typeof vi.fn>;
   operatorApprovalStatus: ReturnType<typeof vi.fn>;
   cancelStrictClick: ReturnType<typeof vi.fn>;
 }
@@ -157,6 +160,10 @@ function fakeRuntime(
       expiresAt: 999_999,
     })),
     requestOperatorApproval: vi.fn(async () => ({
+      approvalRequestId: "approval-1",
+      expiresAt: 999_999,
+    })),
+    requestStrictActionApproval: vi.fn(async () => ({
       approvalRequestId: "approval-1",
       expiresAt: 999_999,
     })),
@@ -221,6 +228,7 @@ describe("createModelActBroker", () => {
       observedRevision: "rev-1",
       ref: "@a",
       authorizationId: "uuid-1",
+      action: { kind: "click" },
       verification: actInput().verification,
       verifyTimeoutMs: 0,
     });
@@ -1337,5 +1345,439 @@ describe("createModelActBroker 授权 trace 回报", () => {
       }),
     ).resolves.toEqual({ status: "executed", effectClass: "unknown" });
     expect(runtime.act).toHaveBeenCalledTimes(1);
+  });
+});
+
+const WRITE_CANARY = "CANARY-broker-write-5b1e";
+
+const WRITE_ACTIONS: ReadonlyArray<
+  Exclude<StrictActionArgs, { kind: "click" }>
+> = [
+  { kind: "setValue", value: WRITE_CANARY },
+  { kind: "selectOption", label: WRITE_CANARY },
+  { kind: "submit" },
+  { kind: "pressKey", key: "Tab" },
+];
+
+function writeInput(
+  ref = "@a",
+  action: StrictActionArgs = WRITE_ACTIONS[0]!,
+  patch: Partial<ModelActInput> = {},
+): ModelActInput {
+  return actInput(ref, { action, ...patch });
+}
+
+/** 按调用顺序记录 broker 发出的全部 trusted RPC（方法名 + 参数）。 */
+function recordedCalls(runtime: FakeRuntime): Array<[string, unknown[]]> {
+  const methods = [
+    "act",
+    "issueStrictClick",
+    "requestOperatorApproval",
+    "requestStrictActionApproval",
+    "operatorApprovalStatus",
+    "cancelStrictClick",
+  ] as const;
+  return methods
+    .flatMap((name) =>
+      runtime[name].mock.calls.map((args, index) => ({
+        name,
+        args: args as unknown[],
+        order: runtime[name].mock.invocationCallOrder[index]!,
+      }))
+    )
+    .sort((a, b) => a.order - b.order)
+    .map(({ name, args }) => [name, args]);
+}
+
+describe("createModelActBroker 写入类动作（S3）", () => {
+  it.each(WRITE_ACTIONS.map((action) => [action.kind, action] as const))(
+    "%s 在 agent-owned-auto 且 tab 归 session 所有时仍走 requestStrictActionApproval，从不调用任何 issue 方法",
+    async (_kind, action) => {
+      const runtime = fakeRuntime(["pending", "approved"]);
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+      const reports: unknown[] = [];
+
+      await instance.act(
+        writeInput("@a", action),
+        observation({ ownedBySession: true }),
+        { onAuthorizationTrace: (item) => reports.push(item) },
+      );
+
+      expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+      expect(runtime.requestOperatorApproval).not.toHaveBeenCalled();
+      expect(recordedCalls(runtime)).toEqual([
+        [
+          "requestStrictActionApproval",
+          [
+            {
+              authorizationId: "uuid-1",
+              tabId: 7,
+              observedRevision: "rev-1",
+              ref: "@a",
+              ttlMs: MODEL_ACT_GRANT_TTL_MS,
+            },
+            action,
+            60_000,
+          ],
+        ],
+        ["operatorApprovalStatus", ["approval-1"]],
+        ["operatorApprovalStatus", ["approval-1"]],
+        [
+          "act",
+          [{
+            tabId: 7,
+            actionId: "uuid-2",
+            observedRevision: "rev-1",
+            ref: "@a",
+            authorizationId: "uuid-1",
+            action,
+            verification: actInput().verification,
+            verifyTimeoutMs: 0,
+          }],
+        ],
+      ]);
+      expect(reports).toEqual([
+        { path: "operator", approval: "approved", waitMs: 2_000 },
+      ]);
+    },
+  );
+
+  it("审批请求与执行请求带同一个 action（operator 模式）", async () => {
+    const runtime = fakeRuntime();
+    const { instance } = broker(runtime);
+    const action: StrictActionArgs = {
+      kind: "selectOption",
+      label: WRITE_CANARY,
+    };
+
+    await instance.act(writeInput("@b", action), observation());
+
+    const approved = runtime.requestStrictActionApproval.mock.calls[0]![1];
+    const executed = (
+      runtime.act.mock.calls[0]![0] as { action: StrictActionArgs }
+    ).action;
+    expect(approved).toEqual(action);
+    expect(executed).toEqual(approved);
+    expect(
+      (runtime.requestStrictActionApproval.mock.calls[0]![0] as {
+        authorizationId: string;
+      }).authorizationId,
+    ).toBe(
+      (runtime.act.mock.calls[0]![0] as { authorizationId: string })
+        .authorizationId,
+    );
+  });
+
+  it.each([
+    ["rejected", "operator rejected the action"],
+    ["expired", "operator approval request expired"],
+    ["invalidated", "operator approval was invalidated by a page change"],
+    ["cancelled", "operator approval was cancelled"],
+    ["unknown", "operator approval state is unknown"],
+  ] as const)(
+    "写入审批状态 %s：AUTHORIZATION_REQUIRED（通用文案、不含参数），撤销一次且不执行",
+    async (state, message) => {
+      const runtime = fakeRuntime(["pending", state]);
+      const progress: ModelActProgress[] = [];
+      const { instance } = broker(runtime);
+
+      const error = await instance
+        .act(writeInput(), observation(), {
+          onProgress: (item) => progress.push(item),
+        })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+        message,
+      });
+      expect(JSON.stringify([
+        (error as Error).message,
+        progress,
+      ])).not.toContain(WRITE_CANARY);
+      expect(runtime.act).not.toHaveBeenCalled();
+      expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+      expect(runtime.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+    },
+  );
+
+  it("写入审批超时与客户端取消：撤销一次且不执行", async () => {
+    const timedOut = fakeRuntime(["pending"]);
+    const a = broker(timedOut, { approvalTimeoutMs: 2_500 });
+    await expect(a.instance.act(writeInput(), observation()))
+      .rejects.toMatchObject({
+        code: "AUTHORIZATION_REQUIRED",
+        message: "operator approval timed out",
+      });
+    expect(timedOut.act).not.toHaveBeenCalled();
+    expect(timedOut.cancelStrictClick).toHaveBeenCalledTimes(1);
+    expect(timedOut.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+
+    const controller = new AbortController();
+    const cancelled = fakeRuntime(["pending"]);
+    const b = broker(cancelled, {}, {
+      onSleep: (call) => {
+        if (call === 2) controller.abort();
+      },
+    });
+    await expect(b.instance.act(writeInput(), observation(), {
+      signal: controller.signal,
+    })).rejects.toMatchObject(CLIENT_CANCELLED);
+    expect(cancelled.act).not.toHaveBeenCalled();
+    expect(cancelled.cancelStrictClick).toHaveBeenCalledTimes(1);
+    expect(cancelled.cancelStrictClick).toHaveBeenCalledWith("uuid-1");
+  });
+
+  it("trusted Runtime 的审批错误原文（含写入值）不出境，只保留 code", async () => {
+    const runtime = fakeRuntime();
+    runtime.requestStrictActionApproval.mockRejectedValueOnce(
+      new BrowserRuntimeError(
+        "TARGET_CAPABILITY_MISSING",
+        "no option " + WRITE_CANARY,
+      ),
+    );
+    const { instance } = broker(runtime);
+
+    const error = await instance
+      .act(writeInput(), observation())
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "TARGET_CAPABILITY_MISSING" });
+    expect((error as Error).message).not.toContain(WRITE_CANARY);
+    expect(runtime.cancelStrictClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("同一次观察中同一 ref 的并发第二个请求（值不同、kind 不同）在任何 RPC 之前被拒", async () => {
+    const runtime = fakeRuntime();
+    const pendingApproval = deferred<{
+      approvalRequestId: string;
+      expiresAt: number;
+    }>();
+    runtime.requestStrictActionApproval.mockImplementationOnce(
+      () => pendingApproval.promise,
+    );
+    const { instance } = broker(runtime, {
+      approvalMode: "agent-owned-auto",
+    });
+
+    const first = instance.act(writeInput("@a"), observation());
+    await vi.waitFor(() => {
+      expect(runtime.requestStrictActionApproval).toHaveBeenCalledTimes(1);
+    });
+    const before = recordedCalls(runtime).length;
+
+    for (const action of [
+      { kind: "setValue", value: "another value" },
+      { kind: "click" },
+      { kind: "pressKey", key: "Escape" },
+    ] as const) {
+      await expect(instance.act(writeInput("@a", action), observation()))
+        .rejects.toMatchObject({
+          code: "POLICY_BLOCKED",
+          message: expect.stringContaining("already attempted"),
+        });
+    }
+    expect(recordedCalls(runtime)).toHaveLength(before);
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+
+    pendingApproval.resolve({
+      approvalRequestId: "approval-1",
+      expiresAt: 999_999,
+    });
+    await expect(first).resolves.toEqual({
+      status: "executed",
+      effectClass: "unknown",
+    });
+    expect(runtime.act).toHaveBeenCalledTimes(1);
+  });
+
+  it("写入得到 ACTION_OUTCOME_UNKNOWN：错误不含写入值，之后任何 tab 的 click 都走 operator", async () => {
+    const runtime = fakeRuntime();
+    runtime.act.mockRejectedValueOnce(
+      new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "lost " + WRITE_CANARY),
+    );
+    const { instance } = broker(runtime, {
+      approvalMode: "agent-owned-auto",
+    });
+
+    const error = await instance
+      .act(writeInput("@a"), observation())
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "ACTION_OUTCOME_UNKNOWN" });
+    expect((error as Error).message).not.toContain(WRITE_CANARY);
+
+    await instance.act(actInput("@b"), observation());
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: "@b", tabId: 7 }),
+      60_000,
+    );
+
+    await instance.act(
+      actInput("@a", { tabId: 9 }),
+      observation({ tabId: 9 }),
+    );
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it("本连接请求过写入之后，所有 tab 的 click 都不再走 auto（获批或被拒都一样）", async () => {
+    for (const writeState of ["approved", "rejected"] as const) {
+      const runtime = fakeRuntime([writeState, "approved", "approved"]);
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      // 对照：写入之前，另一个 tab 上的 click 自动签发。
+      await instance.act(
+        actInput("@b", { tabId: 9 }),
+        observation({ tabId: 9 }),
+      );
+      expect(runtime.issueStrictClick, writeState).toHaveBeenCalledTimes(1);
+
+      await instance
+        .act(writeInput("@a"), observation())
+        .catch(() => undefined);
+      expect(runtime.requestStrictActionApproval, writeState).toHaveBeenCalledTimes(1);
+
+      // 同一 tab 的提交按钮、以及另一个同源 tab 上的 click（例如“发送”已自动保存的草稿）
+      // 都必须再经 operator 审批，不能自动提交模型写入的值。
+      await instance.act(actInput("@b"), observation());
+      await instance.act(
+        actInput("@a", { tabId: 9 }),
+        observation({ tabId: 9 }),
+      );
+      expect(runtime.issueStrictClick, writeState).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval, writeState).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("写入审批仍在等待时并发发起的 click 也不走 auto", async () => {
+    const runtime = fakeRuntime(["approved", "approved"]);
+    let releaseWrite!: () => void;
+    runtime.requestStrictActionApproval.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseWrite = () =>
+            resolve({ approvalRequestId: "approval-1", expiresAt: 999_999 });
+        }),
+    );
+    const { instance } = broker(runtime, {
+      approvalMode: "agent-owned-auto",
+    });
+
+    const write = instance.act(writeInput("@a"), observation());
+    await Promise.resolve();
+    expect(runtime.requestStrictActionApproval).toHaveBeenCalledTimes(1);
+
+    await instance.act(actInput("@b"), observation());
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+
+    releaseWrite();
+    await write;
+  });
+
+  it("click 路径的 RPC 调用序列与 S3 之前相同，从不调用 requestStrictActionApproval", async () => {
+    const grant: TrustedStrictClickGrantInput = {
+      authorizationId: "uuid-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@a",
+      ttlMs: MODEL_ACT_GRANT_TTL_MS,
+    };
+    const execution = {
+      tabId: 7,
+      actionId: "uuid-2",
+      observedRevision: "rev-1",
+      ref: "@a",
+      authorizationId: "uuid-1",
+      action: { kind: "click" },
+      verification: actInput().verification,
+      verifyTimeoutMs: 0,
+    };
+
+    const auto = fakeRuntime();
+    await broker(auto, { approvalMode: "agent-owned-auto" })
+      .instance.act(actInput(), observation());
+    expect(recordedCalls(auto)).toEqual([
+      ["issueStrictClick", [grant]],
+      ["act", [execution]],
+    ]);
+
+    const operator = fakeRuntime(["pending", "approved"]);
+    await broker(operator).instance.act(actInput(), observation());
+    expect(recordedCalls(operator)).toEqual([
+      ["requestOperatorApproval", [grant, 60_000]],
+      ["operatorApprovalStatus", ["approval-1"]],
+      ["operatorApprovalStatus", ["approval-1"]],
+      ["act", [execution]],
+    ]);
+    // issueStrictClick / requestOperatorApproval 的参数不含 action。
+    expect(auto.issueStrictClick.mock.calls[0]![0]).not.toHaveProperty("action");
+    expect(operator.requestOperatorApproval.mock.calls[0]![0])
+      .not.toHaveProperty("action");
+  });
+
+  it("valueMatched 只透传布尔值", async () => {
+    for (const [raw, expected] of [
+      [true, { valueMatched: true }],
+      [false, { valueMatched: false }],
+      ["true", {}],
+      [1, {}],
+      [null, {}],
+    ] as const) {
+      const runtime = fakeRuntime();
+      runtime.act.mockResolvedValueOnce({
+        status: "executed",
+        verification: RAW_VERIFICATION,
+        verificationAttempts: 1,
+        valueMatched: raw,
+      } as unknown as TrustedActResult);
+      const { instance } = broker(runtime);
+
+      await expect(instance.act(writeInput(), observation()))
+        .resolves.toEqual({
+          status: "executed",
+          effectClass: "unknown",
+          ...expected,
+        });
+    }
+  });
+
+  it("TrustedActBrokerRuntimeClient 没有写入签发方法，issueStrictClick 不接受 action（类型锁）", () => {
+    const runtime: TrustedActBrokerRuntimeClient = fakeRuntime();
+
+    expect(() => {
+      // @ts-expect-error broker 的 trusted client 接口不提供写入签发方法（不变量 152）。
+      void runtime.issueStrictAction;
+      // @ts-expect-error broker 的 trusted client 接口不提供写入签发方法（不变量 152）。
+      void runtime.issueStrictActionAuthorization;
+      void runtime.issueStrictClick({
+        authorizationId: "uuid-1",
+        tabId: 7,
+        observedRevision: "rev-1",
+        ref: "@a",
+        ttlMs: MODEL_ACT_GRANT_TTL_MS,
+        // @ts-expect-error issueStrictClick 的参数类型不含 action。
+        action: { kind: "setValue", value: WRITE_CANARY },
+      });
+    }).not.toThrow();
+    expectTypeOf<keyof TrustedActBrokerRuntimeClient>().toEqualTypeOf<
+      | "act"
+      | "issueStrictClick"
+      | "requestOperatorApproval"
+      | "requestStrictActionApproval"
+      | "operatorApprovalStatus"
+      | "cancelStrictClick"
+    >();
+    expectTypeOf<
+      keyof Parameters<TrustedActBrokerRuntimeClient["issueStrictClick"]>[0]
+    >().toEqualTypeOf<
+      "authorizationId" | "tabId" | "observedRevision" | "ref" | "ttlMs"
+    >();
   });
 });

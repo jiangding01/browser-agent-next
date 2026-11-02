@@ -161,3 +161,7 @@
 149. pressKey 只接受 Escape / Tab / ArrowUp / ArrowDown，不得作用于敏感字段，方向键不得作用于原生的值控件（`<select>` 与非文本类 `<input>`），Escape 不得作用于 `type=search`，不得作用于 shadow host（含 closed root，且在按键之后复核）与 frame owner；只有当 isolated world 中预先注册的捕获监听器记录到恰好一个可信且 key 相符、目标为该元素的 `keydown` 时才算执行成功，否则报告 `ACTION_OUTCOME_UNKNOWN`；focus 之后的任何失败都是 `ACTION_OUTCOME_UNKNOWN`。
 150. Strict preflight 的可见、in-viewport 与 hit-test 检查适用于所有 strict 动作。
 151. isolated-world 页面函数不得经可被页面命名属性覆盖的路径（`HTMLFormElement` / `Document` 实例上的属性与方法）读取或调用，一律经原型访问器与方法。
+152. model-facing 写入类动作（setValue / selectOption / submit / pressKey）只能以 operator-approved grant 执行：Act broker 对写入只发 `authorization.request-strict-action-approval`，broker 的 trusted client 接口不提供任何写入签发方法；`BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL=agent-owned-auto` 只放宽 click，且本连接请求过任何写入之后，该连接中所有 tab 的 click 都不再自动签发。扩展侧的 grant 参数绑定（138）是兜底。
+153. 模型给出的写入参数只出现在发往扩展的审批请求与执行请求中：不得出现在模型可见的结果、错误、progress 与 trace 中；trusted client 解析审批 summary 时丢弃其中的 action。
+154. `valueMatched` 只在 operator 配置 `includeValues=true` 时交给模型。
+155. 审批页不得把调用方提供的写入参数标注为可信内容：标签必须说明参数可能来自 AI 模型、内容可能抄自网页。
