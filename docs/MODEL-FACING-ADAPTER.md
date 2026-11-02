@@ -345,12 +345,14 @@ tools/call(unexposed browser.open) → POLICY_BLOCKED
 
 ## Act broker
 
-`browser.act` 不直接转发 trusted RPC。adapter 先做本地检查，再把请求交给 MCP 进程内的 Act broker；broker 才拥有 `act / issueStrictClick / requestOperatorApproval / operatorApprovalStatus` 这四个 trusted 方法。
+`browser.act` 不直接转发 trusted RPC。adapter 先做本地检查，再把请求交给 MCP 进程内的 Act broker；broker 才拥有 `act / issueStrictClick / requestOperatorApproval / requestStrictActionApproval / operatorApprovalStatus / cancelStrictClick` 这些 trusted 方法。唯一的签发方法 `issueStrictClick` 只签 click；broker 没有任何写入签发方法（不变量 152）。
+
+S3 起 `browser.act` 除 click 外还接受写入类动作 setValue / selectOption / submit / pressKey（设计见 `docs/STRICT-WRITE-ACTIONS.md`「S3」）。**能力扩张**：已为 click 开启 `browser.act` 的部署，升级后模型即可请求写入；写入**每次都必须经 operator 在扩展审批页看到完整参数后批准**，`agent-owned-auto` 只放宽 click。
 
 ```text
 tools/call(browser.act)
   ↓
-parseModelActInput（多余字段、kind≠click 一律 POLICY_BLOCKED）
+parseModelActInput（多余字段、kind 与 value / label / key 的非法组合、超长或不可显示的值一律 POLICY_BLOCKED）
   ↓
 revision 必须已对本连接出境（否则 MODEL_EGRESS_BLOCKED）
   ↓
@@ -360,17 +362,18 @@ Act broker
   ├─ act origin 检查（tab origin + 目标 frame 有效 origin）
   ├─ 预算
   ├─ (tab, revision, ref) 单次执行账本
-  ├─ 授权（operator approval 或 agent-owned control-plane grant）
-  └─ trusted browser.act（verifyTimeoutMs 固定为 0）
+  ├─ 授权：click → operator approval 或 agent-owned control-plane grant；
+  │        写入 → 恒为 operator approval（request-strict-action-approval，带 action）
+  └─ trusted browser.act（带同一 action，verifyTimeoutMs 固定为 0）
   ↓
 adapter 在投影后的 observation 上本地重算 verification
   ↓
-{ status, effectClass, verification, verificationAttempts }
+{ status, effectClass, verification, verificationAttempts, valueMatched?（仅 includeValues） }
 ```
 
 ### 模型能提供什么
 
-模型只提供 `tabId`、`observedRevision`、`ref`、`kind: "click"`、`verification` 与可选 `verifyTimeoutMs`。`authorizationId`、`actionId`、`assurance`、`source` 都由 broker 生成或固定，模型传入即拒绝。授权 id 与 action id 均为 broker 生成的随机 UUID。
+模型只提供 `tabId`、`observedRevision`、`ref`、`kind`、与 kind 对应的参数（setValue 的 `value`、selectOption 的 `label`、pressKey 的 `key`；click 与 submit 没有参数）、`verification` 与可选 `verifyTimeoutMs`。参数经 core 的 `strictArgsFromActAction` 校验：组合必须精确（click 带 `label`、setValue 缺 `value` 等都拒绝），`value` / `label` 不超过 1024 个 UTF-16 单元、单行且不含控制 / 格式 / 不可见字符，`key` 只能是 Escape / Tab / ArrowUp / ArrowDown；不合法时返回固定文本的 `POLICY_BLOCKED`，不回显参数。JSON Schema 是扁平形状（`kind` 与 `key` 为枚举、长度上限同源），组合约束以服务端为准。`authorizationId`、`actionId`、`assurance`、`source` 都由 broker 生成或固定，模型传入即拒绝。授权 id 与 action id 均为 broker 生成的随机 UUID。
 
 ### act origin 检查
 
@@ -387,14 +390,14 @@ adapter 在投影后的 observation 上本地重算 verification
 
 ### (tab, revision, ref) 单次执行
 
-账本 key 是 `JSON.stringify([tabId, revision, ref])`。同一 key 在一个连接内至多执行一次；标记先于任何 trusted 请求落账，此后任何失败（授权被拒、超时、传输失败、act 失败）都不回滚。因此失败的点击不能被原样重试，模型需要重新 observe 得到新的 revision 后再提出新请求。
+账本 key 是 `JSON.stringify([tabId, revision, ref])`，不含动作类型与参数。同一 key 在一个连接内至多尝试一次任意动作；标记先于任何 trusted 请求同步落账（并发的第二个请求在任何 RPC 之前被拒），此后任何失败（授权被拒、超时、传输失败、act 失败）都不回滚。因此失败的动作不能被原样重试，模型需要重新 observe 得到新的 revision 后再提出新请求。每次 observe 都产生新 revision，所以账本不限制“重新 observe 后换值再写”；限制反复写入的是“每个写入单独审批”与预算。
 
 ### 两条授权路径
 
 broker 生成 `authorizationId`，grant TTL 固定为 30 秒（`MODEL_ACT_GRANT_TTL_MS = 30_000`），grant 精确绑定 tab + revision + ref：
 
-- **operator（默认）**：调用 `authorization.request-operator-approval` 创建 pending request，然后每 1 秒（`MODEL_ACT_APPROVAL_POLL_INTERVAL_MS = 1_000`）轮询 `authorization.operator-approval-status`。请求带上 `approvalTtlMs = MODEL_APPROVAL_TIMEOUT_MS`，扩展里的审批有效期取它与扩展上限（120 秒）的较小值。`approved` 才继续执行；`rejected / expired / invalidated / cancelled / unknown` 与超过 `MODEL_APPROVAL_TIMEOUT_MS`（默认 60000，范围 1..120000）都返回 `AUTHORIZATION_REQUIRED`，message 区分原因。批准只能来自扩展的审批 UI，MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。
-- **agent-owned-auto**：仅当 `MODEL_ACT_APPROVAL=agent-owned-auto`、observation 的 `tab.ownedBySession === true`、且该 tab 未被降级时，直接调用 `authorization.issue-strict-click` 签发 control-plane grant。其余情况一律回落到 operator 路径。非 `ownedBySession` 的 tab 即使配置了 auto，也会被扩展以 `AUTHORIZATION_REQUIRED` 拒绝 control-plane grant，因此 broker 在 MCP 侧也不会走这条路径。
+- **operator（默认；写入类动作恒走这条）**：click 调用 `authorization.request-operator-approval`，写入类动作调用 `authorization.request-strict-action-approval` 并带上 action（扩展批准后签发的 grant 精确绑定该参数，执行请求带同一 action），创建 pending request，然后每 1 秒（`MODEL_ACT_APPROVAL_POLL_INTERVAL_MS = 1_000`）轮询 `authorization.operator-approval-status`。请求带上 `approvalTtlMs = MODEL_APPROVAL_TIMEOUT_MS`，扩展里的审批有效期取它与扩展上限（120 秒）的较小值。`approved` 才继续执行；`rejected / expired / invalidated / cancelled / unknown` 与超过 `MODEL_APPROVAL_TIMEOUT_MS`（默认 60000，范围 1..120000）都返回 `AUTHORIZATION_REQUIRED`，message 区分原因。批准只能来自扩展的审批 UI，MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明。
+- **agent-owned-auto**：仅当动作是 click、`MODEL_ACT_APPROVAL=agent-owned-auto`、observation 的 `tab.ownedBySession === true`、该 tab 未被降级、且本连接没有请求过任何写入时，直接调用 `authorization.issue-strict-click` 签发 control-plane grant。其余情况一律回落到 operator 路径。非 `ownedBySession` 的 tab 即使配置了 auto，也会被扩展以 `AUTHORIZATION_REQUIRED` 拒绝 control-plane grant，因此 broker 在 MCP 侧也不会走这条路径。
 
 默认路径是 operator，即使 tab 是 agent-owned 也是如此。auto 是 operator 的显式选择，而不是默认。
 
@@ -404,9 +407,9 @@ broker 生成 `authorizationId`，grant TTL 固定为 30 秒（`MODEL_ACT_GRANT_
 - **客户端取消**：MCP `tools/call` 的取消信号（`ctx.mcpReq.signal`）经 adapter 传给 broker。入口已取消时不发起任何 RPC、不扣预算；等待审批期间取消会立即停止轮询并撤销；批准后、act 发出前取消则不执行并撤销。act 一旦发出，取消信号不再生效，绝不中断在途 act RPC。客户端取消返回 `AUTHORIZATION_REQUIRED`（固定文本）。
 - **progress**：客户端在 `_meta.progressToken` 里请求进度时，operator 路径每次轮询到 `pending` 后发一条 `notifications/progress`，`progress` 为 1、2、3… 的递增计数，`message` 为固定文本 `waiting for operator approval in the browser extension`，不带 `total`；不含 approval id、ref、origin、revision 或页面文本。未提供 token 或走 agent-owned-auto 路径时不发送。支持 progress 的客户端可以据此重置请求超时。
 
-### ACTION_OUTCOME_UNKNOWN 后永久降级
+### ACTION_OUTCOME_UNKNOWN 或写入之后永久降级
 
-授权阶段或执行阶段只要出现 `ACTION_OUTCOME_UNKNOWN`，或抛出非 Runtime 异常，该 tab 在当前连接内永久降级：之后在该 tab 上即使配置了 `agent-owned-auto` 也只走 operator 路径，降级不可逆。降级状态按连接计、不跨连接持久；宿主重连会重置，模型自身无法触发重连。
+授权阶段或执行阶段只要出现 `ACTION_OUTCOME_UNKNOWN`，或抛出非 Runtime 异常，该 tab 在当前连接内永久降级。另外，本连接一旦请求过任何写入类动作（同步标记、先于任何 trusted 请求，审批被拒或失败也不撤销），**所有 tab** 的 click 都不再走 auto：防止 operator 只批准了“填写”，模型随后自动 click 提交按钮，或在另一个同源 tab 里点击“发送”已自动保存的草稿，把写入的值提交出去。降级之后，在该 tab 上即使配置了 `agent-owned-auto` 也只走 operator 路径，降级不可逆。降级状态按连接计、不跨连接持久；宿主重连会重置，模型自身无法触发重连。
 
 ### 结果投影与本地重验证
 
@@ -431,9 +434,12 @@ Bounded Poll（窗口 = verifyTimeoutMs，默认 MODEL_ACT_DEFAULT_VERIFY_TIMEOU
 返回给模型的结构为：
 
 ```text
-{ status: "executed", effectClass: "unknown", verification, verificationAttempts }
+{ status: "executed", effectClass: "unknown", verification, verificationAttempts, valueMatched? }
 ```
 
+- `valueMatched`（setValue / selectOption：动作后字段值是否与请求完全相等）只在 operator 配置 `BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES=true` 时出现：值是模型自己给的，它泄露不了字段原值，但仍是关于字段当前值的信息，按“字段值只在 operator 允许时出境”处理（不变量 154）；
+- 同理，只有 `includeValues=true` 时，写入类动作之后本地重验证的 observe 才带字段值；否则 `field_value` 条件恒为 inconclusive。click 之后的验证不变（字段值仍需模型在 observe 时逐次请求）；
+- 结果、错误与 progress 中都不出现模型给出的 value / label / key（不变量 153）；
 - `effectClass` 恒为 `unknown`：generic click 的业务副作用无法由结构化 primitive 证明；
 - `verification` 的 evidence 不含 `observed`；
 - act 之后如果本地 observe 失败（含 egress / policy 失败）且没有取得任何可验证的 observation，不能把整个调用报成错误，因为动作已经执行；此时返回 executed + inconclusive，原因是固定文案，不透传原始错误文本。
@@ -447,7 +453,7 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 | 失败 | code |
 |---|---|
 | 工具未暴露 / 未配置 broker | `POLICY_BLOCKED` |
-| 入参非法 / 多余字段 / `kind≠click` | `POLICY_BLOCKED` |
+| 入参非法 / 多余字段 / kind 与参数组合非法 / 值超长或含不可显示字符 | `POLICY_BLOCKED` |
 | revision 未对本连接出境 | `MODEL_EGRESS_BLOCKED` |
 | ref 不在投影后的 observation | `REF_NOT_IN_OBSERVATION` |
 | tab 或目标 frame origin 不在 act allowlist | `ORIGIN_NOT_ALLOWED` |
@@ -456,7 +462,7 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 | operator 拒绝 / 过期 / invalidated / cancelled / unknown / 超时 | `AUTHORIZATION_REQUIRED` |
 | 客户端在 act 发出前取消 tools/call | `AUTHORIZATION_REQUIRED` |
 | act 传输失败 / 响应异形 / `outcomeMayHaveChanged` | `ACTION_OUTCOME_UNKNOWN`，并降级该 tab |
-| 扩展侧已知 runtime code | 保留 code，message 换成固定文本 |
+| 扩展侧已知 runtime code（含写入类动作的 `TARGET_CAPABILITY_MISSING`、`NO_EFFECT`、`ACTION_NOT_SUPPORTED`，以及敏感字段的 `POLICY_BLOCKED`） | 保留 code，message 换成固定文本 |
 
 ### 已知限制
 
@@ -466,8 +472,8 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 
 ### side-effect 集成测试（Phase 6.6c）
 
-- **wire 级（`apps/mcp-server/src/sideEffect.wire.test.ts`）**：真实 MCP JSON-RPC wire（SDK `StdioServerTransport` + 内存 pipe）+ 真实 CLI 组装（`loadModelFacingMcpConfig` → `createModelFacingInvoker`：adapter + broker + `TrustedRuntimeHttpClient`）+ 真实 HTTP（`src/testing/fakeTrustedRuntime.ts`，127.0.0.1 随机端口、Bearer 校验、与 native host 相同的响应信封）。覆盖：默认不暴露 act；operator 批准全链路与 progress；act / 授权路径出境脱敏；运行时错误固定文本并撤销；客户端取消只撤销、不执行；预算与单次执行；act origin 与子 frame origin plane（含 about:blank 继承）；未出境 revision；`ACTION_OUTCOME_UNKNOWN` 后降级；token 不出境；读路径错误原文不出境。
-- **端到端（`e2e/specs/trusted-execution.spec.ts`）**：以真实子进程运行构建产物 `apps/mcp-server/dist/cli.js`，经 stdin / stdout 走 MCP，连真实 native host、扩展与 Chromium：模型 open → observe → act，operator 在审批页批准后页面真实跳转、本地 Verify 通过并收到 progress；客户端取消时角标清零、卡片失效且页面未被点击；同时断言 stdout 没有非 JSON 行。
+- **wire 级（`apps/mcp-server/src/sideEffect.wire.test.ts`）**：真实 MCP JSON-RPC wire（SDK `StdioServerTransport` + 内存 pipe）+ 真实 CLI 组装（`loadModelFacingMcpConfig` → `createModelFacingInvoker`：adapter + broker + `TrustedRuntimeHttpClient`）+ 真实 HTTP（`src/testing/fakeTrustedRuntime.ts`，127.0.0.1 随机端口、Bearer 校验、与 native host 相同的响应信封）。覆盖：默认不暴露 act；写入全链路（审批请求与执行请求带同一 action、金丝雀值不出现在结果 / 错误 / progress / trace，含扩展在审批 summary 中回传该值的情况）、`agent-owned-auto` 下写入仍请求审批、`includeValues` 两种取值下的 `valueMatched`；operator 批准全链路与 progress；act / 授权路径出境脱敏；运行时错误固定文本并撤销；客户端取消只撤销、不执行；预算与单次执行；act origin 与子 frame origin plane（含 about:blank 继承）；未出境 revision；`ACTION_OUTCOME_UNKNOWN` 后降级；token 不出境；读路径错误原文不出境。
+- **端到端（`e2e/specs/trusted-execution.spec.ts`）**：以真实子进程运行构建产物 `apps/mcp-server/dist/cli.js`，经 stdin / stdout 走 MCP，连真实 native host、扩展与 Chromium：模型 open → observe → act，operator 在审批页批准后页面真实跳转、本地 Verify 通过并收到 progress；客户端取消时角标清零、卡片失效且页面未被点击；同时断言 stdout 没有非 JSON 行。S3 另有一条：MCP 以 `agent-owned-auto` 启动、在 session 自己的 tab 上，click 自动执行（对照组）而 setValue 仍出现审批卡片，批准后写入、拒绝后字段不变，同一次观察中重复写同一 ref 被拒，MCP 结果、progress 与 trace 文件中都没有写入值。
 
 ## 后续工作
 

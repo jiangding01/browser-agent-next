@@ -30,7 +30,7 @@ PR #5 已将这里从空壳收敛成真正的 **Model-facing Adapter Boundary**�
 
 第四阶段已增加最小 `TrustedRuntimeHttpClient`：
 
-- 公共能力是 `browser.open` / `browser.observe`，外加 Act broker 专用的 `browser.act`、`authorization.issue-strict-click`、`authorization.request-operator-approval`、`authorization.operator-approval-status`，没有 generic passthrough；
+- 公共能力是 `browser.open` / `browser.observe`，外加 Act broker 专用的 `browser.act`、`authorization.issue-strict-click`、`authorization.request-operator-approval`、`authorization.request-strict-action-approval`、`authorization.operator-approval-status`、`authorization.cancel-strict-click`，没有 generic passthrough（写入类动作没有签发方法，只能请求 operator 审批）；
 - 只允许 loopback endpoint，禁止 redirect；
 - 只读 native-host trusted token；
 - request/response 绑定 requestId；
@@ -106,10 +106,11 @@ node apps/mcp-server/dist/cli.js
 行为要点：
 
 - 默认授权路径是 operator approval：broker 在扩展里创建 pending request 并轮询状态，需要人在扩展的审批 UI 里批准；MCP elicitation 或 client UI 不构成批准证明；
-- `BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL=agent-owned-auto` 只对 `browser.open` 创建、`ownedBySession` 且未降级的 tab 直接签发 control-plane grant，其余仍走 operator；
+- `browser.act` 接受 `kind` 为 click / setValue（`value`）/ selectOption（`label`）/ submit / pressKey（`key`）；写入类动作**无论授权模式都走 operator approval**，扩展审批页完整显示参数，参数不出现在结果、错误、progress 与 trace 中。已为 click 开启 `browser.act` 的部署升级后即可请求写入，没有单独开关；
+- `BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL=agent-owned-auto` 只对 click、`browser.open` 创建、`ownedBySession` 且未降级的 tab 直接签发 control-plane grant，其余仍走 operator；本连接请求过任何写入之后，所有 tab 的 click 也改走 operator；
 - 预算、`(tab, revision, ref)` 单次执行账本与降级状态都是每个 MCP 连接独立，重连后重置；
 - act origin 检查同时覆盖 tab origin 和目标 element 所在 frame 的有效 origin；
-- 返回 `status`、`effectClass: "unknown"`、在投影后 observation 上本地重算的 `verification` 与 `verificationAttempts`；`verifyTimeoutMs` 默认 1500；
+- 返回 `status`、`effectClass: "unknown"`、在投影后 observation 上本地重算的 `verification` 与 `verificationAttempts`；`verifyTimeoutMs` 默认 1500；`BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES=true` 时另带 setValue / selectOption 的 `valueMatched`，写入类动作之后的验证也带字段值（否则 `field_value` 条件为 inconclusive）；
 - 详细语义见 `docs/MODEL-FACING-ADAPTER.md` 的「Act broker」与 `docs/SECURITY.md`。
 
 ## Wire-level integration
