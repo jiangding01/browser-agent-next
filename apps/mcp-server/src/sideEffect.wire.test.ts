@@ -1235,7 +1235,7 @@ describe("model-facing side-effect wire integration", () => {
     );
 
     it(
-      "agent-owned-auto 且 tab 归 session 所有：写入仍请求审批、从不签发；同一观察中的 click 仍走 auto",
+      "agent-owned-auto 且 tab 归 session 所有：写入仍请求审批、从不签发；写入之前的 click 走 auto，之后的 click 改走 operator",
       async () => {
         const harness = await startHarness(
           actEnv({
@@ -1252,25 +1252,38 @@ describe("model-facing side-effect wire integration", () => {
           expect(observation.tab.ownedBySession).toBe(true);
           const revision = observation.revision.id;
 
-          const written = await harness.callTool(
-            "browser.act",
-            writeArgs(1, revision),
-          );
-          expect(written.isError).toBe(false);
+          // 对照：写入之前，同一配置下的 click 自动签发。
           const clicked = await harness.callTool(
             "browser.act",
             actArgs(1, revision, "@save"),
           );
           expect(clicked.isError).toBe(false);
+          const written = await harness.callTool(
+            "browser.act",
+            writeArgs(1, revision),
+          );
+          expect(written.isError).toBe(false);
+          // 写入之后：同一 tab 上的 click（例如提交按钮）必须再经 operator 审批。
+          const later = (await harness.observe(1)).revision.id;
+          const clickedAfterWrite = await harness.callTool(
+            "browser.act",
+            actArgs(1, later, "@save"),
+          );
+          expect(clickedAfterWrite.isError).toBe(false);
 
           const runtime = harness.runtime;
           expect(runtime.types()).toEqual([
+            "browser.observe",
+            "authorization.issue-strict-click",
+            "browser.act",
             "browser.observe",
             "authorization.request-strict-action-approval",
             "authorization.operator-approval-status",
             "browser.act",
             "browser.observe",
-            "authorization.issue-strict-click",
+            "browser.observe",
+            "authorization.request-operator-approval",
+            "authorization.operator-approval-status",
             "browser.act",
             "browser.observe",
           ]);
@@ -1280,11 +1293,14 @@ describe("model-facing side-effect wire integration", () => {
             ref: "@email",
             action: { kind: "setValue", value: WRITE_CANARY },
           });
-          // click 的签发消息与 S3 之前相同：不带 action。
+          // click 的签发与审批消息与 S3 之前相同：不带 action。
           const [issued] = runtime.ofType("authorization.issue-strict-click");
           expect(issued).not.toHaveProperty("action");
           expect(issued).toMatchObject({ ref: "@save" });
-          const [, clickAct] = runtime.ofType("browser.act");
+          expect(
+            runtime.ofType("authorization.request-operator-approval")[0],
+          ).not.toHaveProperty("action");
+          const [clickAct] = runtime.ofType("browser.act");
           expect(clickAct!.action).toEqual({
             kind: "click",
             actionId: (clickAct!.action as { actionId: string }).actionId,

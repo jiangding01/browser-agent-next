@@ -1623,6 +1623,35 @@ describe("createModelActBroker 写入类动作（S3）", () => {
     expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
   });
 
+  it("请求过写入的 tab 之后的 click 不再走 auto（获批或被拒都一样），其他 tab 不受影响", async () => {
+    for (const writeState of ["approved", "rejected"] as const) {
+      const runtime = fakeRuntime([writeState, "approved"]);
+      const { instance } = broker(runtime, {
+        approvalMode: "agent-owned-auto",
+      });
+
+      await instance
+        .act(writeInput("@a"), observation())
+        .catch(() => undefined);
+      expect(runtime.requestStrictActionApproval, writeState).toHaveBeenCalledTimes(1);
+
+      // 写入获批后对提交按钮的 click 必须再经 operator 审批，不能自动提交模型写入的值。
+      await instance.act(actInput("@b"), observation());
+      expect(runtime.issueStrictClick, writeState).not.toHaveBeenCalled();
+      expect(runtime.requestOperatorApproval, writeState).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: "@b", tabId: 7 }),
+        60_000,
+      );
+
+      // 对照：没有写入过的 tab 上 click 仍走 auto。
+      await instance.act(
+        actInput("@b", { tabId: 9 }),
+        observation({ tabId: 9 }),
+      );
+      expect(runtime.issueStrictClick, writeState).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("click 路径的 RPC 调用序列与 S3 之前相同，从不调用 requestStrictActionApproval", async () => {
     const grant: TrustedStrictClickGrantInput = {
       authorizationId: "uuid-1",

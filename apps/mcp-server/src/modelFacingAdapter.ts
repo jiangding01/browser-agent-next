@@ -422,7 +422,8 @@ export class ModelFacingBrowserAdapter {
         timeoutMs:
           input.verifyTimeoutMs ??
           MODEL_ACT_DEFAULT_VERIFY_TIMEOUT_MS,
-        ...(this.includeValues
+        // 只对写入类动作：click 的验证保持“字段值需模型逐次请求”的语义。
+        ...(this.includeValues && input.action.kind !== "click"
           ? { options: { includeValues: true } }
           : {}),
       },

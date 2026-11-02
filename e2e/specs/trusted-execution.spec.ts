@@ -4506,7 +4506,40 @@ test(
         popup.locator(".approval-card.stale").getByRole("button", { name: "批准一次" }),
       ).toBeDisabled();
 
-      // 5. progress 通知与 trace 文件中都没有任何写入值（对照：trace 里确有 browser.act 事件）。
+      // 5. 写入过的 tab 上，之后的 click 也必须经审批：否则 operator 只批准了填写，
+      //    模型随后自动点击提交按钮就能把写入的值提交出去。拒绝后按钮没有被点击。
+      const forLaterClick = await observe();
+      const laterClickRef = forLaterClick.refOf("Shadow button");
+      const laterClickCall = client.request("tools/call", {
+        name: "browser.act",
+        arguments: {
+          tabId,
+          observedRevision: forLaterClick.revision,
+          ref: laterClickRef,
+          kind: "click",
+          verification: refExists(laterClickRef),
+        },
+      });
+      await expect(pendingCards).toHaveCount(1, { timeout: 15_000 });
+      const clickCard = pendingCards.first();
+      await expect(clickCard.locator("h2")).toHaveText("待批准的点击");
+      await expect(clickCard.getByRole("button", { name: "拒绝" })).toBeEnabled({ timeout: 5_000 });
+      await clickCard.getByRole("button", { name: "拒绝" }).click();
+      const laterClick = toolPayload(await laterClickCall.response);
+      expect(laterClick.value).toMatchObject({ ok: false, error: { code: "AUTHORIZATION_REQUIRED" } });
+      expect(
+        await page.evaluate(() => (window as unknown as { shadowClicks: number }).shadowClicks),
+      ).toBe(1);
+
+      // 6. progress 通知与 trace 文件中都没有任何写入值（对照：确实收到了写入审批的 progress，
+      //    trace 里确有 browser.act 事件）。
+      expect(
+        client.notifications.filter(
+          (message) =>
+            message.method === "notifications/progress" &&
+            (message.params as { progressToken?: unknown }).progressToken === "s3-write",
+        ).length,
+      ).toBeGreaterThan(0);
       expect(JSON.stringify(client.notifications)).not.toContain("S3-CANARY");
       const protocolErrors = await client.close();
       mcp = undefined;

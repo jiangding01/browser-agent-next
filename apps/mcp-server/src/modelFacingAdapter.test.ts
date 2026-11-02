@@ -919,7 +919,7 @@ describe("ModelFacingBrowserAdapter browser.act 写入（S3）", () => {
     expect(JSON.stringify(result)).not.toContain(CANARY);
   });
 
-  it("includeValues=true 时 click 的验证 observe 同样带值，broker 没给 valueMatched 时结果也没有", async () => {
+  it("includeValues=true 时 click 的验证 observe 仍不带值（字段值需模型逐次请求），结果也没有 valueMatched", async () => {
     const broker = fakeBroker();
     const runtime = sequencedRuntime();
     const { service } = actAdapter(
@@ -937,6 +937,6 @@ describe("ModelFacingBrowserAdapter browser.act 写入（S3）", () => {
 
     expect(result).not.toHaveProperty("valueMatched");
     const verifyObserve = runtime.observe.mock.calls[1]![0] as BrowserObserveInput;
-    expect(verifyObserve.options?.includeValues).toBe(true);
+    expect(verifyObserve.options?.includeValues).toBe(false);
   });
 });
