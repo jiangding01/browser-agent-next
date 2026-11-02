@@ -472,9 +472,9 @@ S3 让 model-facing `browser.act` 接受 setValue / selectOption / submit / pres
 
 ### 结果与 valueMatched
 
-- `pickActResult` 额外读取 `execution.valueMatched`（仅当为布尔值）；`TrustedActResult` 与 broker 内部结果带上它。
+- `pickActResult` 额外读取 `execution.valueMatched`（仅当为布尔值）；`TrustedActResult` 与 broker 返回的 `ModelActExecution` 增加可选 `valueMatched`，adapter 的 `ModelActResult` 增加可选 `valueMatched`（MCP 工具没有输出 schema，新增可选字段不影响客户端）。
 - adapter 只在 operator 配置 `BROWSER_AGENT_NEXT_MODEL_INCLUDE_VALUES=true` 时把 `valueMatched` 放进模型结果，否则丢弃。值是模型自己给的，`valueMatched` 泄露不了字段原值，只反映页面（maxlength、格式化、change 处理器）是否改写了它；但它仍是关于字段当前值的信息，按“字段值只在 operator 允许时出境”的统一规则处理。这里只看 operator 配置（act 没有逐次的 `includeValues` 参数）。
-- 同理，`includeValues=true` 时 act 后本地重验证的 observe 带上 `includeValues`，否则 `field_value` 条件恒为 inconclusive，模型会误以为写入失败而重试、制造更多审批；`includeValues=false` 时行为不变，并在工具 description 中写明。
+- 同理，`includeValues=true` 时 act 后本地重验证的 `pollVerification` 传入 `options: { includeValues: true }`（`modelObserveOptions` 仍与 operator 配置取与，其它 observe 选项保持默认），否则 `field_value` 条件恒为 inconclusive，模型会误以为写入失败而重试、制造更多审批；`includeValues=false` 时行为不变，并在工具 description 中写明。
 - 模型结果、错误与 progress 中都不出现 value / label / key；错误仍只保留 code（S2 的 `TARGET_CAPABILITY_MISSING`、`NO_EFFECT` 等都在 `RUNTIME_ERROR_CODES` 中，按 code 原样出境，不会被误判为 outcome unknown）。
 
 ### trace
@@ -493,9 +493,33 @@ S3 让 model-facing `browser.act` 接受 setValue / selectOption / submit / pres
 
 - 不向模型暴露 `<select>` 的选项列表（observation 不含 option；模型只能用页面文本中看到的 label，选错时得到 `TARGET_CAPABILITY_MISSING`）；
 - 不开放 `agent-owned-auto` 的写入、不做批量审批、不放宽单次执行账本；
-- 不改 click 的任何路径与消息；
+- 不改 click 的授权路径与 trusted 消息（`issue-strict-click` / `request-operator-approval` / `cancel-strict-click`），click 的 `browser.act` 请求体字段与取值和之前相同；
+- 不改 trusted 协议中 `browser.act` 的 action 校验：它目前不是 exact-key（多余字段被忽略），这是既有问题，S3 的请求由 trusted client 自行拼装、不含多余字段，留待单独处理；
 - 不新增配置项（理由见上文「能力扩张」）；
 - 不改 trace schema（`actionKind` 推迟）。
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `apps/mcp-server/src/modelToolInput.ts` | `ModelActInput.action: StrictActionArgs`；白名单加 `value` / `label` / `key`；`strictArgsFromActAction` 校验；`MODEL_INPUT_LIMITS.maxWriteValueLength` |
+| `apps/mcp-server/src/modelToolCatalog.ts` | `browser.act` 的 title / description / schema（`kind` / `key` 枚举、长度上限取自 core 常量） |
+| `apps/mcp-server/src/modelActBroker.ts` | `autoIssue` 只适用于 click；写入走 `requestStrictActionApproval`；执行带 action；结果带 `valueMatched`；拒绝文案通用化 |
+| `apps/mcp-server/src/trustedRuntimeClient.ts` | `TrustedActInput.action`；`act` 按 action 拼请求体；新方法 `requestStrictActionApproval`（`TrustedActBrokerRuntimeClient` 接口同步）；`pickActResult` 解析 `valueMatched` |
+| `apps/mcp-server/src/modelFacingAdapter.ts` | `valueMatched` 按 `includeValues` 出境；写入后验证按 `includeValues` 带值 |
+| `apps/mcp-server/src/testing/fakeTrustedRuntime.ts` | 新增 `authorization.request-strict-action-approval` 的处理与可带 setValue capability 的元素构造 |
+| 上述各文件的 `*.test.ts`，`sideEffect.wire.test.ts`、`trace.wire.test.ts` | 见测试计划 |
+| `apps/extension/src/operator-approval/display.ts` 与 `display.test.ts` | 写入值 / 选项标签文案 |
+| `e2e/specs/trusted-execution.spec.ts` | 新增 S3 E2E；S2 用例中断言旧标签文案处同步 |
+| 文档 | 见下节 |
+
+### 文档
+
+- `docs/INVARIANTS.md` 增加 152～155；
+- `docs/MODEL-FACING-ADAPTER.md`「Act broker」：流程图（不再是 kind≠click 即拒绝）、“模型能提供什么”（五种 kind 与 value / label / key）、“两条授权路径”（写入恒走 operator）、“结果投影与本地重验证”（`valueMatched` 与写入后验证按 `includeValues`）、错误码表补 S2 的写入错误码、能力扩张说明；
+- `docs/SECURITY.md`「Model act broker 边界」与「Strict 写入边界」：model-facing 写入恒需 operator、能力扩张、审批页标签；
+- `docs/PROGRESS.md`、`docs/ROADMAP.md`（勾掉 S3）、`README.md`、`docs/HIGH-LEVEL-API.md`（model-facing 形态）、`apps/mcp-server/README.md`（`browser.act` 的参数与审批说明）；
+- 本文档顶部状态与「S3 实现记录」。
 
 ### 新增不变量（S3）
 
