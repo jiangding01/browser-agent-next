@@ -4140,12 +4140,13 @@ test(
         ok: false,
         error: { code: "ACTION_NOT_SUPPORTED", message: "strict pressKey does not support this target" },
       });
-      expect(
-        await page.frameLocator("#key-frame").locator("body").evaluate(
-          () => (window as unknown as { keyLog: string[] }).keyLog,
-        ),
-      ).toEqual([]);
+      const frameKeys = () =>
+        page.evaluate(() => (window as unknown as { frameKeyLog?: string[] }).frameKeyLog);
+      expect(await frameKeys()).toEqual([]);
       expect(await focused()).not.toContain("key-frame");
+      // 对照：按键送进子帧里的字段时，子帧的记录确实会出现（证明上面的空记录不是空转）。
+      expect(await act("Framed field", press("Tab"), "key-framed-field")).toMatchObject({ ok: true });
+      expect(await frameKeys()).toEqual(["Tab"]);
 
       // 17d. A 之后页面才把目标变成 closed + delegatesFocus 的 shadow host：按键落在内层输入框，
       //      composedPath 被重定向成目标——调用 B 复核后判定为 outcome unknown，不误报成功。
@@ -4301,7 +4302,7 @@ test(
 );
 
 test(
-  "Strict S3：模型经 MCP 写入恒需 operator 审批（agent-owned-auto 下 click 仍自动），参数不出境到结果、progress 与 trace",
+  "Strict S3：模型经 MCP 写入恒需 operator 审批（agent-owned-auto 下写入前的 click 自动、写入后的 click 需审批），参数不出境到结果、progress 与 trace",
   async () => {
     test.skip(
       process.platform === "win32",

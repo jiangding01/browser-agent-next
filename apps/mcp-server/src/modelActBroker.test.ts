@@ -1593,7 +1593,7 @@ describe("createModelActBroker 写入类动作（S3）", () => {
     expect(runtime.act).toHaveBeenCalledTimes(1);
   });
 
-  it("写入得到 ACTION_OUTCOME_UNKNOWN 后该 tab 的 click 不再走 auto，其他 tab 不受影响", async () => {
+  it("写入得到 ACTION_OUTCOME_UNKNOWN：错误不含写入值，之后任何 tab 的 click 都走 operator", async () => {
     const runtime = fakeRuntime();
     runtime.act.mockRejectedValueOnce(
       new BrowserRuntimeError("ACTION_OUTCOME_UNKNOWN", "lost " + WRITE_CANARY),
@@ -1620,36 +1620,65 @@ describe("createModelActBroker 写入类动作（S3）", () => {
       actInput("@a", { tabId: 9 }),
       observation({ tabId: 9 }),
     );
-    expect(runtime.issueStrictClick).toHaveBeenCalledTimes(1);
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(2);
   });
 
-  it("请求过写入的 tab 之后的 click 不再走 auto（获批或被拒都一样），其他 tab 不受影响", async () => {
+  it("本连接请求过写入之后，所有 tab 的 click 都不再走 auto（获批或被拒都一样）", async () => {
     for (const writeState of ["approved", "rejected"] as const) {
-      const runtime = fakeRuntime([writeState, "approved"]);
+      const runtime = fakeRuntime([writeState, "approved", "approved"]);
       const { instance } = broker(runtime, {
         approvalMode: "agent-owned-auto",
       });
+
+      // 对照：写入之前，另一个 tab 上的 click 自动签发。
+      await instance.act(
+        actInput("@b", { tabId: 9 }),
+        observation({ tabId: 9 }),
+      );
+      expect(runtime.issueStrictClick, writeState).toHaveBeenCalledTimes(1);
 
       await instance
         .act(writeInput("@a"), observation())
         .catch(() => undefined);
       expect(runtime.requestStrictActionApproval, writeState).toHaveBeenCalledTimes(1);
 
-      // 写入获批后对提交按钮的 click 必须再经 operator 审批，不能自动提交模型写入的值。
+      // 同一 tab 的提交按钮、以及另一个同源 tab 上的 click（例如“发送”已自动保存的草稿）
+      // 都必须再经 operator 审批，不能自动提交模型写入的值。
       await instance.act(actInput("@b"), observation());
-      expect(runtime.issueStrictClick, writeState).not.toHaveBeenCalled();
-      expect(runtime.requestOperatorApproval, writeState).toHaveBeenCalledWith(
-        expect.objectContaining({ ref: "@b", tabId: 7 }),
-        60_000,
-      );
-
-      // 对照：没有写入过的 tab 上 click 仍走 auto。
       await instance.act(
-        actInput("@b", { tabId: 9 }),
+        actInput("@a", { tabId: 9 }),
         observation({ tabId: 9 }),
       );
       expect(runtime.issueStrictClick, writeState).toHaveBeenCalledTimes(1);
+      expect(runtime.requestOperatorApproval, writeState).toHaveBeenCalledTimes(2);
     }
+  });
+
+  it("写入审批仍在等待时并发发起的 click 也不走 auto", async () => {
+    const runtime = fakeRuntime(["approved", "approved"]);
+    let releaseWrite!: () => void;
+    runtime.requestStrictActionApproval.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseWrite = () =>
+            resolve({ approvalRequestId: "approval-1", expiresAt: 999_999 });
+        }),
+    );
+    const { instance } = broker(runtime, {
+      approvalMode: "agent-owned-auto",
+    });
+
+    const write = instance.act(writeInput("@a"), observation());
+    await Promise.resolve();
+    expect(runtime.requestStrictActionApproval).toHaveBeenCalledTimes(1);
+
+    await instance.act(actInput("@b"), observation());
+    expect(runtime.issueStrictClick).not.toHaveBeenCalled();
+    expect(runtime.requestOperatorApproval).toHaveBeenCalledTimes(1);
+
+    releaseWrite();
+    await write;
   });
 
   it("click 路径的 RPC 调用序列与 S3 之前相同，从不调用 requestStrictActionApproval", async () => {

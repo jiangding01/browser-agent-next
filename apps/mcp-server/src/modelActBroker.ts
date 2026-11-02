@@ -162,8 +162,8 @@ function sanitizedRuntimeError(
  * - 默认 operator approval；agent-owned-auto 仅对 click、ownedBySession 且未降级的 tab 生效；
  * - 写入类动作（setValue / selectOption / submit / pressKey）恒走 operator approval，
  *   broker 从不为写入签发 grant（不变量 152）；
- * - ACTION_OUTCOME_UNKNOWN 后、以及在该 tab 上请求过任何写入之后，该 tab 永久降级为
- *   operator approval（写入获批后不能再经 auto click 提交）。
+ * - ACTION_OUTCOME_UNKNOWN 后该 tab 永久降级为 operator approval；本连接请求过任何写入
+ *   之后，所有 tab 的 click 都改走 operator approval（写入获批后不能再经 auto click 提交）。
  */
 export function createModelActBroker(
   runtime: TrustedActBrokerRuntimeClient,
@@ -199,6 +199,8 @@ export function createModelActBroker(
   );
   const consumed = new Set<string>();
   const degradedTabs = new Set<number>();
+  // 本连接请求过任何写入之后，所有 tab 的 click 都不再走 auto（见 act 中的说明）。
+  let writeRequested = false;
 
   async function authorizationCall<T>(
     call: () => Promise<T>,
@@ -436,11 +438,12 @@ export function createModelActBroker(
     }
     consumed.add(key);
 
-    // 在某个 tab 上请求过写入之后，该 tab 的 click 也不再走 auto：否则 operator 只批准了
-    // “填写”，模型随后自动点击提交按钮就能把写入的值提交出去，无需再审批（不变量 152）。
-    // 先于任何 trusted 请求标记，审批被拒或失败也不撤销。
+    // 本连接请求过写入之后，任何 tab 的 click 都不再走 auto：否则 operator 只批准了
+    // “填写”，模型随后自动点击提交按钮（或在另一个同源 tab 里点击“发送”已自动保存的草稿）
+    // 就能把写入的值提交出去，无需再审批（不变量 152）。
+    // 同步标记、先于任何 trusted 请求，审批被拒或失败也不撤销。
     if (input.action.kind !== "click") {
-      degradedTabs.add(input.tabId);
+      writeRequested = true;
     }
 
     const grant: TrustedStrictClickGrantInput = {
@@ -459,6 +462,7 @@ export function createModelActBroker(
       const autoIssue =
         input.action.kind === "click" &&
         approvalMode === "agent-owned-auto" &&
+        !writeRequested &&
         observation.tab.ownedBySession === true &&
         !degradedTabs.has(input.tabId);
       const stage: TraceAuthorization = {

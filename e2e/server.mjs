@@ -439,8 +439,9 @@ const pages = new Map([
   <body style="margin: 0">
     <input aria-label="Framed field" id="framed" style="width:40px">
     <script>
-      window.keyLog = [];
-      document.addEventListener("keydown", (event) => window.keyLog.push(event.key), true);
+      // 记到父页面（同源）上，测试只需在主页面读取，不必进入 iframe 执行脚本。
+      parent.frameKeyLog = [];
+      document.addEventListener("keydown", (event) => parent.frameKeyLog.push(event.key), true);
     </script>
   </body>
 </html>`],
