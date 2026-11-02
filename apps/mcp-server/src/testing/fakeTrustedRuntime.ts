@@ -282,6 +282,34 @@ export function makeButton(
 }
 
 /**
+ * 带 setValue capability 的原生单行文本框（S3 写入用例的目标）。
+ * displayValue 给出时附带字段值，用于 includeValues 相关断言。
+ */
+export function makeTextField(
+  ref: string,
+  frameId = "web:0",
+  name = "Email",
+  displayValue?: string,
+): ElementState {
+  return {
+    ref,
+    kind: "field",
+    semantic: { role: "textbox", name },
+    state: {
+      visible: true,
+      enabled: true,
+      focused: false,
+    },
+    ...(displayValue !== undefined
+      ? { value: { kind: "text", display: displayValue } }
+      : {}),
+    frameId,
+    capabilities: [{ kind: "setValue" }],
+    provenance: { dom: true, ax: true },
+  };
+}
+
+/**
  * 构造能通过 trusted client `isBrowserObservation` 全量校验的 observation。
  */
 export function makeObservation(

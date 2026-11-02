@@ -64,6 +64,12 @@ const KEY_LABELS: Readonly<Record<string, string>> = {
   ArrowDown: "↓",
 };
 
+/**
+ * 写入参数的来源说明：参数由调用方提供，不是页面给出的，但调用方可能是 AI 模型，
+ * 模型可能把从网页上读到的内容原样写进来——不能标注成可信内容（不变量 155）。
+ */
+export const CALLER_PROVIDED_NOTE = "由调用方提供，可能是 AI 模型；内容可能抄自网页";
+
 export const SUBMIT_NOTE =
   "将提交该字段所在的表单（该表单没有提交按钮，相当于在字段中按 Enter）";
 
@@ -113,7 +119,7 @@ export function approvalActionView(action: unknown): ApprovalActionView {
             title,
             approvable: true,
             detail: {
-              label: "将要填写的内容（来自调用方，非页面）",
+              label: "将要填写的内容（" + CALLER_PROVIDED_NOTE + "）",
               value: writeValueDisplay(record.value),
             },
           }
@@ -124,7 +130,7 @@ export function approvalActionView(action: unknown): ApprovalActionView {
             title,
             approvable: true,
             detail: {
-              label: "将要选择的选项（来自调用方，非页面）",
+              label: "将要选择的选项（" + CALLER_PROVIDED_NOTE + "）",
               value: writeValueDisplay(record.label),
             },
           }

@@ -1,10 +1,13 @@
 import {
   BrowserRuntimeError,
+  STRICT_VALUE_MAX_LENGTH,
+  strictArgsFromActAction,
   type BrowserObserveInput,
   type BrowserObserveOptions,
   type BrowserOpenInput,
   type BrowserVerifyInput,
   type BrowserWaitInput,
+  type StrictActionArgs,
   type VerificationSpec,
   type VerifyCondition,
 } from "@browser-agent-next/core";
@@ -19,6 +22,8 @@ export const MODEL_INPUT_LIMITS = {
   maxPollMs: 1_000,
   maxObserveElements: 500,
   maxActVerifyTimeoutMs: 5_000,
+  /** browser.act 的 value / label 上限（UTF-16 单元），与扩展侧 strict 参数校验同源。 */
+  maxWriteValueLength: STRICT_VALUE_MAX_LENGTH,
 } as const;
 
 export interface ModelExtractInput {
@@ -31,15 +36,18 @@ export interface ModelExtractInput {
 /**
  * model-facing browser.act 入参。
  *
- * 只描述“想点哪个已出境 ref、如何验证”；authorizationId / actionId /
+ * 只描述“对哪个已出境 ref 做什么动作、如何验证”；authorizationId / actionId /
  * assurance / source 等授权与执行身份字段只能由 MCP 进程内的 broker 生成，
  * 模型传入即拒绝。
+ *
+ * 模型侧是扁平的 kind / value / label / key，这里组装成经 core 校验的
+ * StrictActionArgs（docs/STRICT-WRITE-ACTIONS.md「S3」）。
  */
 export interface ModelActInput {
   tabId: number;
   observedRevision: string;
   ref: string;
-  kind: "click";
+  action: StrictActionArgs;
   verification: VerificationSpec;
   verifyTimeoutMs?: number;
 }
@@ -469,6 +477,9 @@ export function parseModelActInput(
         "observedRevision",
         "ref",
         "kind",
+        "value",
+        "label",
+        "key",
         "verification",
         "verifyTimeoutMs",
       ],
@@ -482,7 +493,6 @@ export function parseModelActInput(
       input.ref,
       MODEL_INPUT_LIMITS.maxRefLength,
     ) ||
-    input.kind !== "click" ||
     !isModelVerificationSpec(input.verification) ||
     !optionalFiniteNumber(
       input.verifyTimeoutMs,
@@ -493,16 +503,37 @@ export function parseModelActInput(
     throw invalidInput("browser.act");
   }
 
+  const action = modelStrictAction(input);
+
   return {
     tabId: input.tabId,
     observedRevision: input.observedRevision,
     ref: input.ref,
-    kind: "click",
+    action,
     verification: input.verification,
     ...(input.verifyTimeoutMs !== undefined
       ? { verifyTimeoutMs: input.verifyTimeoutMs as number }
       : {}),
   };
+}
+
+/**
+ * kind 与 value / label / key 的组合、长度、字符集与按键枚举都交给 core 校验。
+ * core 的错误消息只描述哪条规则失败；这里仍统一换成固定文本，不回显任何参数。
+ */
+function modelStrictAction(
+  input: Record<string, unknown>,
+): StrictActionArgs {
+  try {
+    return strictArgsFromActAction({
+      kind: input.kind,
+      value: input.value,
+      label: input.label,
+      key: input.key,
+    });
+  } catch {
+    throw invalidInput("browser.act");
+  }
 }
 
 function invalidInput(tool: string): BrowserRuntimeError {

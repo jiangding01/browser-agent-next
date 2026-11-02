@@ -32,6 +32,7 @@ import type {
 import {
   makeButton,
   makeObservation,
+  makeTextField,
   startFakeTrustedRuntime,
   type FakeTrustedHandler,
   type FakeTrustedReply,
@@ -91,6 +92,7 @@ interface Script {
 function actSuccess(
   request: FakeTrustedRequest,
   secret?: string,
+  valueMatched?: boolean,
 ): FakeTrustedReply {
   const action = request.action as Record<string, unknown>;
   const verification = request.verification as {
@@ -109,6 +111,7 @@ function actSuccess(
           effectClass: "unknown",
           ...(secret !== undefined ? { evidence: secret } : {}),
         },
+        ...(valueMatched !== undefined ? { valueMatched } : {}),
       },
       verification: {
         verified: true,
@@ -182,6 +185,28 @@ function scriptedHandlers(
           approvalRequestId: "approval-" + approvalRequests,
           authorizationId: request.authorizationId,
           expiresAt: Date.now() + 60_000,
+        },
+      };
+    },
+    // 与扩展一致：返回完整的审批 summary，其中含调用方给出的 action（写入值）。
+    "authorization.request-strict-action-approval": (request) => {
+      approvalRequests += 1;
+      return {
+        ok: true,
+        result: {
+          ...extra,
+          approvalRequestId: "approval-" + approvalRequests,
+          authorizationId: request.authorizationId,
+          tabId: request.tabId,
+          observedRevision: request.observedRevision,
+          ref: request.ref,
+          origin: ORIGIN_A,
+          pageTitle: "Fixture",
+          targetRole: "textbox",
+          action: request.action,
+          requestedAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          authorizationTtlMs: request.ttlMs,
         },
       };
     },
@@ -1072,4 +1097,344 @@ describe("model-facing side-effect wire integration", () => {
       }
     },
   );
+  describe("S3：strict 写入", () => {
+    const WRITE_CANARY = "CANARY-s3-wire-write-8e41";
+
+    function writeObservation(
+      tabId: number,
+      revision: string,
+      ownedBySession = false,
+    ): BrowserObservation {
+      return makeObservation({
+        tabId,
+        revision,
+        url: PAGE_A,
+        ownedBySession,
+        elements: [
+          makeTextField("@email"),
+          makeButton("@save"),
+        ],
+      });
+    }
+
+    function writeArgs(
+      tabId: number,
+      observedRevision: string,
+      ref = "@email",
+      fields: Record<string, unknown> = {
+        kind: "setValue",
+        value: WRITE_CANARY,
+      },
+    ): Record<string, unknown> {
+      return {
+        ...actArgs(tabId, observedRevision, ref),
+        ...fields,
+      };
+    }
+
+    /** wire 输出中不含写入值（结果、错误、progress 都走 wire）。 */
+    function expectNoWriteLeak(harness: Harness): void {
+      expectNoLeak(harness);
+      expect(harness.wire.transcript()).not.toContain(WRITE_CANARY);
+    }
+
+    it(
+      "setValue 全链路：审批请求带 action，批准后执行请求带同一参数；summary 回传的值不出现在结果与 progress 中",
+      async () => {
+        const harness = await startHarness(
+          actEnv({
+            [MCP_CONFIG_ENV.approvalTimeoutMs]: "30000",
+          }),
+          {
+            observe: (tabId, revision) =>
+              writeObservation(tabId, revision),
+            approvalStates: ["pending", "approved"],
+            act: (request) => actSuccess(request, undefined, true),
+          },
+        );
+
+        try {
+          const observation = await harness.observe(1);
+          const revision = observation.revision.id;
+          const call = await harness.callTool(
+            "browser.act",
+            writeArgs(1, revision),
+            "write-progress-1",
+          );
+
+          expect(call.isError).toBe(false);
+          // includeValues 默认关闭：不出境 valueMatched。
+          expect(Object.keys(call.payload).sort()).toEqual([
+            "effectClass",
+            "status",
+            "verification",
+            "verificationAttempts",
+          ]);
+          expect(call.payload).toMatchObject({
+            status: "executed",
+            effectClass: "unknown",
+          });
+          const progress = call.messages.filter(
+            (message) => message.method === "notifications/progress",
+          );
+          expect(progress.map((message) => message.params)).toEqual([
+            {
+              progressToken: "write-progress-1",
+              progress: 1,
+              message: MODEL_ACT_APPROVAL_PROGRESS_MESSAGE,
+            },
+          ]);
+
+          const runtime = harness.runtime;
+          expect(runtime.types()).toEqual([
+            "browser.observe",
+            "authorization.request-strict-action-approval",
+            "authorization.operator-approval-status",
+            "authorization.operator-approval-status",
+            "browser.act",
+            "browser.observe",
+          ]);
+
+          const [approval] = runtime.ofType(
+            "authorization.request-strict-action-approval",
+          );
+          expect(approval).toEqual({
+            type: "authorization.request-strict-action-approval",
+            requestId: approval!.requestId,
+            authorizationId: approval!.authorizationId,
+            tabId: 1,
+            observedRevision: revision,
+            ref: "@email",
+            ttlMs: MODEL_ACT_GRANT_TTL_MS,
+            approvalTtlMs: 30_000,
+            action: { kind: "setValue", value: WRITE_CANARY },
+          });
+          const authorizationId = approval!.authorizationId as string;
+          expect(authorizationId).toMatch(UUID);
+
+          const [act] = runtime.ofType("browser.act");
+          expect(act!.action).toEqual({
+            kind: "setValue",
+            value: WRITE_CANARY,
+            actionId: (act!.action as { actionId: string }).actionId,
+            observedRevision: revision,
+            ref: "@email",
+            authorizationId,
+          });
+          expect(act!.verifyTimeoutMs).toBe(0);
+
+          expect(
+            runtime.ofType("authorization.cancel-strict-click"),
+          ).toEqual([]);
+          expectNoWriteLeak(harness);
+        } finally {
+          await harness.close();
+        }
+      },
+      ACT_TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "agent-owned-auto 且 tab 归 session 所有：写入仍请求审批、从不签发；同一观察中的 click 仍走 auto",
+      async () => {
+        const harness = await startHarness(
+          actEnv({
+            [MCP_CONFIG_ENV.actApproval]: "agent-owned-auto",
+          }),
+          {
+            observe: (tabId, revision) =>
+              writeObservation(tabId, revision, true),
+          },
+        );
+
+        try {
+          const observation = await harness.observe(1);
+          expect(observation.tab.ownedBySession).toBe(true);
+          const revision = observation.revision.id;
+
+          const written = await harness.callTool(
+            "browser.act",
+            writeArgs(1, revision),
+          );
+          expect(written.isError).toBe(false);
+          const clicked = await harness.callTool(
+            "browser.act",
+            actArgs(1, revision, "@save"),
+          );
+          expect(clicked.isError).toBe(false);
+
+          const runtime = harness.runtime;
+          expect(runtime.types()).toEqual([
+            "browser.observe",
+            "authorization.request-strict-action-approval",
+            "authorization.operator-approval-status",
+            "browser.act",
+            "browser.observe",
+            "authorization.issue-strict-click",
+            "browser.act",
+            "browser.observe",
+          ]);
+          expect(
+            runtime.ofType("authorization.request-strict-action-approval")[0],
+          ).toMatchObject({
+            ref: "@email",
+            action: { kind: "setValue", value: WRITE_CANARY },
+          });
+          // click 的签发消息与 S3 之前相同：不带 action。
+          const [issued] = runtime.ofType("authorization.issue-strict-click");
+          expect(issued).not.toHaveProperty("action");
+          expect(issued).toMatchObject({ ref: "@save" });
+          const [, clickAct] = runtime.ofType("browser.act");
+          expect(clickAct!.action).toEqual({
+            kind: "click",
+            actionId: (clickAct!.action as { actionId: string }).actionId,
+            observedRevision: revision,
+            ref: "@save",
+            authorizationId: issued!.authorizationId,
+          });
+          expect(
+            runtime.ofType("authorization.issue-strict-action"),
+          ).toEqual([]);
+          expectNoWriteLeak(harness);
+        } finally {
+          await harness.close();
+        }
+      },
+      ACT_TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "写入审批被拒：AUTHORIZATION_REQUIRED 固定文本，撤销同一 authorizationId，从不执行；错误不含写入值",
+      async () => {
+        const harness = await startHarness(actEnv(), {
+          observe: (tabId, revision) =>
+            writeObservation(tabId, revision),
+          approvalStates: ["rejected"],
+        });
+
+        try {
+          const observation = await harness.observe(1);
+          const call = await harness.callTool(
+            "browser.act",
+            writeArgs(1, observation.revision.id, "@email", {
+              kind: "selectOption",
+              label: WRITE_CANARY,
+            }),
+          );
+
+          const error = errorOf(call);
+          expect(error).toEqual({
+            code: "AUTHORIZATION_REQUIRED",
+            message: "operator rejected the action",
+          });
+
+          const runtime = harness.runtime;
+          const [approval] = runtime.ofType(
+            "authorization.request-strict-action-approval",
+          );
+          expect(approval!.action).toEqual({
+            kind: "selectOption",
+            label: WRITE_CANARY,
+          });
+          const cancels = runtime.ofType(
+            "authorization.cancel-strict-click",
+          );
+          expect(cancels).toHaveLength(1);
+          expect(cancels[0]!.authorizationId).toBe(
+            approval!.authorizationId,
+          );
+          expect(runtime.ofType("browser.act")).toEqual([]);
+          expectNoWriteLeak(harness);
+        } finally {
+          await harness.close();
+        }
+      },
+      ACT_TEST_TIMEOUT_MS,
+    );
+
+    it(
+      "扩展拒绝写入（TARGET_CAPABILITY_MISSING，原文含写入值）：只出境 code",
+      async () => {
+        const harness = await startHarness(actEnv(), {
+          observe: (tabId, revision) =>
+            writeObservation(tabId, revision),
+          act: () => ({
+            ok: false,
+            error: {
+              code: "TARGET_CAPABILITY_MISSING",
+              message: "no option labelled " + WRITE_CANARY,
+            },
+          }),
+        });
+
+        try {
+          const observation = await harness.observe(1);
+          const call = await harness.callTool(
+            "browser.act",
+            writeArgs(1, observation.revision.id, "@email", {
+              kind: "selectOption",
+              label: WRITE_CANARY,
+            }),
+          );
+
+          expect(errorOf(call)).toEqual({
+            code: "TARGET_CAPABILITY_MISSING",
+            message:
+              "trusted Runtime rejected browser.act execution: TARGET_CAPABILITY_MISSING",
+          });
+          expectNoWriteLeak(harness);
+        } finally {
+          await harness.close();
+        }
+      },
+      ACT_TEST_TIMEOUT_MS,
+    );
+
+    it.each([false, true])(
+      "includeValues=%s：valueMatched 只在 true 时出境，写入后验证的 observe 按配置带值",
+      async (includeValues) => {
+        const harness = await startHarness(
+          actEnv({
+            [MCP_CONFIG_ENV.includeValues]: String(includeValues),
+          }),
+          {
+            observe: (tabId, revision) =>
+              writeObservation(tabId, revision),
+            act: (request) => actSuccess(request, undefined, false),
+          },
+        );
+
+        try {
+          const observation = await harness.observe(1);
+          const call = await harness.callTool(
+            "browser.act",
+            writeArgs(1, observation.revision.id),
+          );
+
+          expect(call.isError).toBe(false);
+          if (includeValues) {
+            expect(call.payload.valueMatched).toBe(false);
+          } else {
+            expect(call.payload).not.toHaveProperty("valueMatched");
+          }
+
+          const observes = harness.runtime.ofType("browser.observe");
+          expect(observes).toHaveLength(2);
+          // 模型自己的 observe 没要值；act 后的本地验证按 operator 配置带值。
+          expect(
+            (observes[0]!.options as { includeValues?: boolean })
+              .includeValues,
+          ).toBe(false);
+          expect(
+            (observes[1]!.options as { includeValues?: boolean })
+              .includeValues,
+          ).toBe(includeValues);
+          expectNoWriteLeak(harness);
+        } finally {
+          await harness.close();
+        }
+      },
+      ACT_TEST_TIMEOUT_MS,
+    );
+  });
 });

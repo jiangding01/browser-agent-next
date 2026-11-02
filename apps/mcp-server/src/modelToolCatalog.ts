@@ -1,3 +1,7 @@
+import {
+  STRICT_ACTION_KINDS,
+  STRICT_KEYS,
+} from "@browser-agent-next/core";
 import type { ModelFacingToolName } from "@browser-agent-next/policy";
 import { ModelToolExposurePolicy } from "@browser-agent-next/policy";
 import { MODEL_INPUT_LIMITS } from "./modelToolInput.js";
@@ -296,15 +300,41 @@ const DEFINITIONS: readonly ModelFacingMcpTool[] = [
   },
   {
     name: "browser.act",
-    title: "Click an observed element",
+    title: "Act on an observed element",
     description:
-      "Side-effect tool, not exposed unless explicitly configured. Click a ref from a revision already exposed to this model connection; authorization is obtained by the MCP-side broker (operator approval by default), never supplied by the model. The result carries only status, effectClass \"unknown\" and a verification recomputed locally on fresh model-visible (policy-projected) observations within verifyTimeoutMs.",
+      "Side-effect tool, not exposed unless explicitly configured. Act on a ref from a revision already exposed to this model connection. kind is one of: click; setValue (requires value: the complete new single-line field value, an empty string clears the field); selectOption (requires label: the visible text of exactly one option of a native <select>); submit (submits the form that owns the field ref); pressKey (requires key: one of " +
+      STRICT_KEYS.join(", ") +
+      "). Send value, label or key only with the kind that requires it. value and label must be a single line of at most " +
+      MODEL_INPUT_LIMITS.maxWriteValueLength +
+      " characters with no control, format or invisible characters. Authorization is obtained by the MCP-side broker, never supplied by the model: click uses operator approval by default; setValue, selectOption, submit and pressKey always require the operator to approve each action after seeing its full parameters on the browser extension approval page. The result never echoes value, label or key; it carries only status, effectClass \"unknown\" and a verification recomputed locally on fresh model-visible (policy-projected) observations within verifyTimeoutMs. Field values leave the browser only when the operator enabled them: otherwise field_value conditions are inconclusive and no valueMatched is reported; when enabled, a write may also report valueMatched (whether the field ended up holding exactly the requested value).",
     inputSchema: objectSchema(
       {
         tabId: TAB_ID_SCHEMA,
         observedRevision: REF_SCHEMA,
         ref: REF_SCHEMA,
-        kind: { const: "click" },
+        // 扁平形状而不是 oneOf：部分 MCP 客户端不支持复合 schema；
+        // kind 与 value / label / key 的组合约束由服务端（core）校验。
+        kind: {
+          type: "string",
+          enum: [...STRICT_ACTION_KINDS],
+        },
+        // 允许空串（清空字段）。JSON Schema 的 maxLength 按码点计数、
+        // core 按 UTF-16 单元计数，schema 可能比服务端宽，以服务端为准。
+        value: {
+          type: "string",
+          maxLength:
+            MODEL_INPUT_LIMITS.maxWriteValueLength,
+        },
+        label: {
+          type: "string",
+          minLength: 1,
+          maxLength:
+            MODEL_INPUT_LIMITS.maxWriteValueLength,
+        },
+        key: {
+          type: "string",
+          enum: [...STRICT_KEYS],
+        },
         verification: VERIFICATION_SCHEMA,
         verifyTimeoutMs: {
           type: "number",

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  STRICT_ACTION_KINDS,
+  STRICT_KEYS,
+  STRICT_VALUE_MAX_LENGTH,
+} from "@browser-agent-next/core";
+import {
   MODEL_FACING_DEFAULT_TOOL_NAMES,
   ModelToolExposurePolicy,
   type ModelFacingToolName,
@@ -177,10 +182,13 @@ describe("model-facing MCP tool catalog", () => {
     expect(
       Object.keys(record(act.inputSchema.properties)).sort(),
     ).toEqual([
+      "key",
       "kind",
+      "label",
       "observedRevision",
       "ref",
       "tabId",
+      "value",
       "verification",
       "verifyTimeoutMs",
     ]);
@@ -192,7 +200,8 @@ describe("model-facing MCP tool catalog", () => {
       "verification",
     ]);
     expect(property(act.inputSchema, "kind")).toEqual({
-      const: "click",
+      type: "string",
+      enum: [...STRICT_ACTION_KINDS],
     });
     expect(
       property(act.inputSchema, "ref").maxLength,
@@ -208,6 +217,62 @@ describe("model-facing MCP tool catalog", () => {
         .additionalProperties,
     ).toBe(false);
     expect(act.description).toContain("Side-effect");
+    expect(act.title).toBe("Act on an observed element");
+  });
+
+  it("browser.act 的 kind / key 枚举与 value / label 长度上限取自 core 常量（改常量即改 schema）", () => {
+    const act = MODEL_FACING_MCP_TOOL_DEFINITIONS.find(
+      (tool) => tool.name === "browser.act",
+    )!;
+
+    expect(MODEL_INPUT_LIMITS.maxWriteValueLength).toBe(
+      STRICT_VALUE_MAX_LENGTH,
+    );
+    expect(property(act.inputSchema, "kind").enum).toEqual([
+      ...STRICT_ACTION_KINDS,
+    ]);
+    expect(STRICT_ACTION_KINDS).toEqual([
+      "click",
+      "setValue",
+      "selectOption",
+      "submit",
+      "pressKey",
+    ]);
+    expect(property(act.inputSchema, "key")).toEqual({
+      type: "string",
+      enum: [...STRICT_KEYS],
+    });
+    // value 允许空串（清空字段），label 必须非空。
+    expect(property(act.inputSchema, "value")).toEqual({
+      type: "string",
+      maxLength: STRICT_VALUE_MAX_LENGTH,
+    });
+    expect(property(act.inputSchema, "label")).toEqual({
+      type: "string",
+      minLength: 1,
+      maxLength: STRICT_VALUE_MAX_LENGTH,
+    });
+    // schema 引用的不是 core 数组本身：deepFreeze 不会冻结 core 的常量。
+    expect(property(act.inputSchema, "kind").enum).not.toBe(
+      STRICT_ACTION_KINDS,
+    );
+    expect(Object.isFrozen(STRICT_KEYS)).toBe(false);
+
+    // description 写明每种 kind 的字段、上限、审批与 includeValues 的影响。
+    for (const fragment of [
+      "setValue (requires value",
+      "selectOption (requires label",
+      "pressKey (requires key: one of " + STRICT_KEYS.join(", "),
+      "at most " + STRICT_VALUE_MAX_LENGTH + " characters",
+      "always require the operator to approve each action",
+      "never echoes value, label or key",
+      "field_value conditions are inconclusive",
+    ]) {
+      expect(act.description).toContain(fragment);
+    }
+    // 没有 oneOf / anyOf：部分 MCP 客户端不支持复合 schema。
+    expect(act.inputSchema).not.toHaveProperty("oneOf");
+    expect(act.inputSchema).not.toHaveProperty("anyOf");
   });
 
   it("catalog 继续由 ModelToolExposurePolicy 做最终过滤", () => {
@@ -287,9 +352,11 @@ describe("model-facing MCP tool catalog", () => {
 
 describe("parseModelActInput", () => {
   it("接受精确字段集合并只返回已知字段", () => {
-    expect(parseModelActInput(validActInput)).toEqual(
-      validActInput,
-    );
+    const { kind: _kind, ...rest } = validActInput;
+    expect(parseModelActInput(validActInput)).toEqual({
+      ...rest,
+      action: { kind: "click" },
+    });
 
     const { verifyTimeoutMs: _timeout, ...withoutTimeout } =
       validActInput;
@@ -318,15 +385,104 @@ describe("parseModelActInput", () => {
     );
   });
 
-  it("kind 必须是 click", () => {
-    for (const kind of ["setValue", "CLICK", undefined, 1]) {
-      expect(() =>
-        parseModelActInput({ ...validActInput, kind })
-      ).toThrow(
-        expect.objectContaining({ code: "POLICY_BLOCKED" }),
-      );
-    }
-  });
+  it.each([
+    [{ kind: "click" }, { kind: "click" }],
+    [
+      { kind: "setValue", value: "hello 世界" },
+      { kind: "setValue", value: "hello 世界" },
+    ],
+    // 空串表示清空字段。
+    [{ kind: "setValue", value: "" }, { kind: "setValue", value: "" }],
+    [
+      {
+        kind: "setValue",
+        value: "x".repeat(STRICT_VALUE_MAX_LENGTH),
+      },
+      {
+        kind: "setValue",
+        value: "x".repeat(STRICT_VALUE_MAX_LENGTH),
+      },
+    ],
+    [
+      { kind: "selectOption", label: "Option B" },
+      { kind: "selectOption", label: "Option B" },
+    ],
+    [{ kind: "submit" }, { kind: "submit" }],
+    ...STRICT_KEYS.map((key) => [
+      { kind: "pressKey", key },
+      { kind: "pressKey", key },
+    ]),
+  ] as Array<[Record<string, unknown>, unknown]>)(
+    "合法动作 %j 组装为 StrictActionArgs",
+    (fields, action) => {
+      const { kind: _kind, ...base } = validActInput;
+      const parsed = parseModelActInput({ ...base, ...fields });
+
+      expect(parsed.action).toEqual(action);
+      expect(parsed).not.toHaveProperty("kind");
+      expect(parsed).not.toHaveProperty("value");
+      expect(parsed).not.toHaveProperty("label");
+      expect(parsed).not.toHaveProperty("key");
+    },
+  );
+
+  const CANARY = "CANARY-act-input-9f3c";
+
+  it.each([
+    ["click 带 value", { kind: "click", value: CANARY }],
+    ["click 带 label", { kind: "click", label: CANARY }],
+    ["click 带 key", { kind: "click", key: "Tab" }],
+    ["setValue 缺 value", { kind: "setValue" }],
+    ["setValue 带 label", { kind: "setValue", value: CANARY, label: CANARY }],
+    ["setValue 的 value 不是字符串", { kind: "setValue", value: 1 }],
+    [
+      "setValue 超长",
+      {
+        kind: "setValue",
+        value: CANARY + "x".repeat(STRICT_VALUE_MAX_LENGTH),
+      },
+    ],
+    ["setValue 含换行", { kind: "setValue", value: CANARY + "\nnext" }],
+    ["setValue 含制表符", { kind: "setValue", value: CANARY + "\t" }],
+    ["setValue 含零宽字符", { kind: "setValue", value: CANARY + "\u200B" }],
+    ["setValue 含 bidi 覆盖", { kind: "setValue", value: CANARY + "\u202E" }],
+    ["setValue 含 NBSP", { kind: "setValue", value: CANARY + "\u00A0" }],
+    ["setValue 含孤立代理项", { kind: "setValue", value: CANARY + "\uD800" }],
+    ["selectOption 缺 label", { kind: "selectOption" }],
+    ["selectOption 空 label", { kind: "selectOption", label: "" }],
+    ["selectOption 带 value", { kind: "selectOption", label: CANARY, value: CANARY }],
+    ["selectOption 带 key", { kind: "selectOption", label: CANARY, key: "Tab" }],
+    ["selectOption 超长", { kind: "selectOption", label: CANARY + "x".repeat(STRICT_VALUE_MAX_LENGTH) }],
+    ["submit 带 value", { kind: "submit", value: CANARY }],
+    ["pressKey 缺 key", { kind: "pressKey" }],
+    ["pressKey 未知 key（Enter）", { kind: "pressKey", key: "Enter" }],
+    ["pressKey 未知 key（金丝雀）", { kind: "pressKey", key: CANARY }],
+    ["pressKey 带 value", { kind: "pressKey", key: "Tab", value: CANARY }],
+    ["未知 kind", { kind: CANARY }],
+    ["kind 大小写不符", { kind: "CLICK" }],
+    ["kind 缺失", { kind: undefined }],
+    ["kind 不是字符串", { kind: 1 }],
+    ["多余字段", { kind: "setValue", value: CANARY, text: CANARY }],
+  ] as Array<[string, Record<string, unknown>]>)(
+    "%s：POLICY_BLOCKED，错误消息为固定文本、不含参数",
+    (_name, fields) => {
+      const { kind: _kind, ...base } = validActInput;
+      let caught: unknown;
+      try {
+        parseModelActInput({ ...base, ...fields });
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toMatchObject({
+        code: "POLICY_BLOCKED",
+        message:
+          "browser.act rejected invalid or unbounded model input",
+      });
+      expect(JSON.stringify(caught)).not.toContain(CANARY);
+      expect(String((caught as Error).stack)).not.toContain(CANARY);
+    },
+  );
 
   it("verifyTimeoutMs 必须在 0..5000，ref/revision/verification 必须有界且合法", () => {
     expect(() =>

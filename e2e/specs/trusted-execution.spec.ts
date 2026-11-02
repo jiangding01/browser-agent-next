@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -4209,7 +4210,7 @@ test(
           name: "City",
           action: select("广州"),
           title: "待批准的选择",
-          label: "将要选择的选项（来自调用方，非页面）",
+          label: "将要选择的选项（由调用方提供，可能是 AI 模型；内容可能抄自网页）",
           value: "广州",
         },
         {
@@ -4295,6 +4296,231 @@ test(
     } finally {
       await host?.close();
       rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "Strict S3：模型经 MCP 写入恒需 operator 审批（agent-owned-auto 下 click 仍自动），参数不出境到结果、progress 与 trace",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+    test.setTimeout(90_000);
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    // trace 目录必须是当前用户拥有、0700 的真实目录（不变量 136）。
+    const traceDir = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-trace-"),
+    );
+    chmodSync(traceDir, 0o700);
+    let host: TrustedHostBrowser | undefined;
+    let mcp: McpProcessClient | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home, () => {
+        writeAutoActOrigins(home);
+      });
+      const active = host;
+      const extensionId = await extensionIdOf(active.context);
+
+      const env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (
+          value !== undefined &&
+          !key.startsWith("BROWSER_AGENT_NEXT_")
+        ) {
+          env[key] = value;
+        }
+      }
+      Object.assign(env, {
+        HOME: home,
+        BROWSER_AGENT_NEXT_RPC_PORT: String(active.rpcPort),
+        BROWSER_AGENT_NEXT_RPC_TOKEN_PATH: path.join(
+          home,
+          ".browser-agent-next/trusted-rpc.token",
+        ),
+        BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_ACT_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_TOOLS:
+          "browser.open,browser.observe,browser.act,browser.verify",
+        // auto 只放宽 click：写入在这里仍必须出现审批卡片。
+        BROWSER_AGENT_NEXT_MODEL_ACT_APPROVAL: "agent-owned-auto",
+        BROWSER_AGENT_NEXT_MODEL_APPROVAL_TIMEOUT_MS: "30000",
+        BROWSER_AGENT_NEXT_TRACE_DIR: traceDir,
+      });
+
+      mcp = startMcpProcess(env);
+      const client = mcp;
+      const initialized = await client.request("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "browser-agent-next-e2e", version: "0.0.0" },
+      }).response;
+      expect(initialized.result).toBeTruthy();
+      client.notify("notifications/initialized", {});
+
+      async function callTool(name: string, args: Record<string, unknown>) {
+        const { response } = client.request("tools/call", { name, arguments: args });
+        return toolPayload(await response);
+      }
+
+      // 模型自己打开的 tab 归 session 所有，满足 agent-owned-auto 的前提。
+      const createdPage = active.context.waitForEvent("page");
+      const opened = await callTool("browser.open", {
+        url: fixtureOrigin + "/strict-write.html",
+        active: false,
+      });
+      expect(opened.isError, JSON.stringify(opened.value)).toBe(false);
+      const page = await createdPage;
+      await page.waitForLoadState("load");
+      const tabId = opened.value.tabId as number;
+
+      async function observe() {
+        const observed = await callTool("browser.observe", {
+          tabId,
+          options: { includeOpenShadowRoots: true },
+        });
+        expect(observed.isError, JSON.stringify(observed.value)).toBe(false);
+        const elements = observed.value.elements as Array<{
+          ref: string;
+          semantic: { name?: string };
+        }>;
+        return {
+          revision: (observed.value.revision as { id: string }).id,
+          refOf(name: string) {
+            const found = elements.filter((element) => element.semantic.name === name);
+            if (found.length !== 1) {
+              throw new Error("expected exactly one element named " + name + ", got " + found.length);
+            }
+            return found[0]!.ref;
+          },
+        };
+      }
+
+      const refExists = (ref: string) => ({
+        mode: "all",
+        conditions: [{ type: "ref_exists", ref }],
+      });
+
+      const popup = await active.context.newPage();
+      await popup.goto("chrome-extension://" + extensionId + "/operator-approval.html");
+      const pendingCards = popup.locator(".approval-card:not(.stale)");
+
+      // 1. 对照组：同一 MCP 配置下，归 session 所有的 tab 上的 click 自动执行、不出现审批卡片。
+      const forClick = await observe();
+      const clicked = await callTool("browser.act", {
+        tabId,
+        observedRevision: forClick.revision,
+        ref: forClick.refOf("Shadow button"),
+        kind: "click",
+        verification: refExists(forClick.refOf("Shadow button")),
+      });
+      expect(clicked.isError, JSON.stringify(clicked.value)).toBe(false);
+      expect(
+        await page.evaluate(() => (window as unknown as { shadowClicks: number }).shadowClicks),
+      ).toBe(1);
+      await expect(pendingCards).toHaveCount(0);
+
+      // 2. setValue：仍出现审批卡片，显示动作、来源说明与完整值；批准后写入。
+      const approvedValue = "S3-CANARY-已批准 42";
+      const forWrite = await observe();
+      const nameRef = forWrite.refOf("Full name");
+      await popup.bringToFront();
+      const writeCall = client.request("tools/call", {
+        name: "browser.act",
+        arguments: {
+          tabId,
+          observedRevision: forWrite.revision,
+          ref: nameRef,
+          kind: "setValue",
+          value: approvedValue,
+          verification: refExists(nameRef),
+        },
+        _meta: { progressToken: "s3-write" },
+      });
+      await expect(pendingCards).toHaveCount(1, { timeout: 15_000 });
+      const card = pendingCards.first();
+      await expect(card.locator("h2")).toHaveText("待批准的填写");
+      await expect(card.locator(".write-value-label")).toHaveText(
+        "将要填写的内容（由调用方提供，可能是 AI 模型；内容可能抄自网页）",
+      );
+      await expect(card.locator(".write-value-text")).toHaveText(approvedValue, { useInnerText: false });
+      await expect(card.getByRole("button", { name: "批准一次" })).toBeEnabled({ timeout: 5_000 });
+      await card.getByRole("button", { name: "批准一次" }).click();
+
+      const written = toolPayload(await writeCall.response);
+      expect(written.isError, JSON.stringify(written.value)).toBe(false);
+      expect(written.value).toMatchObject({ status: "executed", effectClass: "unknown" });
+      // includeValues 未开启：valueMatched 不出境。
+      expect(written.value).not.toHaveProperty("valueMatched");
+      expect(JSON.stringify(written.value)).not.toContain("S3-CANARY");
+      await expect(page.locator("#name")).toHaveValue(approvedValue);
+
+      // 3. 同一次观察中对同一 ref 再写：在任何审批之前被拒，字段不变。
+      const repeated = await callTool("browser.act", {
+        tabId,
+        observedRevision: forWrite.revision,
+        ref: nameRef,
+        kind: "setValue",
+        value: "S3-CANARY-重复",
+        verification: refExists(nameRef),
+      });
+      expect(repeated.isError).toBe(true);
+      expect(repeated.value).toMatchObject({ ok: false, error: { code: "POLICY_BLOCKED" } });
+      expect(JSON.stringify(repeated.value)).not.toContain("S3-CANARY");
+      await expect(pendingCards).toHaveCount(0);
+      await expect(page.locator("#name")).toHaveValue(approvedValue);
+
+      // 4. 审批页拒绝：字段不变，模型得到授权错误，该审批不能再被批准。
+      const forReject = await observe();
+      const notesRef = forReject.refOf("Notes");
+      const rejectCall = client.request("tools/call", {
+        name: "browser.act",
+        arguments: {
+          tabId,
+          observedRevision: forReject.revision,
+          ref: notesRef,
+          kind: "setValue",
+          value: "S3-CANARY-被拒绝",
+          verification: refExists(notesRef),
+        },
+      });
+      await expect(pendingCards).toHaveCount(1, { timeout: 15_000 });
+      const rejectCard = pendingCards.first();
+      await expect(rejectCard.locator(".write-value-text")).toHaveText("S3-CANARY-被拒绝", { useInnerText: false });
+      await expect(rejectCard.getByRole("button", { name: "拒绝" })).toBeEnabled({ timeout: 5_000 });
+      await rejectCard.getByRole("button", { name: "拒绝" }).click();
+
+      const rejected = toolPayload(await rejectCall.response);
+      expect(rejected.isError).toBe(true);
+      expect(rejected.value).toMatchObject({ ok: false, error: { code: "AUTHORIZATION_REQUIRED" } });
+      expect(JSON.stringify(rejected.value)).not.toContain("S3-CANARY");
+      await expect(page.locator("#notes")).toHaveValue("");
+      await expect(pendingCards).toHaveCount(0);
+      await expect(
+        popup.locator(".approval-card.stale").getByRole("button", { name: "批准一次" }),
+      ).toBeDisabled();
+
+      // 5. progress 通知与 trace 文件中都没有任何写入值（对照：trace 里确有 browser.act 事件）。
+      expect(JSON.stringify(client.notifications)).not.toContain("S3-CANARY");
+      const protocolErrors = await client.close();
+      mcp = undefined;
+      expect(protocolErrors, "MCP stdout 出现非 JSON 行").toEqual([]);
+      const traceText = readdirSync(traceDir)
+        .map((file) => readFileSync(path.join(traceDir, file), "utf8"))
+        .join("\n");
+      expect(traceText).toContain("browser.act");
+      expect(traceText).not.toContain("S3-CANARY");
+    } finally {
+      await mcp?.close().catch(() => undefined);
+      await host?.close().catch(() => undefined);
+      rmSync(home, { recursive: true, force: true });
+      rmSync(traceDir, { recursive: true, force: true });
     }
   },
 );
