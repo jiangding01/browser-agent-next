@@ -1,10 +1,10 @@
 # 实现进度
 
-最后更新：2026-10-30
+最后更新：2026-11-05
 
 ## 当前基线
 
-PR #1～#20 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1、S2 完成；Strict 写入 S3（向模型开放写入，强制 operator 审批）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -38,6 +38,7 @@ Phase 7-0b 脱敏 trace + 有界 sink              ✅
 Strict 写入 S1 trusted 路径 setValue          ✅
 Strict 写入 S2 trusted 路径 selectOption / submit / pressKey ✅
 Strict 写入 S3 model-facing 写入（强制 operator 审批）✅
+Phase 7-1 deterministic router（离线）           ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -440,9 +441,33 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 代码经 check（Deep）审查与两轮独立对抗式审查：0 HIGH；1 MEDIUM（`agent-owned-auto` 下写入获批后自动 click 提交按钮）分两轮修复为“本连接请求过写入后所有 tab 停用 auto”；1 MEDIUM（该状态不跨 MCP 连接）作为已接受残余写入 SECURITY；LOW 均已修复或核实 ✅
 - 顺带修复 S2 E2E 的偶发超时：frame owner 用例在 iframe 内执行脚本读取按键记录时偶发挂起（连跑 8 次失败 2 次），改为子帧把按键记到父页面并补对照组，连跑 8 次全部通过
 
+## Phase 7-1：deterministic router（离线）
+
+方案见 `docs/DETERMINISTIC-ROUTER.md`（think 编写，独立对抗式审查两轮：第一轮 2 HIGH、4 MEDIUM、4 LOW，第二轮 0 HIGH、2 MEDIUM、5 LOW，均在实现前并入）。
+
+- core：`effectiveFrameUrl` 从 mcp-server 迁入，出境投影、act broker 与 router 共用；
+- 新包 `packages/router`（只依赖 core）：
+  - `parseStepIntent`：exact-key，`operation` 只有 click，名称复用 `isStrictValueAllowed` 的字符规则、上限 200，role 与 frameOrigin 精确校验；
+  - `exactKey` / `looseKey`：前者判匹配（NFKC + 空白折叠，保留大小写与不可见字符），后者判可疑同名（删不可见字符与空白、upper→lower 折叠、末尾 NFKC）；
+  - `routeStep`：完整性闸门（page scope、actionable complete、open shadow root 已覆盖、无 degraded 与不可访问 frame、非 opaque 顶层 origin、无阻塞 overlay / 模态 dialog）→ 顶层 origin 作用域 → DOM provenance 的可见唯一匹配 → 禁用 / 不可点 / 遮挡 / 视口外检查；任何歧义 defer；
+- eval：fixture 可选 `intent` 与 tag `structured-intent`，harness 把 intent 传给 provider，`fixtureObservation` 的 `tab.origin` 改由 url 推导；新增 `routedDecisionProvider`、`escalateProvider`、`evaluateRouter` 与第二批 16 个 router fixture（含逐条期望路由结果）；
+- 运行期行为不变：MCP、broker、扩展均未改动，只有 `effectiveFrameUrl` 的 import 位置变化；
+- 新增不变量 156～160。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅（lockfile 只新增 router 包的 importer 链接）
+- TypeScript typecheck ✅
+- Unit / integration tests（1026 个）✅
+- Workspace build ✅
+- Real Chromium E2E：本 PR 无运行期行为变化，由 CI browser-e2e 覆盖
+- 变异验证：28 种变异全部被单测抓到（明细见 `docs/DETERMINISTIC-ROUTER.md`「实现记录」）✅
+- 代码经 check（Deep）两路独立审查：1 HIGH（跨源 frame 劫持的 `about:blank` 被当作父 frame 同源）已修复，router 对经过 `about:blank` 推出的 origin 一律视为无法判定；安全 2 LOW（异常、intent 原型绕过）、评测 1 MEDIUM 与架构 3 LOW 已修复；出境投影与 act broker 的同类已有缺陷记入方案文档，单独处理
+- router 批次：`resolvedWrong` 为空，resolve 5 / 16 且全部正确，`missedClick` 为 3；与 7-0a 批次合跑时 `routedDecisionProvider(escalateProvider)` 的 unsafeClick 为 0 ✅
+
 ## 下一步
 
-1. Phase 7 正式条目（deterministic router → Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。
+1. Phase 7 后续条目（Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。fast_step 方案需要决定：router 跑在模型可见投影还是 trusted observation 上，以及 router 解析出的 click 是否允许走 `agent-owned-auto`（见 `docs/DETERMINISTIC-ROUTER.md`「残余风险」）。
 
 ## 文档
 

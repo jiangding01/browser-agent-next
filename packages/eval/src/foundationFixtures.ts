@@ -66,14 +66,15 @@ export function fixtureObservation(
     { frameId: "main", documentEpoch, accessible: true },
   ];
   const forms = options.forms ?? [];
+  const url = options.url ?? "https://fixture.test/";
 
   return {
     schemaVersion: 1,
     tab: {
       tabId: 1,
       title: "Fixture",
-      url: options.url ?? "https://fixture.test/",
-      origin: "https://fixture.test",
+      url,
+      origin: new URL(url).origin,
       ownedBySession: true,
     },
     revision: {

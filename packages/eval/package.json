@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@browser-agent-next/core": "workspace:*",
+    "@browser-agent-next/router": "workspace:*",
     "@browser-agent-next/runtime": "workspace:*"
   }
 }

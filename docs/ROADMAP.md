@@ -94,7 +94,7 @@
 - [x] S3 向模型开放写入：model-facing `browser.act` 接受五种 strict 动作，写入恒需 operator 审批，参数不出境，`valueMatched` 只在 includeValues 时出境
 
 ## Phase 7 — Intelligence
-- [ ] deterministic router
+- [x] deterministic router（7-1 离线：结构化 StepIntent 的确定性解析、完整性闸门与可疑同名检测、第二批 16 个 router fixture；运行期接入随 fast_step）
 - [ ] Jev CandidateBuilder
 - [ ] offline replay
 - [ ] shadow mode

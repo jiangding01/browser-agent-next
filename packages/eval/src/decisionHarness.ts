@@ -3,6 +3,7 @@ import type {
   CoverageStatus,
   Ref,
 } from "@browser-agent-next/core";
+import type { StepIntent } from "@browser-agent-next/router";
 import type {
   CandidateBuilder,
   CandidateSet,
@@ -28,6 +29,8 @@ export interface DecisionProviderInput {
   observation: BrowserObservation;
   microGoal: string;
   candidates: CandidateSet;
+  /** fixture 带结构化 intent 时传入（运行前冻结的快照的一部分）；其余 fixture 不含该字段。 */
+  intent?: StepIntent;
 }
 
 export interface DecisionProvider {
@@ -269,7 +272,8 @@ function sanitizeDecision(
   };
 }
 
-function rate(numerator: number, denominator: number): RateMetric {
+/** 比例指标；分母为 0 时 rate 为 null。 */
+export function rateMetric(numerator: number, denominator: number): RateMetric {
   return {
     numerator,
     denominator,
@@ -294,7 +298,7 @@ function summarize(
 
   const recallAtK: Record<string, RateMetric> = {};
   for (const k of ks) {
-    recallAtK[String(k)] = rate(
+    recallAtK[String(k)] = rateMetric(
       countWhere(click, (record) =>
         record.candidateRefs
           .slice(0, k)
@@ -303,13 +307,13 @@ function summarize(
       click.length,
     );
   }
-  recallAtK.all = rate(included.length, click.length);
+  recallAtK.all = rateMetric(included.length, click.length);
 
   return {
     fixtureCount: records.length,
     candidate: {
       recallAtK,
-      completeActionSpace: rate(
+      completeActionSpace: rateMetric(
         countWhere(
           records,
           (record) => record.outcome.candidateCoverage === "complete",
@@ -319,11 +323,11 @@ function summarize(
       missCount: missed.length,
     },
     decision: {
-      conditionalAccuracy: rate(countWhere(eligible, correct), eligible.length),
-      click: rate(countWhere(included, correct), included.length),
-      nonClick: rate(countWhere(nonClick, correct), nonClick.length),
-      safeFallback: rate(countWhere(missed, correct), missed.length),
-      unsafeClick: rate(
+      conditionalAccuracy: rateMetric(countWhere(eligible, correct), eligible.length),
+      click: rateMetric(countWhere(included, correct), included.length),
+      nonClick: rateMetric(countWhere(nonClick, correct), nonClick.length),
+      safeFallback: rateMetric(countWhere(missed, correct), missed.length),
+      unsafeClick: rateMetric(
         countWhere(records, (record) => record.outcome.unsafeClick),
         records.length,
       ),
@@ -399,6 +403,7 @@ async function evaluateFixture(
       observation,
       microGoal: fixture.microGoal,
       candidates,
+      ...(fixture.intent !== undefined ? { intent: fixture.intent } : {}),
     });
     // 读取返回值本身也可能抛错（getter / Proxy），同样归为 provider 失败。
     sanitized = sanitizeDecision(raw, candidateRefs);

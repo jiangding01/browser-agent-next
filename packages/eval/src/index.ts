@@ -4,3 +4,5 @@ export * from "./decisionFixtures.js";
 export * from "./candidateBuilder.js";
 export * from "./decisionHarness.js";
 export * from "./traceSummary.js";
+export * from "./routerEvaluation.js";
+export * from "./routerFixtures.js";

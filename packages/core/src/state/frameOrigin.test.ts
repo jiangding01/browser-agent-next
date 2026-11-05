@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserObservation } from "@browser-agent-next/core";
+import type { BrowserObservation } from "./types.js";
 import { effectiveFrameUrl } from "./frameOrigin.js";
 
 type Frames = BrowserObservation["frames"];

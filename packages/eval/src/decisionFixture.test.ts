@@ -158,4 +158,37 @@ describe("validateDecisionFixtures", () => {
       ).not.toThrow();
     }
   });
+  it("accepts an intent exactly when tagged structured-intent", () => {
+    const intent = { operation: "click" as const, target: { name: "Save" } };
+    expect(() =>
+      validateDecisionFixtures([
+        validFixture({ intent, tags: ["structured-intent"] }),
+      ]),
+    ).not.toThrow();
+    rejects(
+      validFixture({ intent, tags: ["replacement"] }),
+      /intent exactly when tagged structured-intent/,
+    );
+    rejects(
+      validFixture({ tags: ["structured-intent"] }),
+      /intent exactly when tagged structured-intent/,
+    );
+  });
+
+  it("rejects an invalid intent", () => {
+    rejects(
+      validFixture({
+        intent: { operation: "click", target: { name: "Sa\u200Bve" } },
+        tags: ["structured-intent"],
+      }),
+      /intent must be a valid step intent/,
+    );
+  });
+
+  it("derives the tab origin from the fixture url", () => {
+    expect(fixtureObservation().tab.origin).toBe("https://fixture.test");
+    expect(
+      fixtureObservation({ url: "https://other.fixture.test:8443/path?q=1" }).tab.origin,
+    ).toBe("https://other.fixture.test:8443");
+  });
 });

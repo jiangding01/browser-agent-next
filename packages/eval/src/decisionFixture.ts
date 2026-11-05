@@ -2,6 +2,7 @@ import type {
   BrowserObservation,
   Ref,
 } from "@browser-agent-next/core";
+import { parseStepIntent, type StepIntent } from "@browser-agent-next/router";
 
 /**
  * Jev 初始操作空间（docs/DESIGN.md）。
@@ -29,6 +30,7 @@ export const FIXTURE_TAGS = [
   "child-frame",
   "form-handoff",
   "verify-handoff",
+  "structured-intent",
 ] as const;
 
 export type FixtureTag = (typeof FIXTURE_TAGS)[number];
@@ -44,6 +46,12 @@ export interface DecisionFixture {
   acceptableTargets?: Ref[];
 
   tags: FixtureTag[];
+
+  /**
+   * 调用方事先给出的结构化一步（Phase 7-1 router）。只有 router 读取它；
+   * acceptableOperations / acceptableTargets 仍按任务语义标注，不写 router 策略。
+   */
+  intent?: StepIntent;
 }
 
 export const DECISION_FIXTURE_LIMITS = {
@@ -130,6 +138,17 @@ function validateDecisionFixture(fixture: DecisionFixture): void {
     fixture.tags.some((tag) => !(FIXTURE_TAGS as readonly string[]).includes(tag))
   ) {
     fail(name, "tags must be a non-empty set of known fixture tags");
+  }
+
+  if (fixture.intent !== undefined) {
+    try {
+      parseStepIntent(fixture.intent);
+    } catch {
+      fail(name, "intent must be a valid step intent");
+    }
+  }
+  if ((fixture.intent !== undefined) !== fixture.tags.includes("structured-intent")) {
+    fail(name, "fixtures carry an intent exactly when tagged structured-intent");
   }
 
   // 不变量 12 / 133：action space 不完整时，安全升级必须始终是可接受答案。

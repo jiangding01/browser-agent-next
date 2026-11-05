@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）。
+PR #1～#21 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）与 Strict 写入 S1～S3 全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）；Phase 7-1 交付了离线的 deterministic router。
 
 已经完成：
 
@@ -48,7 +48,8 @@ PR #1～#16 已合并：Phase 0～6.6（Perception、Identity、Strict Executor�
 - model-facing MCP 的脱敏、有界 JSONL trace 与离线汇总（Phase 7-0b，默认关闭）；
 - trusted 路径 Strict setValue：参数精确绑定的 grant、敏感字段拒绝、扩展 isolated world 单 task 写入、审批页完整显示待写入值（Strict 写入 S1）；
 - trusted 路径 Strict selectOption / submit / pressKey：原生单选下拉框按 label 精确选择、只提交无提交按钮的表单、由 isolated world 监听器证明按键落在目标上，审批页按动作类型显示且无法识别的动作不可批准（Strict 写入 S2）；
-- model-facing `browser.act` 的写入类动作：模型可以请求 setValue / selectOption / submit / pressKey，写入无论授权模式都必须经 operator 在扩展审批页看到完整参数后批准，参数不出现在模型结果、错误、progress 与 trace 中（Strict 写入 S3）。
+- model-facing `browser.act` 的写入类动作：模型可以请求 setValue / selectOption / submit / pressKey，写入无论授权模式都必须经 operator 在扩展审批页看到完整参数后批准，参数不出现在模型结果、错误、progress 与 trace 中（Strict 写入 S3）；
+- 离线 deterministic router（`packages/router`）：把结构化的一步（role + 名称 + frame origin）在当前 observation 上确定性解析为唯一 ref，完整性闸门、可疑同名（零宽字符、大小写差异等）与跨源作用域任一不满足都 defer，附第二批 16 个 router fixture 与评测（Phase 7-1）。
 
 真实 Chromium 已验证：
 
