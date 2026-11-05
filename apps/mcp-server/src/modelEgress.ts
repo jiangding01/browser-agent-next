@@ -1,6 +1,6 @@
 import {
   BrowserRuntimeError,
-  effectiveFrameUrl,
+  effectiveFrameOrigin,
   type BrowserObservation,
   type ElementState,
   type VerificationResult,
@@ -108,17 +108,18 @@ export class ModelEgressProjector {
       );
     }
 
-    // 与 act broker 共用 effectiveFrameUrl，read / act 两个 plane 的 frame 判定不会分叉。
+    // 与 act broker、router 共用 effectiveFrameOrigin，各 plane 的 frame 判定不会分叉；
+    // frame 自报的 origin 优先，about:blank 不凭 URL 继承父 frame（不变量 161）。
     const allowed = new Map<string, boolean>();
 
     for (const frame of observation.frames) {
-      const url = effectiveFrameUrl(
+      const origin = effectiveFrameOrigin(
         observation,
         frame.frameId,
       );
       allowed.set(
         frame.frameId,
-        url !== undefined && this.origins.canRead(url),
+        origin !== undefined && this.origins.canRead(origin),
       );
     }
 
@@ -166,6 +167,7 @@ export class ModelEgressProjector {
 
         const {
           url: _url,
+          origin: _origin,
           degradedReason: _reason,
           ...withoutUrl
         } = frame;

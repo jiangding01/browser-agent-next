@@ -70,10 +70,29 @@ function observation(
         accessible: true,
       },
       {
+        // 父文档自己创建的 about:blank：自报 origin 与父 frame 相同。
         frameId: "web:1",
         parentFrameId: "web:0",
         url: "about:blank",
+        origin,
         documentEpoch: "doc-blank",
+        accessible: true,
+      },
+      {
+        // 被跨源 frame 导航到 about:blank：自报 origin 是导航发起方。
+        frameId: "web:3",
+        parentFrameId: "web:0",
+        url: "about:blank",
+        origin: "https://ads.test",
+        documentEpoch: "doc-hijacked",
+        accessible: true,
+      },
+      {
+        // content script 未上报 origin 的 about:blank：不凭 URL 继承父 frame。
+        frameId: "web:4",
+        parentFrameId: "web:0",
+        url: "about:blank",
+        documentEpoch: "doc-unreported",
         accessible: true,
       },
       {
@@ -92,15 +111,19 @@ function observation(
       frameId: ref === "@d" ? "web:1" : "web:0",
       capabilities: [{ kind: "click" as const }],
       provenance: { dom: true },
-    })).concat([{
-      ref: "@readonly",
+    })).concat([
+      ["@readonly", "web:2"],
+      ["@hijacked", "web:3"],
+      ["@unreported", "web:4"],
+    ].map(([ref, frameId]) => ({
+      ref: ref!,
       kind: "element" as const,
       semantic: { role: "button", name: "embedded" },
       state: { visible: true, enabled: true, focused: false },
-      frameId: "web:2",
+      frameId: frameId!,
       capabilities: [{ kind: "click" as const }],
       provenance: { dom: true },
-    }]),
+    }))),
   };
 }
 
@@ -343,10 +366,18 @@ describe("createModelActBroker", () => {
       observation(),
     )).rejects.toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
 
+    // 被跨源 frame 劫持的 about:blank，与未上报 origin 的 about:blank（不变量 161）。
+    for (const ref of ["@hijacked", "@unreported"]) {
+      await expect(instance.act(
+        actInput(ref),
+        observation(),
+      )).rejects.toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
+    }
+
     expect(runtime.requestOperatorApproval).not.toHaveBeenCalled();
     expect(runtime.act).not.toHaveBeenCalled();
 
-    // about:blank child frame 继承父 frame origin。
+    // 自报 origin 与父 frame 相同的 about:blank 允许。
     await expect(instance.act(
       actInput("@d"),
       observation(),

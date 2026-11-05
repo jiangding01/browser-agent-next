@@ -162,7 +162,11 @@ export class DomObservationCoordinator {
       revision,
       scope: { kind: "page" },
       viewport,
-      frames: input.frames,
+      // 快照按 documentId 定向发送，自报 origin 与该 frame 的当前文档对应（不变量 161）。
+      frames: input.frames.map((frame) => {
+        const origin = dom.originByFrame[frame.frameId];
+        return origin !== undefined ? { ...frame, origin } : frame;
+      }),
       expectedSources,
       sources: [dom, ...extraSources],
       shadowDom: {

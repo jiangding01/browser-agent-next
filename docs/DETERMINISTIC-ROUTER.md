@@ -20,7 +20,7 @@ Deterministic router 就是这一层：对结构化的一步做可证明的确�
 做：
 
 - 新包 `packages/router`（只依赖 core）：`StepIntent` 类型与解析、名称比较键、`routeStep` 纯函数；
-- `effectiveFrameUrl` 从 `apps/mcp-server/src/frameOrigin.ts` 移入 core，供 router 与 mcp-server 共用；
+- `effectiveFrameUrl` 从 `apps/mcp-server/src/frameOrigin.ts` 移入 core，供 router 与 mcp-server 共用（后续修复中已被 `effectiveFrameOrigin` 取代，见文末「已有缺陷」）；
 - `packages/eval`：fixture 增加可选 `intent`，harness 把 intent 传给 provider，新增 router 评测与 router 专用对抗 fixture（带逐条期望路由结果）。
 
 不做：
@@ -124,7 +124,7 @@ export function routeStep(input: {
    - `coverage.frames.degraded.length === 0`；
    - 每个 `frames[i].accessible === true`（出境投影会把“不可访问且 url 未知”的 frame 从 degraded 中删去，只看 degraded 会在投影上放行）。
 4. `overlays` 中有 `blocking: true` 或 `dialogs` 中有 `modal: true` → `blocking-overlay`。线上目前不产出这两个字段，这一条是为将来与 7-0a fixture 的语义保持一致。
-5. **作用域**：元素的有效 origin = `new URL(effectiveFrameUrl(observation, element.frameId)).origin`；`effectiveFrameUrl` 返回 undefined、URL 解析失败、结果为 `"null"`，或推导链经过 `about:blank` frame，都记为 unknown。`about:blank` 的真实 origin 来自发起导航的一方：跨源 frame 可以把同源的兄弟 frame 导航到 `about:blank` 再写入内容，因此不能继承父 frame；`about:srcdoc` 的内容只能由父文档经 `srcdoc` 属性写入，继续继承父 frame。作用域 S = 有效 origin 精确等于 `intent.target.frameOrigin ?? observation.tab.origin` 的元素。
+5. **作用域**：元素的有效 origin = `effectiveFrameOrigin(observation, element.frameId)`（core，与出境投影、act broker 同一实现，不变量 161）：以 frame 自报的 origin 为准，opaque、不合法或子 frame 未自报时记为 unknown（`about:blank` 的真实 origin 来自导航发起方，sandbox frame 是 opaque，URL 都看不出）。作用域 S = 有效 origin 精确等于 `intent.target.frameOrigin ?? observation.tab.origin` 的元素。
 6. **匹配集 M**：S 中满足以下全部条件的元素：`provenance.dom === true`、`state.visible === true`、`exactKey(semantic.name) === exactKey(intent.name)`、（给出 role 时）`semantic.role === intent.role`。要求 DOM provenance：AX-only 元素的 `visible` 恒为 true（`axSource.ts`），可见性过滤对它们无效。
 7. **歧义** → `ambiguous`，以下任一成立：
    - `|M| ≥ 2`（包括一个启用、一个禁用）；
@@ -318,6 +318,6 @@ Real Chromium E2E 不受影响（无运行期行为变化），由 CI browser-e2
 - LOW（架构）：`rate` 与 harness 重复 → harness 导出 `rateMetric` 复用；router 的 `export *` 带出内部符号 → 改为显式导出 `routeStep` / `RouteResult` / `DeferReason` / `parseStepIntent` / `StepIntent` / `STEP_INTENT_NAME_MAX_LENGTH`；tag 覆盖测试写死例外 → 改为两批 fixture 合并后覆盖全部 tag；
 - 未采纳：AX-only 唯一同名报 `ambiguous` 的原因标签（方案已决定非 DOM 来源的同名一律按歧义处理）；`resolvedCorrect` 与 `fixtures` 字段（前者便于直接读比例，后者供 offline replay 定位）。
 
-**已有缺陷（非本 PR 引入，未在本 PR 修复）**：mcp-server 的出境投影（`modelEgress.ts`）与 act broker（`modelActBroker.ts`）同样经 `effectiveFrameUrl` 让 `about:blank` 继承父 frame。被跨源 frame 劫持的 `about:blank` 因此可能通过 read / act origin plane 检查；修复会改变运行期行为，需要单独评估与 E2E。
+**已有缺陷（非本 PR 引入）**：mcp-server 的出境投影（`modelEgress.ts`）与 act broker（`modelActBroker.ts`）同样经 `effectiveFrameUrl` 让 `about:blank` 继承父 frame。被跨源 frame 劫持的 `about:blank` 因此可能通过 read / act origin plane 检查。已在后续分支 `fix/frame-security-origin` 修复：frame 自报真实 origin，三处共用 `effectiveFrameOrigin`（不变量 161），子 frame 未自报即视为无法判定；上文 HIGH 修复中 router 自己的 `about:blank` 特判随之移除。
 
 修复后的变异验证追加 5 种：`about:blank` 继承父 frame、去掉异常兜底、intent 接受任意原型、intent 读取继承属性、key 检查改回 `Object.keys`，全部被抓到；合计 28 种。

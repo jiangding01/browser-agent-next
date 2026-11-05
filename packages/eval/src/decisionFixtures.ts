@@ -180,6 +180,7 @@ export const decisionFixtures: readonly DecisionFixture[] = deepFreeze([
           frameId: "child-1",
           parentFrameId: "main",
           url: "https://pay.fixture.test/embed",
+          origin: "https://pay.fixture.test",
           documentEpoch: "doc-child",
           accessible: true,
         },

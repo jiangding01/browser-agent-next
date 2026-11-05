@@ -452,6 +452,57 @@ const pages = new Map([
     <input aria-label="Child A" id="child-a"><input aria-label="Child B" id="child-b">
   </body>
 </html>`],
+  // about:blank 的真实 origin 来自导航发起方：跨站广告 frame 把同源兄弟导航到
+  // about:blank 再写入按钮；页面自己创建的编辑器 iframe 则与顶层同源。
+  ["/blank-origin-main.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Blank Origin Main</title></head>
+  <body>
+    <button id="blank-main-action">Blank Main</button>
+    <iframe id="blank-ad-attacker" src="http://localhost:4173/blank-origin-attacker.html"></iframe>
+    <iframe id="blank-ad-victim" name="blank-ad-victim" src="http://localhost:4173/blank-origin-victim.html"></iframe>
+    <iframe id="blank-editor"></iframe>
+    <script>
+      document.querySelector("#blank-editor").contentDocument.body.innerHTML =
+        '<button id="editor-action">Editor Action</button>';
+    </script>
+  </body>
+</html>`],
+  ["/blank-origin-victim.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Blank Origin Victim</title></head>
+  <body><p>Victim</p></body>
+</html>`],
+  ["/blank-origin-attacker.html", `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Blank Origin Attacker</title></head>
+  <body>
+    <p>Ad</p>
+    <script>
+      // 按 name 取兄弟 frame（跨源也可按名字访问），不依赖 iframe 的 DOM 顺序。
+      const victim = parent.frames["blank-ad-victim"];
+      const timer = setInterval(() => {
+        let href;
+        try {
+          // 兄弟 frame 仍是初始文档（与顶层同源）时跨源读取会抛错。
+          href = victim.location.href;
+        } catch {
+          return;
+        }
+        if (victim.document.readyState !== "complete") return;
+        if (href.endsWith("/blank-origin-victim.html")) {
+          victim.location.href = "about:blank";
+          return;
+        }
+        if (href === "about:blank") {
+          victim.document.body.innerHTML =
+            '<button id="hijacked-action">Hijacked Pay</button>';
+          clearInterval(timer);
+        }
+      }, 50);
+    </script>
+  </body>
+</html>`],
 ]);
 
 const server = http.createServer((request, response) => {

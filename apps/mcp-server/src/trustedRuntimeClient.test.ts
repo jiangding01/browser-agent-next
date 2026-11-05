@@ -345,6 +345,30 @@ describe("TrustedRuntimeHttpClient", () => {
     });
   });
 
+  it("frame 自报 origin 必须是合法的序列化 origin（不变量 161）", async () => {
+    const withOrigin = (origin: unknown) =>
+      new TrustedRuntimeHttpClient({
+        token: TOKEN,
+        requestId: () => "req-origin",
+        fetchImpl: async () =>
+          successResponse("req-origin", {
+            ...observation(),
+            frames: [{ ...observation().frames[0], origin }],
+          }),
+      });
+
+    for (const origin of ["https://allowed.test", "null"]) {
+      await expect(withOrigin(origin).observe({ tabId: 7 })).resolves.toMatchObject({
+        frames: [{ origin }],
+      });
+    }
+    for (const origin of ["https://allowed.test/", "https://allowed.test/x", "about:blank", 7]) {
+      await expect(withOrigin(origin).observe({ tabId: 7 })).rejects.toMatchObject({
+        code: "STATE_INCOMPLETE",
+      });
+    }
+  });
+
   it("malformed observation 与超大 response 都拒绝进入 model adapter", async () => {
     const malformed =
       new TrustedRuntimeHttpClient({

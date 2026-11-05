@@ -1,6 +1,7 @@
-import type {
-  CoverageState,
-  ViewportState,
+import {
+  isSerializedOrigin,
+  type CoverageState,
+  type ViewportState,
 } from "@browser-agent-next/core";
 import type {
   PerceptionSourceResult,
@@ -29,6 +30,11 @@ export interface DomFrameTransport {
 export interface CollectedDomSource extends PerceptionSourceResult {
   frameEpochByFrame: Record<string, string>;
   viewportByFrame: Record<string, ViewportState>;
+  /**
+   * 每个成功采集的 frame 自报的序列化 origin；缺失或格式不合法的上报记为 opaque 的 "null"
+   * （fail closed），不当作“未上报”，避免下游回落到 URL 推导（不变量 161）。
+   */
+  originByFrame: Record<string, string>;
 }
 
 export interface CollectDomSourceInput {
@@ -120,6 +126,7 @@ export async function collectDomSource(
           frameId: frame.frameId,
           frameEpoch: response.snapshot.frameEpoch,
           viewport: response.snapshot.viewport,
+          origin: response.snapshot.origin as unknown,
           ok: true as const,
           result: adaptDomFrameSnapshot({
             tabId: input.tabId,
@@ -169,6 +176,12 @@ export async function collectDomSource(
     ),
     viewportByFrame: Object.fromEntries(
       successful.map((entry) => [entry.frameId, entry.viewport]),
+    ),
+    originByFrame: Object.fromEntries(
+      successful.map((entry) => [
+        entry.frameId,
+        isSerializedOrigin(entry.origin) ? entry.origin : "null",
+      ]),
     ),
     ...(degradedFrames.length > 0 ? { degradedFrames } : {}),
     warnings: [

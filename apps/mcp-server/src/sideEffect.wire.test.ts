@@ -802,7 +802,7 @@ describe("model-facing side-effect wire integration", () => {
   );
 
   it(
-    "origin / frame plane：非 act origin 与 B 子 frame 被拒、未出境 revision 被拒，about:blank 子 frame 继承 A 后允许",
+    "origin / frame plane：非 act origin 与 B 子 frame 被拒、未出境 revision 被拒，未上报 origin 的 about:blank 不出境，自报 A 的 about:blank 允许",
     async () => {
       const harness = await startHarness(
         actEnv({
@@ -828,6 +828,7 @@ describe("model-facing side-effect wire integration", () => {
                       frameId: "web:1",
                       parentFrameId: "web:0",
                       url: ORIGIN_B + "/frame",
+                      origin: ORIGIN_B,
                       documentEpoch: "doc-b",
                       accessible: true,
                     },
@@ -835,13 +836,22 @@ describe("model-facing side-effect wire integration", () => {
                       frameId: "web:2",
                       parentFrameId: "web:0",
                       url: "about:blank",
+                      origin: ORIGIN_A,
                       documentEpoch: "doc-blank",
+                      accessible: true,
+                    },
+                    {
+                      frameId: "web:3",
+                      parentFrameId: "web:0",
+                      url: "about:blank",
+                      documentEpoch: "doc-unreported",
                       accessible: true,
                     },
                   ],
                   elements: [
                     makeButton("@b-save", "web:1"),
                     makeButton("@blank-save", "web:2"),
+                    makeButton("@unreported-save", "web:3"),
                   ],
                 }),
         },
@@ -882,7 +892,8 @@ describe("model-facing side-effect wire integration", () => {
 
         expect(sideEffectRpcCount(runtime)).toBe(0);
 
-        // about:blank 子 frame 继承顶层 A：允许并进入授权路径。
+        // 未上报 origin 的 about:blank 不出境（上方 refs 中没有 @unreported-save）；
+        // 自报 origin 为 A 的 about:blank：允许并进入授权路径。
         const allowed = await harness.callTool(
           "browser.act",
           actArgs(1, onA.revision.id, "@blank-save"),

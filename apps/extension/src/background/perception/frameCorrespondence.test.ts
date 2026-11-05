@@ -16,6 +16,7 @@ function dom(): CollectedDomSource {
       "web:2": "epoch-child",
     },
     viewportByFrame: {},
+    originByFrame: {},
   };
 }
 

@@ -1,5 +1,5 @@
 import {
-  effectiveFrameUrl,
+  effectiveFrameOrigin,
   type BrowserObservation,
   type ElementState,
   type Ref,
@@ -58,52 +58,16 @@ function hasBlockingLayer(observation: BrowserObservation): boolean {
   );
 }
 
-/**
- * frame 的 origin 是否要经过 about:blank 才能推出。
- *
- * about:blank 的真实 origin 来自发起导航的一方：跨源 frame 可以把同源的兄弟 frame
- * 导航到 about:blank 再写入内容，此时它与父 frame 并不同源，observation 无法证明。
- * about:srcdoc 的内容只能由父文档经 srcdoc 属性写入，继承父 frame 是成立的。
- */
-function inheritsThroughAboutBlank(
-  frames: ReadonlyMap<string, BrowserObservation["frames"][number]>,
-  frameId: string,
-): boolean {
-  const seen = new Set<string>();
-  let current = frames.get(frameId);
-  while (current && !seen.has(current.frameId)) {
-    seen.add(current.frameId);
-    if (current.url === "about:blank") return true;
-    if (current.url !== "about:srcdoc" || current.parentFrameId === undefined) {
-      return false;
-    }
-    current = frames.get(current.parentFrameId);
-  }
-  return false;
-}
-
-/** 元素所在 frame 的有效 origin；无法判定（opaque、经 about:blank 推出、无法解析）时为 undefined。 */
+/** 元素所在 frame 的有效 origin（core 的 effectiveFrameOrigin，按 frameId 缓存）。 */
 function frameOriginResolver(
   observation: BrowserObservation,
 ): (frameId: string) => string | undefined {
-  const frames = new Map(observation.frames.map((frame) => [frame.frameId, frame]));
   const cache = new Map<string, string | undefined>();
   return (frameId) => {
-    if (cache.has(frameId)) return cache.get(frameId);
-    let origin: string | undefined;
-    const url = inheritsThroughAboutBlank(frames, frameId)
-      ? undefined
-      : effectiveFrameUrl(observation, frameId);
-    if (url !== undefined) {
-      try {
-        const parsed = new URL(url).origin;
-        origin = parsed === "null" ? undefined : parsed;
-      } catch {
-        origin = undefined;
-      }
+    if (!cache.has(frameId)) {
+      cache.set(frameId, effectiveFrameOrigin(observation, frameId));
     }
-    cache.set(frameId, origin);
-    return origin;
+    return cache.get(frameId);
   };
 }
 

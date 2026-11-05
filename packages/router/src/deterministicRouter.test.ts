@@ -59,6 +59,7 @@ const childFrame: FrameState = {
   frameId: "child",
   parentFrameId: "main",
   url: CHILD + "/embed",
+  origin: CHILD,
   documentEpoch: "doc-child",
   accessible: true,
 };
@@ -372,11 +373,12 @@ describe("routeStep", () => {
       ).toEqual(resolved("@e_2"));
     });
 
-    it("lets about:srcdoc frames inherit the parent origin", () => {
+    it("matches inside an about:srcdoc frame that reported the top origin", () => {
       const srcdoc: FrameState = {
         frameId: "srcdoc",
         parentFrameId: "main",
         url: "about:srcdoc",
+        origin: TOP,
         documentEpoch: "doc-s",
         accessible: true,
       };
@@ -390,7 +392,43 @@ describe("routeStep", () => {
       ).toEqual(resolved("@e_1"));
     });
 
-    it("never matches inside about:blank, whose origin comes from the navigation initiator", () => {
+    it("uses the origin an about:blank frame reported about itself", () => {
+      const reported = (origin: string): FrameState => ({
+        frameId: "blank",
+        parentFrameId: "main",
+        url: "about:blank",
+        origin,
+        documentEpoch: "doc-b",
+        accessible: true,
+      });
+      const frames = (origin: string) => [
+        { frameId: "main", documentEpoch: "doc-a", accessible: true },
+        reported(origin),
+      ];
+      // 父文档自己创建的编辑器 iframe：自报与顶层同源。
+      expect(
+        routeStep({
+          observation: observation([element("@e_1", "Save", { frameId: "blank" })], { frames: frames(TOP) }),
+          intent: click("Save"),
+        }),
+      ).toEqual(resolved("@e_1"));
+      // 被跨源 frame 劫持：自报的是导航发起方 origin，默认作用域外。
+      expect(
+        routeStep({
+          observation: observation([element("@e_1", "Save", { frameId: "blank" })], { frames: frames(CHILD) }),
+          intent: click("Save"),
+        }),
+      ).toEqual(deferred("no-match"));
+      // 自报 opaque。
+      expect(
+        routeStep({
+          observation: observation([element("@e_1", "Save", { frameId: "blank" })], { frames: frames("null") }),
+          intent: click("Save"),
+        }),
+      ).toEqual(deferred("ambiguous"));
+    });
+
+    it("never matches inside an unreported about:blank, whose origin comes from the navigation initiator", () => {
       // 跨源广告 frame E1 把同源兄弟 E2 导航到 about:blank 再写入按钮：
       // 父 frame 是顶层，但 E2 的真实 origin 是 E1 的 origin。
       const ad: FrameState = {

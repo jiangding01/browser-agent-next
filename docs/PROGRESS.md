@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）与 frame 自报 origin 修复为当前 PR（后者叠加在前者之上）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -39,6 +39,7 @@ Strict 写入 S1 trusted 路径 setValue          ✅
 Strict 写入 S2 trusted 路径 selectOption / submit / pressKey ✅
 Strict 写入 S3 model-facing 写入（强制 operator 审批）✅
 Phase 7-1 deterministic router（离线）           ✅
+修复：frame 有效 origin 以 frame 自报为准       ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -464,6 +465,27 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 变异验证：28 种变异全部被单测抓到（明细见 `docs/DETERMINISTIC-ROUTER.md`「实现记录」）✅
 - 代码经 check（Deep）两路独立审查：1 HIGH（跨源 frame 劫持的 `about:blank` 被当作父 frame 同源）已修复，router 对经过 `about:blank` 推出的 origin 一律视为无法判定；安全 2 LOW（异常、intent 原型绕过）、评测 1 MEDIUM 与架构 3 LOW 已修复；出境投影与 act broker 的同类已有缺陷记入方案文档，单独处理
 - router 批次：`resolvedWrong` 为空，resolve 5 / 16 且全部正确，`missedClick` 为 3；与 7-0a 批次合跑时 `routedDecisionProvider(escalateProvider)` 的 unsafeClick 为 0 ✅
+
+## 修复：frame 有效 origin 以 frame 自报为准
+
+来源：Phase 7-1 代码审查发现的已有缺陷。`effectiveFrameUrl` 让 `about:blank` 继承父 frame，但 `about:blank` 的真实 origin 来自导航发起方：跨源广告 frame 可以把同源兄弟导航到 `about:blank` 再写入按钮，它会通过出境投影（read plane）与 act broker（act plane）的 origin 检查；sandbox frame 是 opaque，URL 也看不出来。
+
+- 扩展：content script 在 isolated world 读取 `self.origin`，随 DOM 快照上报；`collectDomSource` 把缺失或不合法的上报记为 `"null"`，coordinator 写入 `FrameState.origin`；
+- core：`FrameState.origin`、`isSerializedOrigin`（只接受 `"null"` 与 http(s) origin）、`effectiveFrameOrigin`（取代 `effectiveFrameUrl`）：以自报为准，`"null"` 与不合法视为无法判定；子 frame 未自报即视为无法判定，只有顶层 frame 在未自报时按 URL 推导；
+- mcp-server：trusted client 拒绝不合法的 `frame.origin`；出境投影与 act broker 改用 `effectiveFrameOrigin`，不放行的 frame 同时隐藏 url 与 origin；
+- router：改用 `effectiveFrameOrigin`，删除自己的 `about:blank` 特判；
+- 行为变化：页面自己创建的 `about:blank`（如编辑器 iframe）自报与顶层同源，照常可读可点；被跨源 frame 劫持的 `about:blank`、sandbox frame、未自报 origin 的子 frame 不出境、不可 act；
+- 新增不变量 161，修订 119、130、159；SECURITY 新增「Frame 有效 origin」。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests（1045 个）✅
+- Workspace build ✅
+- Real Chromium E2E 17/17 ✅（新增用例：跨站广告 frame 劫持同源兄弟为 `about:blank` 并写入按钮、页面自建 `about:blank` 编辑器；trusted 侧两者自报 origin 分别为劫持方与顶层，模型侧只看到编辑器按钮；单独连跑 5 次通过）
+- 变异验证：9 种单测变异（忽略自报 origin、未自报子 frame 按 URL 推导、接受 `"null"`、接受不合法自报、接受非 http(s) origin、trusted client 不校验、出境保留被拦 frame 的 origin、采集丢弃而非记 `"null"`、coordinator 不写 origin）全部变红；core 退回旧语义（忽略自报、`about:blank` 继承父 frame）后重建，新增 E2E 在“模型看不到 Hijacked Pay”断言处变红 ✅
+- 代码经 check（Deep）两路独立审查：0 HIGH / MEDIUM；同根因的 LOW 与 advisory（不合法上报回落到 URL、未自报子 frame 按 URL 推导、`file://` 在 Chrome 与 Node 序列化不一致）从源头收紧为“子 frame 必须自报、不合法记 `"null"`、只接受 http(s)”；E2E 改为按 name 取兄弟 frame、放宽轮询并在超时时给出明确断言；相邻缺口“扩展侧签发与审批只校验顶层 origin”记入 SECURITY，单独处理
 
 ## 下一步
 

@@ -12,6 +12,7 @@ import {
 import {
   BrowserRuntimeError,
   RUNTIME_ERROR_CODES,
+  isSerializedOrigin,
   type BrowserObservation,
   type BrowserObserveInput,
   type BrowserOpenInput,
@@ -518,6 +519,10 @@ function isBrowserObservation(
           typeof frame.url !== "string" ||
           frame.url.length > 16_384
         )
+      ) ||
+      (
+        frame.origin !== undefined &&
+        !isSerializedOrigin(frame.origin)
       )
     ) {
       return false;

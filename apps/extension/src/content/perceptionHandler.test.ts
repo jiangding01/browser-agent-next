@@ -7,6 +7,7 @@ describe("handlePerceptionRequest", () => {
     const scan = vi.fn(() => ({
       source: "dom" as const,
       frameEpoch: "frame-a",
+      origin: "https://fixture.test",
       viewport: {
         width: 100,
         height: 100,
