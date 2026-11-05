@@ -1,6 +1,6 @@
 # Phase 7-1：Deterministic router（离线）
 
-状态：方案经独立对抗式审查两轮（第一轮 2 HIGH、4 MEDIUM、4 LOW、3 advisory；第二轮 0 HIGH、2 MEDIUM、5 LOW；均已并入下文，见「审查记录」）；已实现，变异验证见「实现记录」
+状态：方案经独立对抗式审查两轮（第一轮 2 HIGH、4 MEDIUM、4 LOW、3 advisory；第二轮 0 HIGH、2 MEDIUM、5 LOW；均已并入下文，见「审查记录」）；已实现并合并（PR #22），变异验证见「实现记录」
 最后更新：2026-11-05
 
 ## 为什么做
@@ -318,6 +318,6 @@ Real Chromium E2E 不受影响（无运行期行为变化），由 CI browser-e2
 - LOW（架构）：`rate` 与 harness 重复 → harness 导出 `rateMetric` 复用；router 的 `export *` 带出内部符号 → 改为显式导出 `routeStep` / `RouteResult` / `DeferReason` / `parseStepIntent` / `StepIntent` / `STEP_INTENT_NAME_MAX_LENGTH`；tag 覆盖测试写死例外 → 改为两批 fixture 合并后覆盖全部 tag；
 - 未采纳：AX-only 唯一同名报 `ambiguous` 的原因标签（方案已决定非 DOM 来源的同名一律按歧义处理）；`resolvedCorrect` 与 `fixtures` 字段（前者便于直接读比例，后者供 offline replay 定位）。
 
-**已有缺陷（非本 PR 引入）**：mcp-server 的出境投影（`modelEgress.ts`）与 act broker（`modelActBroker.ts`）同样经 `effectiveFrameUrl` 让 `about:blank` 继承父 frame。被跨源 frame 劫持的 `about:blank` 因此可能通过 read / act origin plane 检查。已在后续分支 `fix/frame-security-origin` 修复：frame 自报真实 origin，三处共用 `effectiveFrameOrigin`（不变量 161），子 frame 未自报即视为无法判定；上文 HIGH 修复中 router 自己的 `about:blank` 特判随之移除。
+**已有缺陷（非本 PR 引入）**：mcp-server 的出境投影（`modelEgress.ts`）与 act broker（`modelActBroker.ts`）同样经 `effectiveFrameUrl` 让 `about:blank` 继承父 frame。被跨源 frame 劫持的 `about:blank` 因此可能通过 read / act origin plane 检查。已在 PR #23 修复（随后 PR #24 将 Strict 授权扩展为校验整条 frame 链，不变量 162）：frame 自报真实 origin，三处共用 `effectiveFrameOrigin`（不变量 161），子 frame 未自报即视为无法判定；上文 HIGH 修复中 router 自己的 `about:blank` 特判随之移除。
 
 修复后的变异验证追加 5 种：`about:blank` 继承父 frame、去掉异常兜底、intent 接受任意原型、intent 读取继承属性、key 检查改回 `Object.keys`，全部被抓到；合计 28 种。
