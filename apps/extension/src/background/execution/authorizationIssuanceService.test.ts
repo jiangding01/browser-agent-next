@@ -516,3 +516,53 @@ describe("StrictClickAuthorizationIssuanceService S2 动作", () => {
   });
 
 });
+
+describe("StrictClickAuthorizationIssuanceService frame 级 origin（不变量 162）", () => {
+  function nestedSetup(allowed: string[]) {
+    const base = observation(true);
+    const states = new TabStateStore();
+    states.put({
+      ...base,
+      frames: [
+        { frameId: "web:0", url: "https://fixture.test/", origin: "https://fixture.test", documentEpoch: "doc", accessible: true },
+        { frameId: "web:1", parentFrameId: "web:0", origin: "https://ads.test", documentEpoch: "doc-ads", accessible: true },
+        { frameId: "web:2", parentFrameId: "web:1", origin: "https://fixture.test", documentEpoch: "doc-inner", accessible: true },
+      ],
+      elements: [
+        { ...base.elements[0]!, ref: "@ad", frameId: "web:1" },
+        { ...base.elements[0]!, ref: "@inner", frameId: "web:2" },
+      ],
+    });
+    const origins = new MutableExactOriginAllowlist();
+    origins.replace(allowed);
+    return new StrictClickAuthorizationIssuanceService(
+      states,
+      new InMemoryAuthorizationStore({ now: () => 100 }),
+      origins,
+    );
+  }
+
+  it("目标 frame 或任一中间层不在 allowlist 时拒绝签发（control-plane / operator-approved / enterprise 三条路径）", () => {
+    const service = nestedSetup(["https://fixture.test"]);
+    for (const ref of ["@ad", "@inner"]) {
+      expect(() => service.issueControlPlane({ ...input, ref })).toThrow(
+        expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }),
+      );
+      expect(() => service.issueOperatorApproved({ ...input, ref, authorizationId: "auth-" + ref })).toThrow(
+        expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }),
+      );
+      expect(() => service.issueEnterprisePolicy({ ...input, ref, authorizationId: "ent-" + ref })).toThrow(
+        expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }),
+      );
+    }
+  });
+
+  it("整条链都在 allowlist 内时签发", () => {
+    const service = nestedSetup(["https://fixture.test", "https://ads.test"]);
+    expect(service.issueControlPlane({ ...input, ref: "@inner" })).toMatchObject({
+      id: "auth-1",
+      assurance: "control-plane",
+    });
+  });
+});
+

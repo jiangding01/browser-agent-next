@@ -204,7 +204,7 @@ AuthorizationGrant(
 
 managed storage 与 replay 使用的 local storage 都会限制到 `TRUSTED_CONTEXTS`。replay ledger 持久化 assertionId + expiresAt，并在 worker 内串行执行 consume-once，避免并发请求和 MV3 service-worker 重启恢复 assertion 可重放性。
 
-签名验证成功后仍不会直接 mint grant：当前 retained observation 的 origin 必须与 signed origin 精确一致，之后统一 issuer 还会再次验证 retained ref、auto-act origin、TTL 与 minimum assurance。
+签名验证成功后仍不会直接 mint grant：当前 retained observation 的 tab origin 必须与 signed origin 精确一致，之后统一 issuer 还会再次验证 retained ref、auto-act origin（tab 与目标所在 frame 到顶层的每一层，不变量 162）、TTL 与 minimum assurance。签名不绑定 frame origin：`ref` 已唯一确定目标 frame，frame 链由 allowlist 校验覆盖。
 
 当前是单 P-256 key baseline；后续 key rotation 可以扩展为受管 key set，但不能把 key material 改为由 model/control-plane 请求动态提供。
 

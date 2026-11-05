@@ -27,6 +27,8 @@ import {
 
 const fixtureOrigin = "http://127.0.0.1:4173";
 const mainUrl = fixtureOrigin + "/main.html";
+// OOPIF fixture 的子 frame 所在 origin；Strict 授权要求目标 frame 到顶层的每一层都在 allowlist 内。
+const oopifChildOrigin = "http://localhost:4173";
 const hostName = "com.browser_agent_next.host";
 
 async function freePort(): Promise<number> {
@@ -1156,6 +1158,41 @@ test(
         ax: true,
       });
 
+      // 对照：allowlist 只放行顶层时，子 frame（跨源）的目标在签发时被拒（不变量 162）。
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId: "auth-oopif-child-top-only",
+            authorizationId:
+              "auth-oopif-child-top-only",
+            tabId,
+            observedRevision:
+              observation.revision.id,
+            ref: child.ref,
+            ttlMs: 15_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: { code: "ORIGIN_NOT_ALLOWED" },
+      });
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId: "policy-oopif-child",
+            origins: [fixtureOrigin, oopifChildOrigin],
+          },
+        ),
+      ).toMatchObject({ ok: true });
+
       expect(
         await trustedRequest(
           rpcPort,
@@ -1387,7 +1424,7 @@ test(
               "policy.replace-autoact-origins",
             requestId:
               "policy-oopif-stale",
-            origins: [fixtureOrigin],
+            origins: [fixtureOrigin, oopifChildOrigin],
           },
         ),
       ).toMatchObject({
@@ -1795,6 +1832,7 @@ test(
               "policy-oopif-transform",
             origins: [
               fixtureOrigin,
+              oopifChildOrigin,
             ],
           },
         ),
@@ -2363,6 +2401,43 @@ test(
         parentFrame.frameLocator(
           "#oopif-nested-child-frame",
         );
+
+      // 对照：目标与顶层同源，但中间层在 localhost；只放行顶层时签发被拒（不变量 162）。
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "authorization.issue-strict-click",
+            requestId:
+              "auth-nested-top-only",
+            authorizationId:
+              "auth-nested-top-only",
+            tabId,
+            observedRevision:
+              first.revision.id,
+            ref: firstChild.ref,
+            ttlMs: 5_000,
+          },
+        ),
+      ).toMatchObject({
+        ok: false,
+        error: { code: "ORIGIN_NOT_ALLOWED" },
+      });
+      expect(
+        await trustedRequest(
+          rpcPort,
+          token,
+          {
+            type:
+              "policy.replace-autoact-origins",
+            requestId:
+              "policy-nested-oopif-chain",
+            origins: [fixtureOrigin, oopifChildOrigin],
+          },
+        ),
+      ).toMatchObject({ ok: true });
 
       expect(
         await trustedRequest(
@@ -4596,6 +4671,7 @@ test(
       let frames: TrustedFrame[] = [];
       let elements: TrustedElement[] = [];
       let settled = false;
+      let settledRevision = "";
       for (let attempt = 0; attempt < 120 && !settled; attempt += 1) {
         const observed = await trustedRequest(active.rpcPort, active.token, {
           type: "browser.observe",
@@ -4609,6 +4685,7 @@ test(
         }
         frames = observed.result.frames;
         elements = observed.result.elements;
+        settledRevision = observed.result.revision.id;
         const names = elements.map((element) => element.semantic.name);
         settled =
           observed.result.coverage.actionable.status === "complete" &&
@@ -4635,6 +4712,39 @@ test(
         origin: fixtureOrigin,
       });
       expect(frameOf("Blank Main")).toMatchObject({ origin: fixtureOrigin });
+
+      // 扩展侧签发（不变量 162）：只放行顶层时，劫持方写入的按钮被拒，编辑器按钮可签发。
+      expect(
+        await trustedRequest(active.rpcPort, active.token, {
+          type: "policy.replace-autoact-origins",
+          requestId: "blank-origin-policy",
+          origins: [fixtureOrigin],
+        }),
+      ).toMatchObject({ ok: true });
+      const refOf = (name: string): string => {
+        const ref = (elements as Array<TrustedElement & { ref?: string }>).find(
+          (element) => element.semantic.name === name,
+        )?.ref;
+        if (!ref) throw new Error(name + " ref unavailable");
+        return ref;
+      };
+      for (const [name, expected] of [
+        ["Hijacked Pay", { ok: false, error: { code: "ORIGIN_NOT_ALLOWED" } }],
+        ["Editor Action", { ok: true, result: { assurance: "control-plane" } }],
+      ] as const) {
+        expect(
+          await trustedRequest(active.rpcPort, active.token, {
+            type: "authorization.issue-strict-click",
+            requestId: "blank-origin-issue-" + name.replace(/ /g, "-"),
+            authorizationId: "blank-origin-" + name.replace(/ /g, "-"),
+            tabId,
+            observedRevision: settledRevision,
+            ref: refOf(name),
+            ttlMs: 5_000,
+          }),
+          name,
+        ).toMatchObject(expected);
+      }
 
       // 2. model-facing：read origin 只放行顶层，劫持的 about:blank 不出境，编辑器 frame 出境。
       const env: Record<string, string> = {};

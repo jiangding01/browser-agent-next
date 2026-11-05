@@ -1,4 +1,5 @@
 import {
+  allowedFrameOriginChain,
   BrowserRuntimeError,
   canonicalStrictActionArgs,
   type BrowserAction,
@@ -160,9 +161,13 @@ export class PolicyGatedStrictClickExecutor {
       effect,
       tabOwnedBySession:
         preparedBeforePolicy.observation.tab.ownedBySession,
-      originAllowed: this.origins.isAllowed(
-        preparedBeforePolicy.observation.tab.origin,
-      ),
+      // 顶层与目标所在 frame 到顶层的每一层（不变量 162）。
+      originAllowed:
+        allowedFrameOriginChain(
+          preparedBeforePolicy.observation,
+          preparedBeforePolicy.expected.frameId,
+          (origin) => this.origins.isAllowed(origin),
+        ) !== undefined,
       ...(auth?.ok === true
         ? { authorizationAssurance: auth.grant.assurance }
         : {}),
@@ -344,9 +349,13 @@ export class PolicyGatedStrictClickExecutor {
     const decision = evaluateEffectPolicy({
       effect,
       tabOwnedBySession,
-      originAllowed: this.origins.isAllowed(
-        preparedBeforePolicy.observation.tab.origin,
-      ),
+      // 顶层与目标所在 frame 到顶层的每一层（不变量 162）。
+      originAllowed:
+        allowedFrameOriginChain(
+          preparedBeforePolicy.observation,
+          preparedBeforePolicy.expected.frameId,
+          (origin) => this.origins.isAllowed(origin),
+        ) !== undefined,
       ...(auth?.ok === true
         ? { authorizationAssurance: auth.grant.assurance }
         : {}),

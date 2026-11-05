@@ -14,6 +14,7 @@ import {
   UNKNOWN_ACTION_TITLE,
   approvalActionView,
   approvalTitle,
+  crossOriginFrameChain,
   writeValueDisplay,
 } from "./display.js";
 
@@ -474,3 +475,30 @@ describe("writeValueDisplay", () => {
     });
   });
 });
+
+describe("crossOriginFrameChain", () => {
+  const TOP = "https://a.test";
+
+  it("returns nothing when every frame shares the top origin", () => {
+    expect(crossOriginFrameChain(TOP, [TOP])).toBeUndefined();
+    expect(crossOriginFrameChain(TOP, [TOP, TOP])).toBeUndefined();
+  });
+
+  it("shows the whole chain, target first, when any layer differs", () => {
+    expect(crossOriginFrameChain(TOP, ["https://pay.test", TOP])).toBe("https://pay.test → https://a.test");
+    // 目标与顶层同源、中间层跨源：仍要显示。
+    expect(crossOriginFrameChain(TOP, [TOP, "https://ads.test", TOP])).toBe(
+      "https://a.test → https://ads.test → https://a.test",
+    );
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", []],
+    ["non-string entry", [TOP, 7]],
+    ["not an array", TOP],
+  ])("reports a %s chain as unconfirmed instead of hiding it", (_label, chain) => {
+    expect(crossOriginFrameChain(TOP, chain)).toBe("无法确认");
+  });
+});
+

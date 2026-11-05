@@ -31,6 +31,7 @@ Chrome Native Messaging host，同时在 `127.0.0.1` 上提供带 Bearer token �
 - 顶层 key 必须恰好是 `version` 和 `origins`，不能多也不能少；`version` 必须等于 `1`。
 - `origins` 是数组，长度 0～100；每一项是非空字符串、长度不超过 2048，且只能是纯 origin（`http:` 或 `https:`）。带 path（包括尾部的 `/`）、query、fragment、credentials、默认端口写法（如 `https://example.com:443`）或其他协议（`javascript:`、`file:` 等）的条目都会被拒绝。条目必须与 `new URL(entry).origin` 完全一致，因此主机名要写成小写、国际化域名要写成 punycode（例如 `https://xn--bcher-kva.de`），否则同样被拒绝。重复条目会被去重。
 - 任何一项非法，**整份文件作废**，不做部分应用。
+- Strict 动作要求目标元素所在 frame 到顶层的**每一层** frame 的 origin 都在 allowlist 内：要点击跨源 iframe（例如 `https://pay.example.com` 的支付 iframe）中的元素，必须把这个 iframe 及其所有外层 frame 的 origin 一起写进来，只写顶层 origin 会被拒绝（`ORIGIN_NOT_ALLOWED`）。sandbox 的 iframe 是 opaque origin，无法加入 allowlist，其中的元素不能执行 Strict 动作。
 
 权限要求：
 

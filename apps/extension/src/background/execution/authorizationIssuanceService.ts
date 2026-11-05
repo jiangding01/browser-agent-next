@@ -1,4 +1,5 @@
 import {
+  allowedFrameOriginChain,
   BrowserRuntimeError,
   canonicalStrictActionArgs,
   type AuthorizationAssurance,
@@ -254,7 +255,14 @@ export class StrictClickAuthorizationIssuanceService {
     }
     assertStrictActionTarget(element, action);
 
-    if (!this.origins.isAllowed(stored.observation.tab.origin)) {
+    // 顶层与目标所在 frame 到顶层的每一层都必须在 allowlist 内（不变量 162）。
+    if (
+      allowedFrameOriginChain(
+        stored.observation,
+        element.frameId,
+        (origin) => this.origins.isAllowed(origin),
+      ) === undefined
+    ) {
       throw new BrowserRuntimeError(
         "ORIGIN_NOT_ALLOWED",
         "cannot authorize strict click on an origin outside the auto-act allowlist",

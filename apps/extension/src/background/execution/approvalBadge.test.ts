@@ -453,13 +453,19 @@ describe("bindOperatorApprovalBadge", () => {
         get: () => ({
           byRef: new Map([[
             "@e_1",
-            { semantic: { role: "button", name: "Save" } },
+            { frameId: "web:0", semantic: { role: "button", name: "Save" } },
           ]]),
           observation: {
             tab: {
               origin: "https://fixture.test",
               title: "Fixture",
             },
+            frames: [{
+              frameId: "web:0",
+              origin: "https://fixture.test",
+              documentEpoch: "doc-a",
+              accessible: true,
+            }],
           },
         }),
       } as never,

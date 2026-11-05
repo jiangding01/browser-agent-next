@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）与 frame 自报 origin 修复为当前 PR（后者叠加在前者之上）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）、frame 自报 origin 修复与扩展侧 frame 链 origin 校验为当前 PR（依次叠加）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -40,6 +40,7 @@ Strict 写入 S2 trusted 路径 selectOption / submit / pressKey ✅
 Strict 写入 S3 model-facing 写入（强制 operator 审批）✅
 Phase 7-1 deterministic router（离线）           ✅
 修复：frame 有效 origin 以 frame 自报为准       ✅
+修复：Strict 授权按整条 frame 链校验 origin     ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -486,6 +487,28 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E 17/17 ✅（新增用例：跨站广告 frame 劫持同源兄弟为 `about:blank` 并写入按钮、页面自建 `about:blank` 编辑器；trusted 侧两者自报 origin 分别为劫持方与顶层，模型侧只看到编辑器按钮；单独连跑 5 次通过）
 - 变异验证：9 种单测变异（忽略自报 origin、未自报子 frame 按 URL 推导、接受 `"null"`、接受不合法自报、接受非 http(s) origin、trusted client 不校验、出境保留被拦 frame 的 origin、采集丢弃而非记 `"null"`、coordinator 不写 origin）全部变红；core 退回旧语义（忽略自报、`about:blank` 继承父 frame）后重建，新增 E2E 在“模型看不到 Hijacked Pay”断言处变红 ✅
 - 代码经 check（Deep）两路独立审查：0 HIGH / MEDIUM；同根因的 LOW 与 advisory（不合法上报回落到 URL、未自报子 frame 按 URL 推导、`file://` 在 Chrome 与 Node 序列化不一致）从源头收紧为“子 frame 必须自报、不合法记 `"null"`、只接受 http(s)”；E2E 改为按 name 取兄弟 frame、放宽轮询并在超时时给出明确断言；相邻缺口“扩展侧签发与审批只校验顶层 origin”记入 SECURITY，单独处理
+
+## 修复：Strict 授权按整条 frame 链校验 origin
+
+来源：frame 自报 origin 修复的 check 审查发现的相邻缺口——扩展侧签发、审批入队与执行只校验顶层 tab origin，frame 级 act origin 检查只在 MCP broker 中，且 broker 只查目标 frame。
+
+- core：`frameOriginChain` 返回目标 frame 到顶层每一层的有效 origin，任一层无法判定（含 frameId 不唯一）、`accessible` 不为 true、父链断开或成环时返回 undefined；`allowedFrameOriginChain` 在 tab origin 与整条链都满足 allowlist 时返回链；
+- 扩展：签发（control-plane / operator-approved / enterprise 三条路径共用）、审批入队、执行（click 与写入两条路径）统一使用 `allowedFrameOriginChain` 与 auto-act allowlist；审批 summary 新增 `frameOrigins`，审批页在链中有与顶层不同的 origin 时显示整条链；
+- mcp-server：act broker 的 act origin plane 使用同一个 `allowedFrameOriginChain`；
+- 方案经 think 编写、check（Deep）审查一轮：0 HIGH；采纳 M1（由只查目标 frame 改为检查整条祖先链：未放行的中间层能设置子 frame 的 src 并控制布局）；M2（两处单测 fixture 缺 frames）与 L1～L4（执行路径错误码为 `POLICY_BLOCKED`、about:blank E2E 需配置 allowlist、sandbox 场景的行为变化、文档漏项）在实现中处理；
+- 行为变化：只写顶层 origin 的 `autoact-origins.json` 不再允许对跨源 iframe（含 nested 中间层跨源）执行 Strict 动作；sandbox / opaque frame 中的元素不能执行 Strict 动作；
+- 代码经 check（Deep）两路独立审查：0 HIGH / MEDIUM。处理：判定下沉到 core 由扩展与 broker 共用（删除扩展侧重复的判定与接口，审批入队不再重复算链）；frameId 不唯一与链上不可访问的层一律拒绝（后者堵住 broker 在投影后把被拦顶层回落到 tab origin）；补 enterprise 签发路径与“入队后收紧 allowlist、批准时重新签发被拒”（真实签发器）的用例；审批页去掉多余类型断言。审批卡片的 DOM 接线没有自动化测试（仓库无 DOM 测试环境），展示逻辑由纯函数 `crossOriginFrameChain` 的单测覆盖；
+- 已接受（非本修复引入）：执行时先消费 grant、enterprise 先消费 assertion，再做 origin 判定，被拒时一次性凭据作废——结果是拒绝，不越权；
+- 新增不变量 162，修订 119；SECURITY、AUTHORIZATION-ASSURANCE、CHILD-FRAME、MODEL-FACING-ADAPTER、native-host README 同步。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅
+- TypeScript typecheck ✅
+- Unit / integration tests（1070 个）✅
+- Workspace build ✅
+- Real Chromium E2E 17/17 ✅（Agent-owned OOPIF 与 nested OOPIF 用例新增对照：只放行顶层 origin 时签发返回 `ORIGIN_NOT_ALLOWED`，放行整条链后照常执行；about:blank 用例新增：劫持方按钮签发被拒、编辑器按钮签发成功）
+- 变异验证：13 种（core 判定忽略链 / 只查目标 / 跳过 tab 检查，链放行不可访问层，frame origin 放行重复 id，链不走父链，签发、审批入队、执行 click、执行写入、broker 各自退回只看 tab，summary 缺链，审批页展示函数隐藏链）全部被单测抓到；把 core 判定退回放行后重建，上述 3 个 E2E 全部变红 ✅
 
 ## 下一步
 

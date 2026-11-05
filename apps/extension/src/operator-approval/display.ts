@@ -286,3 +286,26 @@ export function planCardUpdate(
 
   return { cards, added, staled, removed };
 }
+
+/**
+ * 目标所在 frame 链（目标 → 顶层）中出现了与顶层不同的 origin 时，返回整条链供展示；
+ * 全部与顶层相同（绝大多数情况）时返回 undefined，审批页不多显示一行。
+ * frameOrigins 形状不对（summary 版本不一致）时返回“无法确认”，宁可多提示也不静默省略。
+ */
+export function crossOriginFrameChain(
+  topOrigin: string,
+  frameOrigins: unknown,
+): string | undefined {
+  if (
+    !Array.isArray(frameOrigins) ||
+    frameOrigins.length === 0 ||
+    frameOrigins.some((origin) => typeof origin !== "string")
+  ) {
+    return "无法确认";
+  }
+  const chain = frameOrigins as string[];
+  return chain.some((origin) => origin !== topOrigin)
+    ? chain.join(" → ")
+    : undefined;
+}
+

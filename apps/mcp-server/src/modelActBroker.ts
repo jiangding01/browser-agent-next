@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { TraceAuthorization } from "@browser-agent-next/core";
 import {
   BrowserRuntimeError,
-  effectiveFrameOrigin,
+  allowedFrameOriginChain,
   type BrowserObservation,
   type StrictActionArgs,
 } from "@browser-agent-next/core";
@@ -399,15 +399,14 @@ export function createModelActBroker(
       );
     }
 
-    // 1. act origin plane：顶层 tab 与目标 element 所在 frame 都必须在 act allowlist 内。
-    const frameOrigin = effectiveFrameOrigin(
-      observation,
-      element.frameId,
-    );
+    // 1. act origin plane：顶层 tab 与目标 element 所在 frame 到顶层的每一层
+    //    都必须在 act allowlist 内（不变量 162，与扩展侧签发同一语义）。
     if (
-      !origins.isAllowed(observation.tab.origin) ||
-      frameOrigin === undefined ||
-      !origins.isAllowed(frameOrigin)
+      allowedFrameOriginChain(
+        observation,
+        element.frameId,
+        (origin) => origins.isAllowed(origin),
+      ) === undefined
     ) {
       throw new BrowserRuntimeError(
         "ORIGIN_NOT_ALLOWED",
