@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#21 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）与 Strict 写入 S1～S3 全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）；Phase 7-1 交付了离线的 deterministic router。
+PR #1～#24 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）与 Strict 写入 S1～S3 全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）；Phase 7-1 交付了离线的 deterministic router；frame 有效 origin 改为以 frame 自报为准，Strict 授权按整条 frame 链校验 origin。
 
 已经完成：
 

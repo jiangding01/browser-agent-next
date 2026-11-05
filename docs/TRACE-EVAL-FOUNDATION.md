@@ -225,7 +225,7 @@ pnpm build
 
 ## 7-0b：脱敏 trace
 
-状态：方案已对照 mcp-server 代码细化，并经独立对抗式审查一轮（1 HIGH、2 MEDIUM、4 LOW、2 advisory，已全部并入下文）；7-0b 实现中。
+状态：方案已对照 mcp-server 代码细化，并经独立对抗式审查一轮（1 HIGH、2 MEDIUM、4 LOW、2 advisory，已全部并入下文）；7-0b 已实现并合并（实现与审查记录见 `docs/PROGRESS.md`「Phase 7-0b：model-facing 脱敏 trace」）。
 
 ### 与初稿的差异
 

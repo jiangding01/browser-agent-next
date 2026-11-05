@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；Phase 7-1 deterministic router（离线）、frame 自报 origin 修复与扩展侧 frame 链 origin 校验为当前 PR（依次叠加）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#24 已合并，Phase 0～6.6、Phase 7-0、Strict 写入 S1～S3 与 Phase 7-1 deterministic router（离线）完成（S3 经 PR #21 于 2026-11-02 合并；Phase 7-1、frame 自报 origin 修复与 Strict 授权 frame 链 origin 校验分别经 PR #22、#23、#24 于 2026-11-05 合并）；下一阶段为 Phase 7 后续条目（Jev CandidateBuilder 起）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -445,6 +445,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## Phase 7-1：deterministic router（离线）
 
+已合并：PR #22（2026-11-05）。
+
 方案见 `docs/DETERMINISTIC-ROUTER.md`（think 编写，独立对抗式审查两轮：第一轮 2 HIGH、4 MEDIUM、4 LOW，第二轮 0 HIGH、2 MEDIUM、5 LOW，均在实现前并入）。
 
 - core：`effectiveFrameUrl` 从 mcp-server 迁入，出境投影、act broker 与 router 共用；
@@ -469,6 +471,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 
 ## 修复：frame 有效 origin 以 frame 自报为准
 
+已合并：PR #23（2026-11-05）。
+
 来源：Phase 7-1 代码审查发现的已有缺陷。`effectiveFrameUrl` 让 `about:blank` 继承父 frame，但 `about:blank` 的真实 origin 来自导航发起方：跨源广告 frame 可以把同源兄弟导航到 `about:blank` 再写入按钮，它会通过出境投影（read plane）与 act broker（act plane）的 origin 检查；sandbox frame 是 opaque，URL 也看不出来。
 
 - 扩展：content script 在 isolated world 读取 `self.origin`，随 DOM 快照上报；`collectDomSource` 把缺失或不合法的上报记为 `"null"`，coordinator 写入 `FrameState.origin`；
@@ -489,6 +493,8 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 代码经 check（Deep）两路独立审查：0 HIGH / MEDIUM；同根因的 LOW 与 advisory（不合法上报回落到 URL、未自报子 frame 按 URL 推导、`file://` 在 Chrome 与 Node 序列化不一致）从源头收紧为“子 frame 必须自报、不合法记 `"null"`、只接受 http(s)”；E2E 改为按 name 取兄弟 frame、放宽轮询并在超时时给出明确断言；相邻缺口“扩展侧签发与审批只校验顶层 origin”记入 SECURITY，单独处理
 
 ## 修复：Strict 授权按整条 frame 链校验 origin
+
+已合并：PR #24（2026-11-05）。
 
 来源：frame 自报 origin 修复的 check 审查发现的相邻缺口——扩展侧签发、审批入队与执行只校验顶层 tab origin，frame 级 act origin 检查只在 MCP broker 中，且 broker 只查目标 frame。
 
