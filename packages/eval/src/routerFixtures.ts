@@ -21,6 +21,7 @@ const payFrame = {
   frameId: "child-1",
   parentFrameId: "main",
   url: PAY_ORIGIN + "/embed",
+  origin: PAY_ORIGIN,
   documentEpoch: "doc-child",
   accessible: true,
 };

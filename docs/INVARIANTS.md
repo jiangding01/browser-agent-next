@@ -128,7 +128,7 @@
 117. auto-act origins 配置文件必须是当前用户拥有、非 symlink、不可被组或其他用户写入的普通文件，且只接受纯 origin；任一条目非法时整份文件作废、不做部分应用，扩展 allowlist 保持为空（fail closed）；native host 不得因配置读取失败而向 stdout 写入。
 
 118. （N1）side-effect tier 的工具不得进入默认 `MODEL_TOOLS`；只有 operator 显式写进 `BROWSER_AGENT_NEXT_MODEL_TOOLS` 才会暴露。
-119. （N2）model act origin 是第 4 个独立 policy plane，默认为空且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）都必须满足。
+119. （N2）model act origin 是第 4 个独立 policy plane，默认为空且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（见不变量 161）都必须满足。
 120. （N3）只能对本连接已出境 revision 中已投影的 ref 发起授权。
 121. （N4）同一 `(tab, revision, ref)` 每个连接至多执行一次，标记先于任何 trusted 请求落账；`ACTION_OUTCOME_UNKNOWN` 之后该 tab 至少需要 operator-approved。
 122. （N5）MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明，批准只能来自扩展的审批 UI。
@@ -139,7 +139,7 @@
 127. 等待 operator approval 期间发给 MCP 客户端的 progress notification 只能包含严格递增的计数与固定文本，不得包含 approval id、authorization id、ref、origin、revision 或任何页面派生文本；客户端未提供 progressToken 时不得发送。
 128. 审批页必须把页面派生文本（目标名称、role、页面标题）放在明确标注为不可信的区域，并与浏览器提供的 origin 分开展示；显示前必须删除控制字符、格式字符（含 bidi 覆盖 / 隔离与零宽字符）与变体选择符，且只能经 `textContent` 写入。自动刷新不得让已有卡片在 operator 点击时移位而按钮仍可用：已有卡片不重排、新卡片只追加并延迟启用、消失的卡片先原位禁用再移除。扩展角标只能显示待审批数量。
 129. model-facing MCP 的 trusted Runtime client 在所有路径上都只能把 trusted 错误的 code 交给模型，message 必须换成固定文本；扩展返回的 verification evidence 中的 `observed` 与 `reason` 必须在 client 层丢弃。安全性不得依赖扩展错误消息恰好是静态文本。
-130. read plane（出境投影）与 act plane（act broker）对 frame 有效 origin 的判定必须共用同一实现：顶层 frame 缺 url 回落 tab origin，about:blank / about:srcdoc 继承父 frame，其余缺 url、找不到或父链成环一律 fail closed。
+130. read plane（出境投影）、act plane（act broker）与 deterministic router 对 frame 有效 origin 的判定必须共用同一实现（`effectiveFrameOrigin`，规则见不变量 161）：顶层 frame 缺 url 回落 tab origin，其余缺 url、找不到或父链成环一律 fail closed。
 131. 决策评测必须把 Candidate Recall@K 与 Decision Conditional Accuracy 分开报告；acceptable target 不在候选集中的 fixture 归因为 candidate layer，不得计入 provider 的 conditional accuracy 分母。
 132. provider 返回不在其收到的候选集中的 CLICK ref 一律视为 invalid，即使该 ref 属于 acceptable targets 也不得计为正确，并计入 unsafeClickRate。
 133. CandidateBuilder 不得提升 coverage：候选集的 coverage 不能比 observation 的 actionable coverage 更完整，harness 必须逐 fixture 校验 builder 输出；actionable coverage 非 complete 的 fixture 必须把 ESCALATE 列为可接受答案。
@@ -168,5 +168,6 @@
 156. Deterministic router 的 resolved 结果与调用方直接给出 ref 等价：之后仍经同一 policy、grant、审批与 Strict preflight，不得因“确定性解析”跳过审批、改变授权路径或 assurance。Strict 执行不复核名称，router 的匹配规则本身就是“点对元素”的唯一保证。
 157. Router 不解析自然语言 `microGoal`；只有结构化 `StepIntent` 才可能 resolve，没有 intent 一律 defer。
 158. Router 只在完整性闸门全部成立时 resolve（page scope、actionable complete、open shadow root 已覆盖、无 degraded 与不可访问 frame、非 opaque 顶层 origin、无阻塞 overlay / 模态 dialog），并要求作用域内 DOM provenance 的可见匹配恰好一个；任何歧义（含禁用同名、可疑同名、origin 无法判定的同名、非 DOM 来源的同名）都 defer。
-159. Router 的匹配作用域默认是顶层 tab origin；跨源 frame 内的元素只在 intent 显式给出该 frame 的精确 origin 时才可匹配。origin 推导链经过 `about:blank` 的 frame（真实 origin 来自导航发起方，observation 无法证明）视为 origin 无法判定。
+159. Router 的匹配作用域默认是顶层 tab origin；跨源 frame 内的元素只在 intent 显式给出该 frame 的精确 origin 时才可匹配。frame 的有效 origin 按不变量 161 判定。
 160. Eval 中 router resolve 的 ref 不在候选集内时必须交给 fallback，不得以 CLICK 提交给 harness。
+161. frame 的有效 origin 以 frame 自报的序列化 origin 为准：扩展 content script 在 isolated world 读取 `self.origin`，随按 documentId 定向的 DOM 快照上报，写入 `FrameState.origin`；快照成功但上报缺失或格式不合法时记为 opaque 的 `"null"`。自报为 `"null"` 或不是 http(s) origin 时视为无法判定。子 frame 没有自报 origin 时一律视为无法判定，不按 URL 推导、不继承父 frame（`about:blank` 的 origin 来自导航发起方，sandbox frame 是 opaque，URL 都看不出）；只有顶层 frame 在未自报时按 URL 推导。trusted client 拒绝格式不合法的 `frame.origin`；出境投影对不放行的 frame 同时隐藏 url 与 origin。

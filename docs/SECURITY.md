@@ -80,9 +80,22 @@ broker 的 scope 是 MCP 进程内的代码约束：它限制的是只能通过�
 ### 默认配置
 
 - `browser.act` 默认不在 `MODEL_TOOLS` 里；
-- act origin 默认为空，且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（`about:blank` / `about:srcdoc` 继承父 frame）都必须在 act allowlist 内；
+- act origin 默认为空，且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（以 frame 自报为准，子 frame 未自报即视为无法判定，见下文「Frame 有效 origin」）都必须在 act allowlist 内；
 - 授权路径默认是 operator approval；`agent-owned-auto` 仅对 click、`ownedBySession` 且未降级的 tab 生效，写入类动作恒走 operator approval，本连接请求过任何写入之后，所有 tab 的 click 也恒走 operator approval（防止写入获批后自动提交）；
 - `ACTION_OUTCOME_UNKNOWN`（授权或执行阶段）或非 Runtime 异常之后，该 tab 在当前连接内永久降级为 operator approval。
+
+### Frame 有效 origin
+
+read plane（出境投影）、act plane（act broker）与 deterministic router 共用 `effectiveFrameOrigin`（不变量 130、161）：
+
+- 扩展 content script 运行在每个 frame 的 isolated world（`all_frames` + `match_origin_as_fallback`），在 DOM 快照里上报 `self.origin`；页面脚本改不了 isolated world 读到的值，快照按 documentId 定向发送，origin 与该 frame 的当前文档对应；
+- 以自报 origin 为准。它覆盖 URL 看不出的两类情况：跨源 frame 把同源兄弟导航到 `about:blank` 再写入内容时，该 frame 的 origin 是导航发起方；sandbox frame 是 opaque（`"null"`），一律视为无法判定；
+- 快照成功但上报缺失或格式不合法时记为 `"null"`；只接受 http(s) origin（file:、chrome-extension: 等在浏览器与 Node 中序列化不一致，按不合法处理）；
+- 子 frame 没有自报 origin（content script 未响应，例如只有 AX 来源的元素）时视为无法判定，不按 URL 推导、不继承父 frame；只有顶层 frame 在未自报时按 URL 推导。
+
+已接受的限制：信任来自扩展 content script，渲染进程被攻破不在威胁模型内；content script 未注入或未响应的子 frame 在 read / act 两个 plane 都按不放行处理，属于可用性损失而非放行。
+
+已知的相邻缺口（非本修复引入）：扩展侧授权签发与审批只校验顶层 tab origin，不看目标元素所在 frame；frame 级 act origin 检查目前只在 MCP 进程的 act broker 中，审批页也只显示顶层 origin。
 
 ### operator approval 的证明来源
 

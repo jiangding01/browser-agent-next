@@ -266,6 +266,64 @@ describe("ModelFacingBrowserAdapter", () => {
     ]);
   });
 
+  it("about:blank frame 按自报 origin 出境，不凭 URL 继承父 frame（不变量 161）", async () => {
+    const base = observation();
+    const frames: BrowserObservation["frames"] = [
+      base.frames[0]!,
+      // 父文档自己创建的编辑器 iframe：自报 origin 与顶层相同。
+      { frameId: "web:3", parentFrameId: "web:0", url: "about:blank", origin: "https://allowed.test", documentEpoch: "doc-editor", accessible: true },
+      // 被跨源广告 frame 导航到 about:blank 后写入内容：自报 origin 是导航发起方。
+      { frameId: "web:4", parentFrameId: "web:0", url: "about:blank", origin: "https://ads.test", documentEpoch: "doc-hijacked", accessible: true },
+      // content script 未上报 origin 的 about:blank。
+      { frameId: "web:5", parentFrameId: "web:0", url: "about:blank", documentEpoch: "doc-unreported", accessible: true },
+      // URL 同源但 sandbox 成 opaque 的 frame。
+      { frameId: "web:6", parentFrameId: "web:0", url: "https://allowed.test/ugc", origin: "null", documentEpoch: "doc-sandboxed", accessible: true },
+    ];
+    const button = (ref: string, frameId: string): BrowserObservation["elements"][number] => ({
+      ref,
+      kind: "element",
+      semantic: { role: "button", name: "Pay" },
+      state: { visible: true, enabled: true, focused: false },
+      frameId,
+      capabilities: [{ kind: "click" }],
+      provenance: { dom: true },
+    });
+    const runtime: ModelBrowserRuntimeClient = {
+      async open() { throw new Error("unused"); },
+      async observe() {
+        return {
+          ...base,
+          frames,
+          elements: [
+            button("@top", "web:0"),
+            button("@editor", "web:3"),
+            button("@hijacked", "web:4"),
+            button("@unreported", "web:5"),
+            button("@sandboxed", "web:6"),
+          ],
+        };
+      },
+    };
+
+    const result = await adapter(runtime).invoke("browser.observe", { tabId: 7 }) as BrowserObservation;
+
+    expect(result.elements.map((element) => element.ref)).toEqual(["@top", "@editor"]);
+    expect(result.frames.find((frame) => frame.frameId === "web:3")).toMatchObject({
+      origin: "https://allowed.test",
+      accessible: true,
+    });
+    for (const frameId of ["web:4", "web:5", "web:6"]) {
+      const frame = result.frames.find((item) => item.frameId === frameId);
+      expect(frame, frameId).toMatchObject({
+        accessible: false,
+        degradedReason: "model-egress-origin-blocked",
+      });
+      expect(frame?.url, frameId).toBeUndefined();
+      expect(frame?.origin, frameId).toBeUndefined();
+    }
+    expect(result.coverage.actionable.status).toBe("partial");
+  });
+
   it("extract/verify 只能使用已成功出境的 revision，并在投影状态上本地执行", async () => {
     const runtime: ModelBrowserRuntimeClient = {
       async open() { throw new Error("unused"); },

@@ -20,6 +20,7 @@ function dom(): CollectedDomSource {
       "web:2": "frame-child",
     },
     viewportByFrame: {},
+    originByFrame: {},
     elements: [
       {
         source: "dom",

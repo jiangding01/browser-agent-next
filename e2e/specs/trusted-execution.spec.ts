@@ -4558,3 +4558,148 @@ test(
     }
   },
 );
+
+test(
+  "about:blank frame 按自报 origin 判定：跨站劫持的兄弟 frame 不出境，页面自建的编辑器 frame 正常出境",
+  async () => {
+    test.skip(
+      process.platform === "win32",
+      "Windows Native Messaging 注册表安装将在独立安装器阶段覆盖",
+    );
+    test.setTimeout(90_000);
+
+    const home = mkdtempSync(
+      path.join(tmpdir(), "browser-agent-next-e2e-home-"),
+    );
+    let host: TrustedHostBrowser | undefined;
+    let mcp: McpProcessClient | undefined;
+
+    try {
+      host = await startTrustedHostBrowser(home);
+      const active = host;
+
+      const createdPage = active.context.waitForEvent("page");
+      const opened = await trustedRequest(active.rpcPort, active.token, {
+        type: "browser.open",
+        requestId: "blank-origin-open",
+        url: fixtureOrigin + "/blank-origin-main.html",
+        active: false,
+      });
+      expect(opened).toMatchObject({ ok: true });
+      const tabId: number = opened.result.tabId;
+      const page = await createdPage;
+      await page.waitForLoadState("load");
+
+      // 1. trusted 侧：两个 about:blank frame 都被采集，origin 来自 frame 自报而不是 URL。
+      type TrustedFrame = { frameId: string; url?: string; origin?: string };
+      type TrustedElement = { frameId: string; semantic: { name?: string } };
+      let frames: TrustedFrame[] = [];
+      let elements: TrustedElement[] = [];
+      let settled = false;
+      for (let attempt = 0; attempt < 120 && !settled; attempt += 1) {
+        const observed = await trustedRequest(active.rpcPort, active.token, {
+          type: "browser.observe",
+          requestId: "blank-origin-observe-" + attempt,
+          tabId,
+        });
+        if (!observed.ok) {
+          // 劫持脚本导航兄弟 frame 时 observe 会因导航竞态 fail closed，稍后重试。
+          await page.waitForTimeout(100);
+          continue;
+        }
+        frames = observed.result.frames;
+        elements = observed.result.elements;
+        const names = elements.map((element) => element.semantic.name);
+        settled =
+          observed.result.coverage.actionable.status === "complete" &&
+          names.includes("Hijacked Pay") &&
+          names.includes("Editor Action");
+        if (!settled) await page.waitForTimeout(100);
+      }
+      expect(
+        settled,
+        "劫持与编辑器按钮未在轮询窗口内同时出现：" +
+          JSON.stringify(elements.map((element) => element.semantic.name)),
+      ).toBe(true);
+
+      const frameOf = (name: string): TrustedFrame | undefined => {
+        const element = elements.find((item) => item.semantic.name === name);
+        return frames.find((frame) => frame.frameId === element?.frameId);
+      };
+      expect(frameOf("Hijacked Pay")).toMatchObject({
+        url: "about:blank",
+        origin: "http://localhost:4173",
+      });
+      expect(frameOf("Editor Action")).toMatchObject({
+        url: "about:blank",
+        origin: fixtureOrigin,
+      });
+      expect(frameOf("Blank Main")).toMatchObject({ origin: fixtureOrigin });
+
+      // 2. model-facing：read origin 只放行顶层，劫持的 about:blank 不出境，编辑器 frame 出境。
+      const env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined && !key.startsWith("BROWSER_AGENT_NEXT_")) {
+          env[key] = value;
+        }
+      }
+      Object.assign(env, {
+        HOME: home,
+        BROWSER_AGENT_NEXT_RPC_PORT: String(active.rpcPort),
+        BROWSER_AGENT_NEXT_RPC_TOKEN_PATH: path.join(
+          home,
+          ".browser-agent-next/trusted-rpc.token",
+        ),
+        BROWSER_AGENT_NEXT_MODEL_READ_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_NAVIGATION_ORIGINS: fixtureOrigin,
+        BROWSER_AGENT_NEXT_MODEL_TOOLS: "browser.observe",
+      });
+      mcp = startMcpProcess(env);
+      const client = mcp;
+      const initialized = await client.request("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "browser-agent-next-e2e", version: "0.0.0" },
+      }).response;
+      expect(initialized.result).toBeTruthy();
+      client.notify("notifications/initialized", {});
+
+      const projected = toolPayload(
+        await client.request("tools/call", {
+          name: "browser.observe",
+          arguments: { tabId },
+        }).response,
+      );
+      expect(projected.isError, JSON.stringify(projected.value)).toBe(false);
+      const modelElements = projected.value.elements as TrustedElement[];
+      const modelFrames = projected.value.frames as Array<
+        TrustedFrame & { accessible: boolean; degradedReason?: string }
+      >;
+      const modelNames = modelElements.map((element) => element.semantic.name);
+      expect(modelNames).toContain("Blank Main");
+      expect(modelNames).toContain("Editor Action");
+      expect(modelNames).not.toContain("Hijacked Pay");
+
+      const hijackedFrameId = elements.find(
+        (element) => element.semantic.name === "Hijacked Pay",
+      )?.frameId;
+      const hijackedFrame = modelFrames.find(
+        (frame) => frame.frameId === hijackedFrameId,
+      );
+      expect(hijackedFrame).toMatchObject({
+        accessible: false,
+        degradedReason: "model-egress-origin-blocked",
+      });
+      expect(hijackedFrame?.url).toBeUndefined();
+      expect(hijackedFrame?.origin).toBeUndefined();
+
+      const protocolErrors = await client.close();
+      mcp = undefined;
+      expect(protocolErrors, "MCP stdout 出现非 JSON 行").toEqual([]);
+    } finally {
+      await mcp?.close().catch(() => undefined);
+      await host?.close().catch(() => undefined);
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);

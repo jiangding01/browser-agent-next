@@ -6,6 +6,7 @@ function frameSnapshot(): DomFrameSnapshot {
   return {
     source: "dom",
     frameEpoch: "frame-epoch-a",
+    origin: "https://fixture.test",
     viewport: {
       width: 100,
       height: 100,

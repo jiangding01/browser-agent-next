@@ -20,6 +20,11 @@ export interface DomFrameElement {
 export interface DomFrameSnapshot {
   source: "dom";
   frameEpoch: string;
+  /**
+   * 本 frame 文档的序列化 origin（`self.origin`，opaque 时为 "null"）。
+   * content script 运行在 isolated world，页面脚本无法改写这里读到的值。
+   */
+  origin: string;
   viewport: ViewportState;
   elements: DomFrameElement[];
   coverage: {
@@ -597,6 +602,7 @@ export class DomFramePerceptionSource {
     return {
       source: "dom",
       frameEpoch: this.frameEpoch,
+      origin: win.origin,
       viewport: viewportFor(document, win),
       elements,
       coverage: {

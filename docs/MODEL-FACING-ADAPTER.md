@@ -152,7 +152,8 @@ Top-level origin 未被 read policy 允许时，整个 observation fail closed�
 child frame 单独判断：
 
 - allowlisted http/https origin → 可出境；
-- `about:blank` / `about:srcdoc` → 继承 parent frame 的 egress 决策；
+- 按 frame 自报的 origin（扩展 content script 读取的 `self.origin`）判定，opaque 的 `"null"` 不出境；
+- 子 frame 未自报 origin 时不出境，不按 URL 推导、不继承 parent frame（`about:blank` 的 origin 来自导航发起方，sandbox frame 是 opaque）；
 - 未 allowlist / 无法证明来源 → frame URL 与 frame content 不出境。
 
 发生过滤后：
@@ -380,7 +381,7 @@ adapter 在投影后的 observation 上本地重算 verification
 检查同时覆盖两层，任何一层不在 act allowlist 内都返回 `ORIGIN_NOT_ALLOWED`：
 
 1. observation 的 tab origin；
-2. 目标 element 所在 frame 的有效 origin。`about:blank` / `about:srcdoc` 继承父 frame；顶层 frame 缺 url 时回落到 tab origin；其余无法证明 url 的 frame 视为未知，同样拒绝。
+2. 目标 element 所在 frame 的有效 origin（`effectiveFrameOrigin`，与出境投影同一实现）：以 frame 自报的 origin 为准；子 frame 未自报时视为未知；只有顶层 frame 在未自报时按 URL 推导（缺 url 回落到 tab origin）；无法证明 origin 的 frame 一律拒绝。
 
 这样模型不能借 read origin 内的页面嵌入的跨 origin iframe，对一个未经 act allowlist 的 frame 发起点击。
 
@@ -472,7 +473,7 @@ trusted Runtime 的错误 message 来自扩展原文，可能描述未出境的�
 
 ### side-effect 集成测试（Phase 6.6c）
 
-- **wire 级（`apps/mcp-server/src/sideEffect.wire.test.ts`）**：真实 MCP JSON-RPC wire（SDK `StdioServerTransport` + 内存 pipe）+ 真实 CLI 组装（`loadModelFacingMcpConfig` → `createModelFacingInvoker`：adapter + broker + `TrustedRuntimeHttpClient`）+ 真实 HTTP（`src/testing/fakeTrustedRuntime.ts`，127.0.0.1 随机端口、Bearer 校验、与 native host 相同的响应信封）。覆盖：默认不暴露 act；写入全链路（审批请求与执行请求带同一 action、金丝雀值不出现在结果 / 错误 / progress / trace，含扩展在审批 summary 中回传该值的情况）、`agent-owned-auto` 下写入仍请求审批、`includeValues` 两种取值下的 `valueMatched`；operator 批准全链路与 progress；act / 授权路径出境脱敏；运行时错误固定文本并撤销；客户端取消只撤销、不执行；预算与单次执行；act origin 与子 frame origin plane（含 about:blank 继承）；未出境 revision；`ACTION_OUTCOME_UNKNOWN` 后降级；token 不出境；读路径错误原文不出境。
+- **wire 级（`apps/mcp-server/src/sideEffect.wire.test.ts`）**：真实 MCP JSON-RPC wire（SDK `StdioServerTransport` + 内存 pipe）+ 真实 CLI 组装（`loadModelFacingMcpConfig` → `createModelFacingInvoker`：adapter + broker + `TrustedRuntimeHttpClient`）+ 真实 HTTP（`src/testing/fakeTrustedRuntime.ts`，127.0.0.1 随机端口、Bearer 校验、与 native host 相同的响应信封）。覆盖：默认不暴露 act；写入全链路（审批请求与执行请求带同一 action、金丝雀值不出现在结果 / 错误 / progress / trace，含扩展在审批 summary 中回传该值的情况）、`agent-owned-auto` 下写入仍请求审批、`includeValues` 两种取值下的 `valueMatched`；operator 批准全链路与 progress；act / 授权路径出境脱敏；运行时错误固定文本并撤销；客户端取消只撤销、不执行；预算与单次执行；act origin 与子 frame origin plane（自报 origin 的 about:blank 允许、未上报的不出境）；未出境 revision；`ACTION_OUTCOME_UNKNOWN` 后降级；token 不出境；读路径错误原文不出境。
 - **端到端（`e2e/specs/trusted-execution.spec.ts`）**：以真实子进程运行构建产物 `apps/mcp-server/dist/cli.js`，经 stdin / stdout 走 MCP，连真实 native host、扩展与 Chromium：模型 open → observe → act，operator 在审批页批准后页面真实跳转、本地 Verify 通过并收到 progress；客户端取消时角标清零、卡片失效且页面未被点击；同时断言 stdout 没有非 JSON 行。S3 另有一条：MCP 以 `agent-owned-auto` 启动、在 session 自己的 tab 上，click 自动执行（对照组）而 setValue 仍出现审批卡片，批准后写入、拒绝后字段不变，同一次观察中重复写同一 ref 被拒，MCP 结果、progress 与 trace 文件中都没有写入值。
 
 ## 后续工作

@@ -43,6 +43,12 @@ export interface FrameState {
   frameId: string;
   parentFrameId?: string;
   url?: string;
+  /**
+   * frame 文档自报的序列化 origin（扩展 content script 在 isolated world 读取的
+   * `self.origin`），opaque 时为 `"null"`；content script 未响应的 frame 没有该字段。
+   * 它反映 URL 看不出的 origin：about:blank 的 origin 来自导航发起方，sandbox frame 是 opaque。
+   */
+  origin?: string;
   documentEpoch: string;
   accessible: boolean;
   degradedReason?: string;

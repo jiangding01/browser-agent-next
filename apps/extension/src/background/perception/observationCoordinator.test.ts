@@ -29,6 +29,7 @@ function snapshot(
   return {
     source: "dom",
     frameEpoch: "frame-epoch-a",
+    origin: "https://example.test",
     viewport: {
       width: 1280,
       height: 720,
@@ -106,6 +107,10 @@ describe("DomObservationCoordinator", () => {
     const observation = await coordinator.observe(input("Save"));
 
     expect(observation.revision.id).toBe("runtime-a:g1:t7");
+    // frame 自报的 origin 写入 FrameState（不变量 161）。
+    expect(observation.frames).toEqual([
+      expect.objectContaining({ frameId: "web:0", origin: "https://example.test" }),
+    ]);
     expect(observation.elements[0]).toMatchObject({
       ref: "@e_1",
       semantic: { role: "button", name: "Save" },
