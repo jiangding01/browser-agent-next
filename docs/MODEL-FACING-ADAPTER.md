@@ -381,7 +381,7 @@ adapter 在投影后的 observation 上本地重算 verification
 检查同时覆盖两层，任何一层不在 act allowlist 内都返回 `ORIGIN_NOT_ALLOWED`：
 
 1. observation 的 tab origin；
-2. 目标 element 所在 frame 的有效 origin（`effectiveFrameOrigin`，与出境投影同一实现）：以 frame 自报的 origin 为准；子 frame 未自报时视为未知；只有顶层 frame 在未自报时按 URL 推导（缺 url 回落到 tab origin）；无法证明 origin 的 frame 一律拒绝。
+2. 目标 element 所在 frame 到顶层每一层的有效 origin（core `allowedFrameOriginChain`，与扩展侧签发同一实现，逐层使用与出境投影相同的 `effectiveFrameOrigin`，链上任一层被投影标为不可访问即拒绝；不变量 162）：以 frame 自报的 origin 为准；子 frame 未自报时视为未知；只有顶层 frame 在未自报时按 URL 推导（缺 url 回落到 tab origin）；无法证明 origin 的 frame 一律拒绝。
 
 这样模型不能借 read origin 内的页面嵌入的跨 origin iframe，对一个未经 act allowlist 的 frame 发起点击。
 

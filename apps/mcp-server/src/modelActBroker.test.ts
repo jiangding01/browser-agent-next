@@ -88,6 +88,15 @@ function observation(
         accessible: true,
       },
       {
+        // 中间层是跨源（但可读）的 frame，目标与顶层同源：整条链都必须在 act allowlist 内。
+        frameId: "web:5",
+        parentFrameId: "web:2",
+        url: origin + "/inner",
+        origin,
+        documentEpoch: "doc-inner",
+        accessible: true,
+      },
+      {
         // content script 未上报 origin 的 about:blank：不凭 URL 继承父 frame。
         frameId: "web:4",
         parentFrameId: "web:0",
@@ -99,6 +108,7 @@ function observation(
         frameId: "web:2",
         parentFrameId: "web:0",
         url: "https://read-only.test/embed",
+        origin: "https://read-only.test",
         documentEpoch: "doc-child",
         accessible: true,
       },
@@ -115,6 +125,7 @@ function observation(
       ["@readonly", "web:2"],
       ["@hijacked", "web:3"],
       ["@unreported", "web:4"],
+      ["@inner", "web:5"],
     ].map(([ref, frameId]) => ({
       ref: ref!,
       kind: "element" as const,
@@ -367,7 +378,7 @@ describe("createModelActBroker", () => {
     )).rejects.toMatchObject({ code: "ORIGIN_NOT_ALLOWED" });
 
     // 被跨源 frame 劫持的 about:blank，与未上报 origin 的 about:blank（不变量 161）。
-    for (const ref of ["@hijacked", "@unreported"]) {
+    for (const ref of ["@hijacked", "@unreported", "@inner"]) {
       await expect(instance.act(
         actInput(ref),
         observation(),

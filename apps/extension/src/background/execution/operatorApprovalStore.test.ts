@@ -4,6 +4,13 @@ import {
   it,
   vi,
 } from "vitest";
+import type { BrowserObservation } from "@browser-agent-next/core";
+import {
+  InMemoryAuthorizationStore,
+  MutableExactOriginAllowlist,
+} from "@browser-agent-next/policy";
+import { TabStateStore } from "@browser-agent-next/runtime";
+import { StrictClickAuthorizationIssuanceService } from "./authorizationIssuanceService.js";
 import {
   OperatorApprovalStore,
 } from "./operatorApprovalStore.js";
@@ -23,6 +30,7 @@ function setup(
         byRef: new Map([[
           "@e_1",
           {
+            frameId: "web:0",
             semantic: {
               role: "button",
               name: "Save",
@@ -35,6 +43,13 @@ function setup(
               "https://fixture.test",
             title: "Fixture",
           },
+          frames: [{
+            frameId: "web:0",
+            url: "https://fixture.test/",
+            origin: "https://fixture.test",
+            documentEpoch: "doc-a",
+            accessible: true,
+          }],
         },
       },
     ]]);
@@ -950,13 +965,19 @@ describe("OperatorApprovalStore.subscribe", () => {
     entries.set("rev-evil", {
       byRef: new Map([[
         "@e_1",
-        { semantic: { role: "button", name: "X" } },
+        { frameId: "web:0", semantic: { role: "button", name: "X" } },
       ]]),
       observation: {
         tab: {
           origin: "https://evil.test",
           title: "Evil",
         },
+        frames: [{
+          frameId: "web:0",
+          origin: "https://evil.test",
+          documentEpoch: "doc-evil",
+          accessible: true,
+        }],
       },
     });
 
@@ -1220,6 +1241,7 @@ describe("OperatorApprovalStore 写入类动作", () => {
   function field(state: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
     return {
       kind: "field",
+      frameId: "web:0",
       semantic: { role: "textbox", name: "Name" },
       state: { visible: true, enabled: true, focused: false, ...state },
       capabilities: [{ kind: "setValue", valueType: "text" }],
@@ -1296,3 +1318,101 @@ describe("OperatorApprovalStore 写入类动作", () => {
     }
   });
 });
+
+describe("OperatorApprovalStore frame 级 origin（不变量 162）", () => {
+  it("summary 带目标 frame 到顶层的 origin 链", () => {
+    const { store } = setup();
+    expect(store.request(input).frameOrigins).toEqual(["https://fixture.test"]);
+  });
+
+  it.each([
+    ["跨源目标 frame", "web:1"],
+    ["中间层跨源的同源目标 frame", "web:2"],
+    ["未自报 origin 的子 frame", "web:3"],
+  ])("%s 在入队前拒绝", (_label, frameId) => {
+    const { store, entries } = setup();
+    const entry = entries.get("rev-1");
+    entry.observation.frames.push(
+      { frameId: "web:1", parentFrameId: "web:0", origin: "https://ads.test", documentEpoch: "doc-ads", accessible: true },
+      { frameId: "web:2", parentFrameId: "web:1", origin: "https://fixture.test", documentEpoch: "doc-inner", accessible: true },
+      { frameId: "web:3", parentFrameId: "web:0", url: "https://fixture.test/x", documentEpoch: "doc-unreported", accessible: true },
+    );
+    entry.byRef.set("@e_1", { ...entry.byRef.get("@e_1"), frameId });
+
+    expect(() => store.request(input)).toThrow(
+      expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }),
+    );
+    expect(store.listPending()).toEqual([]);
+  });
+});
+
+describe("OperatorApprovalStore × 真实签发器：批准时重新检查 frame 链（不变量 162）", () => {
+  function realObservation(): BrowserObservation {
+    return {
+      schemaVersion: 1,
+      tab: { tabId: 7, title: "Fixture", url: "https://fixture.test/", origin: "https://fixture.test", ownedBySession: false },
+      revision: { id: "rev-1", stateEpoch: "s", documentEpoch: "doc", sequence: 1 },
+      scope: { kind: "page" },
+      coverage: {
+        actionable: { status: "complete", returned: 1, totalKnown: 1 },
+        forms: { status: "complete", returned: 0, totalKnown: 0 },
+        text: { status: "unknown", returned: 0 },
+        frames: { discovered: 2, accessible: 2, degraded: [] },
+        shadowDom: { openRootsCovered: true, closedRootsUnknown: true },
+        canvas: { present: false, semanticallyCovered: false },
+      },
+      viewport: { width: 1000, height: 800, scrollX: 0, scrollY: 0, scrollWidth: 1000, scrollHeight: 800 },
+      frames: [
+        { frameId: "web:0", url: "https://fixture.test/", origin: "https://fixture.test", documentEpoch: "doc", accessible: true },
+        { frameId: "web:1", parentFrameId: "web:0", origin: "https://pay.test", documentEpoch: "doc-pay", accessible: true },
+      ],
+      elements: [{
+        ref: "@pay",
+        kind: "element",
+        semantic: { role: "button", name: "Pay" },
+        state: { visible: true, enabled: true, focused: false },
+        frameId: "web:1",
+        capabilities: [{ kind: "click" }],
+        provenance: { dom: true, ax: true },
+      }],
+    };
+  }
+
+  it("入队后收紧 allowlist，批准时签发被拒且不产生 grant", () => {
+    const states = new TabStateStore();
+    states.put(realObservation());
+    const origins = new MutableExactOriginAllowlist();
+    origins.replace(["https://fixture.test", "https://pay.test"]);
+    const authorizations = new InMemoryAuthorizationStore({ now: () => 100 });
+    const store = new OperatorApprovalStore(
+      states,
+      origins,
+      new StrictClickAuthorizationIssuanceService(states, authorizations, origins),
+      { now: () => 100, idFactory: () => "operator-1" },
+    );
+
+    const summary = store.request({
+      authorizationId: "auth-pay",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@pay",
+      ttlMs: 1_000,
+    });
+    expect(summary.frameOrigins).toEqual(["https://pay.test", "https://fixture.test"]);
+
+    origins.replace(["https://fixture.test"]);
+    expect(() => store.approve("operator-1")).toThrow(
+      expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }),
+    );
+    expect(store.status("operator-1").state).toBe("invalidated");
+    expect(authorizations.consume({
+      id: "auth-pay",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@pay",
+      actionKind: "click",
+      effectClass: "unknown",
+    })).toMatchObject({ ok: false });
+  });
+});
+

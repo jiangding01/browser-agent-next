@@ -23,8 +23,15 @@ function prepared(
         origin: "https://fixture.test",
         ownedBySession,
       },
+      frames: [{
+        frameId: "web:0",
+        url: "https://fixture.test/",
+        origin: "https://fixture.test",
+        documentEpoch: "doc-a",
+        accessible: true,
+      }],
     },
-    expected: {},
+    expected: { frameId: "web:0" },
     prepared: {
       tabId: 7,
       ref: "@e_1",
@@ -877,3 +884,110 @@ describe("PolicyGatedStrictClickExecutor setValue", () => {
     }
   });
 });
+
+describe("PolicyGatedStrictClickExecutor frame 级 origin（不变量 162）", () => {
+  const FIXTURE = "https://fixture.test";
+
+  // 顶层 fixture.test → 中间层 ads.test → 目标 fixture.test；另有未自报 origin 的子 frame。
+  function preparedIn(frameId: string) {
+    const base = prepared();
+    return {
+      ...base,
+      observation: {
+        ...base.observation,
+        frames: [
+          ...base.observation.frames,
+          { frameId: "web:1", parentFrameId: "web:0", origin: "https://ads.test", documentEpoch: "doc-ads", accessible: true },
+          { frameId: "web:2", parentFrameId: "web:1", origin: FIXTURE, documentEpoch: "doc-inner", accessible: true },
+          { frameId: "web:3", parentFrameId: "web:0", url: FIXTURE + "/x", documentEpoch: "doc-unreported", accessible: true },
+        ],
+      },
+      expected: { frameId },
+    };
+  }
+
+  function grantFor(actionKind: "click" | "setValue", actionArgs?: string): InMemoryAuthorizationStore {
+    const authorizations = new InMemoryAuthorizationStore();
+    authorizations.issue({
+      id: "grant-1",
+      tabId: 7,
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      actionKind,
+      ...(actionArgs !== undefined ? { actionArgs } : {}),
+      effectClass: "unknown",
+      assurance: "control-plane",
+      ttlMs: 5000,
+      source: "trusted-host",
+    });
+    return authorizations;
+  }
+
+  it.each([
+    ["跨源目标 frame", "web:1"],
+    ["中间层跨源的同源目标 frame", "web:2"],
+    ["未自报 origin 的子 frame", "web:3"],
+  ])("click：%s 即使有授权也在 dispatch 前拒绝", async (_label, frameId) => {
+    const dispatch = vi.fn(async () => undefined);
+    const executor = new PolicyGatedStrictClickExecutor(
+      { prepare: async () => preparedIn(frameId) as never } as never,
+      { dispatch } as never,
+      grantFor("click"),
+      { isAllowed: (origin: string) => origin === FIXTURE },
+      noPresentationFence(),
+    );
+
+    await expect(executor.execute({
+      tabId: 7,
+      actionId: "a1",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      authorizationId: "grant-1",
+    })).rejects.toMatchObject({ code: "POLICY_BLOCKED" });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("写入类动作：中间层跨源时在写入前拒绝", async () => {
+    const write = vi.fn(async () => ({ valueMatched: true }));
+    const action = { kind: "setValue" as const, value: "x" };
+    const executor = new PolicyGatedStrictClickExecutor(
+      { prepare: async () => preparedIn("web:2") as never } as never,
+      { dispatch: vi.fn() } as never,
+      grantFor("setValue", canonicalStrictActionArgs(action)),
+      { isAllowed: (origin: string) => origin === FIXTURE },
+      noPresentationFence(),
+      { run: write },
+    );
+
+    await expect(executor.execute({
+      tabId: 7,
+      actionId: "a1",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      authorizationId: "grant-1",
+      action,
+    })).rejects.toMatchObject({ code: "POLICY_BLOCKED" });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("整条链都在 allowlist 内时允许", async () => {
+    const dispatch = vi.fn(async () => undefined);
+    const executor = new PolicyGatedStrictClickExecutor(
+      { prepare: async () => preparedIn("web:2") as never } as never,
+      { dispatch } as never,
+      grantFor("click"),
+      { isAllowed: (origin: string) => origin === FIXTURE || origin === "https://ads.test" },
+      noPresentationFence(),
+    );
+
+    await expect(executor.execute({
+      tabId: 7,
+      actionId: "a1",
+      observedRevision: "rev-1",
+      ref: "@e_1",
+      authorizationId: "grant-1",
+    })).resolves.toMatchObject({ status: "executed" });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+

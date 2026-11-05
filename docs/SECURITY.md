@@ -52,6 +52,13 @@ Auto-act allowlist 默认空，只支持 http/https，配置项必须是纯 orig
 
 这样可以避免调用方误以为自己只授权了一个 path，实际上 Runtime 却扩大到了整个 origin。
 
+Strict 授权（扩展侧签发、审批入队、执行与 MCP act broker 共用 core 的 `allowedFrameOriginChain`）要求顶层 tab origin，以及目标元素所在 frame 到顶层的**每一层** frame 的有效 origin（不变量 161）都在 allowlist 内（不变量 162）：
+
+- 只检查目标 frame 不够：未放行的中间层 frame 能设置子 frame 的 src（例如指向 allowlist 内 origin 的确认页并带上参数）并控制其布局，owner hit-test 只能发现遮挡；
+- 任一层 origin 无法判定（子 frame 未自报、opaque 的 sandbox frame、CSP sandbox 的顶层页、frameId 不唯一）或标为不可访问（出境投影把不放行的 frame 标为不可访问，broker 不能因此把顶层回落到 tab origin）时拒绝；
+- 因此要在跨源 iframe（例如支付 iframe）中执行 Strict 动作，operator 必须把该 iframe 及其所有外层 frame 的 origin 都写进 allowlist；只写顶层 origin 时会得到 `ORIGIN_NOT_ALLOWED`（签发、审批入队）或 `POLICY_BLOCKED`（执行）；
+- enterprise assertion 的签名只绑定 tab origin（`ref` 已唯一确定目标 frame），frame 链由统一 issuer 的 allowlist 校验覆盖，签名格式不变。
+
 ### 配置文件来源
 
 Native host 在每次启动（即扩展连接）时读取 `~/.browser-agent-next/autoact-origins.json`，并在 trusted RPC 开始监听之前通过 `policy.replace-autoact-origins` 整体下发给扩展。格式固定为 `{"version":1,"origins":[...]}`，最多 100 项，每项必须是纯 origin。
@@ -95,7 +102,7 @@ read plane（出境投影）、act plane（act broker）与 deterministic router
 
 已接受的限制：信任来自扩展 content script，渲染进程被攻破不在威胁模型内；content script 未注入或未响应的子 frame 在 read / act 两个 plane 都按不放行处理，属于可用性损失而非放行。
 
-已知的相邻缺口（非本修复引入）：扩展侧授权签发与审批只校验顶层 tab origin，不看目标元素所在 frame；frame 级 act origin 检查目前只在 MCP 进程的 act broker 中，审批页也只显示顶层 origin。
+扩展侧签发、审批入队与执行同样按 frame 链判定（见「Auto-act Origin Policy」，不变量 162）；MCP act broker 的 act origin plane 使用同一实现（`allowedFrameOriginChain`）。
 
 ### operator approval 的证明来源
 
@@ -211,6 +218,7 @@ control-plane/native-host 只能创建 pending request、读取状态和撤销�
 审批页是 operator-approved 的唯一来源，展示必须帮助 operator 做出正确判断，而不是被页面内容误导：
 
 - origin 来自浏览器（`URL.origin`，IDN 以 punycode 显示），标注“浏览器提供”，与页面文本分开展示；
+- 目标元素所在 frame 到顶层的 origin 链中有与顶层不同的 origin 时，额外显示整条链（目标 → 顶层，醒目标注）；链的形状不对时显示“无法确认”，不静默省略；
 - 目标名称、role、页面标题都来自页面，放在标注“页面提供的内容（不可信，仅供参考）”的虚线框里；显示前删除控制字符与格式字符（`\p{Cc}`、`\p{Cf}`，含 bidi 覆盖 / 隔离、零宽字符、soft hyphen、Tag 字符、BOM）以及变体选择符，空白折叠，按码点截断，加「」引号，只经 `textContent` 写入；清理后为空时显示固定占位；
 - 每张卡片显示请求短码（approvalRequestId 末 6 位）与剩余时间，批准 / 拒绝后的提示带短码；
 - 防误点：列表每 2 秒刷新，已有卡片不重排；新请求只追加到末尾，按钮延迟 500 ms 启用；消失的请求先原位禁用并标注“已失效”，下一次刷新才移除，移除位置之后的卡片按钮也延迟启用；本页已处理的请求不会被晚到的列表结果恢复为可点击；

@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  allowedFrameOriginChain,
   type StrictActionArgs,
 } from "@browser-agent-next/core";
 import type {
@@ -39,6 +40,11 @@ export interface OperatorApprovalSummary {
   observedRevision: string;
   ref: string;
   origin: string;
+  /**
+   * 目标元素所在 frame 到顶层每一层的有效 origin（目标在前、顶层在后），
+   * 由 frame 自报、浏览器提供；审批页在其中有与顶层不同的 origin 时显示。
+   */
+  frameOrigins: string[];
   pageTitle: string;
   targetRole: string;
   targetName?: string;
@@ -241,11 +247,13 @@ export class OperatorApprovalStore {
     // 入队前拒绝敏感 / 无效目标：审批页永远不显示凭据字段的待写入值（不变量 141）。
     assertStrictActionTarget(element, action);
 
-    if (
-      !this.origins.isAllowed(
-        stored.observation.tab.origin,
-      )
-    ) {
+    // 顶层与目标所在 frame 到顶层的每一层都必须在 allowlist 内（不变量 162）。
+    const frameOrigins = allowedFrameOriginChain(
+      stored.observation,
+      element.frameId,
+      (origin) => this.origins.isAllowed(origin),
+    );
+    if (frameOrigins === undefined) {
       throw new BrowserRuntimeError(
         "ORIGIN_NOT_ALLOWED",
         "operator approval target origin is outside the auto-act allowlist",
@@ -267,6 +275,7 @@ export class OperatorApprovalStore {
         ref: input.ref,
         origin:
           stored.observation.tab.origin,
+        frameOrigins,
         pageTitle:
           stored.observation.tab.title
             .slice(0, 500),

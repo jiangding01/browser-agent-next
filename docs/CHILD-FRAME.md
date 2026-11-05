@@ -121,6 +121,8 @@ mapping unavailable
 
 PR #7 已完成 child-frame Strict Click 的受限开放。
 
+授权前提：签发、审批入队与执行都要求目标所在 frame 到顶层的每一层 frame 的有效 origin（frame 自报，不变量 161）都在 auto-act allowlist 内（不变量 162）。对跨源 child（含 OOPIF 与 nested 的中间层）执行 Strict Click，需要把这些 origin 都写进 allowlist。
+
 执行链：
 
 ```text

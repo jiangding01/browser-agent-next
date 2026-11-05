@@ -58,8 +58,10 @@ export function effectiveFrameOrigin(
   observation: Pick<BrowserObservation, "frames" | "tab">,
   frameId: string,
 ): string | undefined {
-  const frame = observation.frames.find((item) => item.frameId === frameId);
-  if (frame === undefined) return undefined;
+  const matches = observation.frames.filter((item) => item.frameId === frameId);
+  // frameId 必须唯一：重复时无法确定元素属于哪一个 frame。
+  if (matches.length !== 1) return undefined;
+  const frame = matches[0]!;
 
   if (frame.origin !== undefined) {
     return isSerializedOrigin(frame.origin) && frame.origin !== "null"
@@ -71,3 +73,59 @@ export function effectiveFrameOrigin(
   }
   return undefined;
 }
+
+/**
+ * 从目标 frame 沿 parentFrameId 走到顶层，依次返回每一层的有效 origin
+ * （第一个是目标 frame，最后一个是顶层 frame）。
+ *
+ * act 授权要求整条链都在 allowlist 内（不变量 162）：中间层 frame 能设置子 frame 的
+ * src 并控制其布局，只检查目标 frame 挡不住未放行的中间层。以下任一情况返回 undefined，
+ * 调用方必须 fail closed：链上某层 origin 无法判定（含 frameId 不唯一，见 effectiveFrameOrigin）或 `accessible` 不为 true
+ * （出境投影把不放行的 frame 标为不可访问并删去 origin，顶层不得因此回落到 tab origin）、
+ * 父 frame 不在 observation 中、父链成环。
+ */
+export function frameOriginChain(
+  observation: Pick<BrowserObservation, "frames" | "tab">,
+  frameId: string,
+): string[] | undefined {
+  const frames = new Map(
+    observation.frames.map((frame) => [frame.frameId, frame]),
+  );
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let current = frames.get(frameId);
+
+  while (current !== undefined) {
+    if (seen.has(current.frameId)) return undefined;
+    seen.add(current.frameId);
+    if (current.accessible !== true) return undefined;
+
+    const origin = effectiveFrameOrigin(observation, current.frameId);
+    if (origin === undefined) return undefined;
+    chain.push(origin);
+
+    if (current.parentFrameId === undefined) return chain;
+    current = frames.get(current.parentFrameId);
+  }
+
+  return undefined;
+}
+
+/**
+ * Strict 授权的 origin 判定（不变量 162）：顶层 tab origin 与 `frameOriginChain` 的每一层
+ * 都满足 `isAllowed` 时返回这条链（目标在前、顶层在后），否则返回 undefined。
+ *
+ * 扩展侧签发、审批入队、执行与 MCP act broker 共用这一实现，只是 allowlist 不同。
+ */
+export function allowedFrameOriginChain(
+  observation: Pick<BrowserObservation, "frames" | "tab">,
+  frameId: string,
+  isAllowed: (origin: string) => boolean,
+): string[] | undefined {
+  if (!isAllowed(observation.tab.origin)) return undefined;
+  const chain = frameOriginChain(observation, frameId);
+  return chain !== undefined && chain.every((origin) => isAllowed(origin))
+    ? chain
+    : undefined;
+}
+

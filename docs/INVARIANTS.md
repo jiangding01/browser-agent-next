@@ -128,7 +128,7 @@
 117. auto-act origins 配置文件必须是当前用户拥有、非 symlink、不可被组或其他用户写入的普通文件，且只接受纯 origin；任一条目非法时整份文件作废、不做部分应用，扩展 allowlist 保持为空（fail closed）；native host 不得因配置读取失败而向 stdout 写入。
 
 118. （N1）side-effect tier 的工具不得进入默认 `MODEL_TOOLS`；只有 operator 显式写进 `BROWSER_AGENT_NEXT_MODEL_TOOLS` 才会暴露。
-119. （N2）model act origin 是第 4 个独立 policy plane，默认为空且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 的有效 origin（见不变量 161）都必须满足。
+119. （N2）model act origin 是第 4 个独立 policy plane，默认为空且必须是 read origin 的子集；tab origin 与目标 element 所在 frame 到顶层每一层的有效 origin（见不变量 161、162）都必须满足。
 120. （N3）只能对本连接已出境 revision 中已投影的 ref 发起授权。
 121. （N4）同一 `(tab, revision, ref)` 每个连接至多执行一次，标记先于任何 trusted 请求落账；`ACTION_OUTCOME_UNKNOWN` 之后该 tab 至少需要 operator-approved。
 122. （N5）MCP elicitation 或 client UI 的响应不构成 operator-approved 的证明，批准只能来自扩展的审批 UI。
@@ -171,3 +171,5 @@
 159. Router 的匹配作用域默认是顶层 tab origin；跨源 frame 内的元素只在 intent 显式给出该 frame 的精确 origin 时才可匹配。frame 的有效 origin 按不变量 161 判定。
 160. Eval 中 router resolve 的 ref 不在候选集内时必须交给 fallback，不得以 CLICK 提交给 harness。
 161. frame 的有效 origin 以 frame 自报的序列化 origin 为准：扩展 content script 在 isolated world 读取 `self.origin`，随按 documentId 定向的 DOM 快照上报，写入 `FrameState.origin`；快照成功但上报缺失或格式不合法时记为 opaque 的 `"null"`。自报为 `"null"` 或不是 http(s) origin 时视为无法判定。子 frame 没有自报 origin 时一律视为无法判定，不按 URL 推导、不继承父 frame（`about:blank` 的 origin 来自导航发起方，sandbox frame 是 opaque，URL 都看不出）；只有顶层 frame 在未自报时按 URL 推导。trusted client 拒绝格式不合法的 `frame.origin`；出境投影对不放行的 frame 同时隐藏 url 与 origin。
+162. Strict 授权的 origin 判定覆盖整条 frame 链：顶层 tab origin，以及目标元素所在 frame 到顶层每一层的有效 origin（不变量 161），都必须在相应 allowlist 内——扩展侧签发（三条签发路径共用）、审批入队与执行使用 auto-act allowlist，MCP act broker 使用 act origin allowlist；任一层无法判定或 `accessible` 不为 true（出境投影把不放行的 frame 标为不可访问）即拒绝；两侧共用 core 的 `allowedFrameOriginChain`。审批 summary 携带这条链（`frameOrigins`），审批页在链中有与顶层不同的 origin 时显示整条链。
+

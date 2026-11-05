@@ -8,6 +8,7 @@ import {
   type ApprovalActionDetail,
   type CardState,
   approvalActionView,
+  crossOriginFrameChain,
   formatRemaining,
   planCardUpdate,
   shortCode,
@@ -325,6 +326,27 @@ function createCard(
     ),
   );
 
+  // 目标位于与顶层不同 origin 的 frame（或其外层）中时，额外显示整条 frame 链。
+  const frameChain = crossOriginFrameChain(
+    approval.origin,
+    // 参数类型是 unknown：审批页与 background 版本不一致时显示“无法确认”。
+    approval.frameOrigins,
+  );
+  const frameOrigin =
+    frameChain === undefined
+      ? undefined
+      : element("div", "origin frame-origin");
+  if (frameOrigin && frameChain !== undefined) {
+    frameOrigin.append(
+      element(
+        "span",
+        "field-label",
+        "目标所在 frame（目标 → 顶层，浏览器提供）",
+      ),
+      element("span", "origin-value", frameChain),
+    );
+  }
+
   const untrusted = element(
     "section",
     "untrusted",
@@ -390,6 +412,7 @@ function createCard(
   card.append(
     head,
     origin,
+    ...(frameOrigin ? [frameOrigin] : []),
     ...(actionView.detail
       ? [detailSection(actionView.detail)]
       : []),

@@ -124,6 +124,13 @@ header p,
   overflow-wrap: anywhere;
 }
 
+/* 目标位于跨源 frame 中：醒目标注，提示批准的点击会落在另一个 origin 的内容上。 */
+.frame-origin {
+  margin-top: 4px;
+  border-left: 3px solid #e37400;
+  padding-left: 6px;
+}
+
 .write-value {
   margin: 8px 0;
   border: 1px solid #1a73e8;
