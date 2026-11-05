@@ -1,10 +1,10 @@
 # 实现进度
 
-最后更新：2026-10-30
+最后更新：2026-11-05
 
 ## 当前基线
 
-PR #1～#20 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1、S2 完成；Strict 写入 S3（向模型开放写入，强制 operator 审批）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#21 已合并，Phase 0～6.6、Phase 7-0 与 Strict 写入 S1～S3 完成（S3 经 PR #21 于 2026-11-02 合并）；下一阶段为 Phase 7 正式条目，从 deterministic router 开始。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
