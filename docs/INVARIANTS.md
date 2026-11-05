@@ -165,3 +165,8 @@
 153. 模型给出的写入参数只出现在发往扩展的审批请求与执行请求中：不得出现在模型可见的结果、错误、progress 与 trace 中；trusted client 解析审批 summary 时丢弃其中的 action。
 154. `valueMatched` 只在 operator 配置 `includeValues=true` 时交给模型。
 155. 审批页不得把调用方提供的写入参数标注为可信内容：标签必须说明参数可能来自 AI 模型、内容可能抄自网页。
+156. Deterministic router 的 resolved 结果与调用方直接给出 ref 等价：之后仍经同一 policy、grant、审批与 Strict preflight，不得因“确定性解析”跳过审批、改变授权路径或 assurance。Strict 执行不复核名称，router 的匹配规则本身就是“点对元素”的唯一保证。
+157. Router 不解析自然语言 `microGoal`；只有结构化 `StepIntent` 才可能 resolve，没有 intent 一律 defer。
+158. Router 只在完整性闸门全部成立时 resolve（page scope、actionable complete、open shadow root 已覆盖、无 degraded 与不可访问 frame、非 opaque 顶层 origin、无阻塞 overlay / 模态 dialog），并要求作用域内 DOM provenance 的可见匹配恰好一个；任何歧义（含禁用同名、可疑同名、origin 无法判定的同名、非 DOM 来源的同名）都 defer。
+159. Router 的匹配作用域默认是顶层 tab origin；跨源 frame 内的元素只在 intent 显式给出该 frame 的精确 origin 时才可匹配。origin 推导链经过 `about:blank` 的 frame（真实 origin 来自导航发起方，observation 无法证明）视为 origin 无法判定。
+160. Eval 中 router resolve 的 ref 不在候选集内时必须交给 fallback，不得以 CLICK 提交给 harness。

@@ -71,6 +71,9 @@ importers:
       '@browser-agent-next/core':
         specifier: workspace:*
         version: link:../core
+      '@browser-agent-next/router':
+        specifier: workspace:*
+        version: link:../router
       '@browser-agent-next/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -91,6 +94,12 @@ importers:
         version: link:../core
 
   packages/refs:
+    dependencies:
+      '@browser-agent-next/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/router:
     dependencies:
       '@browser-agent-next/core':
         specifier: workspace:*

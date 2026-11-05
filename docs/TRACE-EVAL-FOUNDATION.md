@@ -25,7 +25,7 @@ Phase 7（deterministic router / Jev CandidateBuilder / offline replay / shadow 
 
 - 任何 decision provider 的真实实现（deterministic router、Jev、LLM）——属于 Phase 7 正式条目；
 - 从真实会话采集 observation 生成 fixture（会把页面文本写盘，需要单独的 opt-in 采集设计，归 Phase 7 offline replay）；
-- 扩展（MV3 service worker）侧 trace：需要新增 native 协议与 SW 存储，安全面更大；MCP 侧已能拿到 trusted Runtime 的错误 code，足够做分层归因。Phase 7 router 落在 Runtime 时再评估；
+- 扩展（MV3 service worker）侧 trace：需要新增 native 协议与 SW 存储，安全面更大；MCP 侧已能拿到 trusted Runtime 的错误 code，足够做分层归因。Phase 7 router 接入运行期（fast_step）时再评估；
 - OpenTelemetry / 外部 exporter：需要新依赖与部署配置，JSONL 文件零安装即可满足离线分析；
 - 多步（时序）fixture：SPA navigation、disabled→enabled 转换需要 observation 序列，单步 fixture 格式不表达，留给 offline replay；
 - virtualized list fixture：需要 scoped / paged observation，当前 Runtime 不支持；
@@ -96,7 +96,7 @@ export interface DecisionProvider {
 }
 ```
 
-操作空间直接取自 `docs/DESIGN.md` 的 Jev 初始操作空间。类型先放在 `packages/eval`；Phase 7 router 进入 Runtime 时若需要共享，再迁到 `packages/core`（由 router PR 负责）。
+操作空间直接取自 `docs/DESIGN.md` 的 Jev 初始操作空间。类型先放在 `packages/eval`。Phase 7-1 的 deterministic router 返回自己的 `RouteResult`，不需要共享这两个类型，因此暂不迁到 `packages/core`；Jev provider 需要在运行期共享时再迁。
 
 ### Fixture 校验（`validateDecisionFixtures`）
 

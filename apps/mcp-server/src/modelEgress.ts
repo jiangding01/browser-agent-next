@@ -1,5 +1,6 @@
 import {
   BrowserRuntimeError,
+  effectiveFrameUrl,
   type BrowserObservation,
   type ElementState,
   type VerificationResult,
@@ -7,7 +8,6 @@ import {
 import type {
   ModelOriginAccessPolicy,
 } from "@browser-agent-next/policy";
-import { effectiveFrameUrl } from "./frameOrigin.js";
 
 export interface ModelEgressOptions {
   includeValues?: boolean;

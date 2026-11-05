@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { TraceAuthorization } from "@browser-agent-next/core";
 import {
   BrowserRuntimeError,
+  effectiveFrameUrl,
   type BrowserObservation,
   type StrictActionArgs,
 } from "@browser-agent-next/core";
 import { ExactOriginAllowlist } from "@browser-agent-next/policy";
-import { effectiveFrameUrl } from "./frameOrigin.js";
 import type { ModelActApprovalMode } from "./mcpConfig.js";
 import type { ModelActInput } from "./modelToolInput.js";
 import type {

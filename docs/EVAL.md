@@ -92,6 +92,16 @@ Use a set of acceptable targets rather than one exact target where the UI admits
 
 参考 builder `observationOrderCandidateBuilder` 表示“模型今天直接看到的 action space”，作为后续 CandidateBuilder 的对照基线。第一批 14 个 fixture 是 harness 正确性与覆盖面检查，不是质量基准。
 
+## Deterministic router 评测
+
+Phase 7-1 起 fixture 可带可选的结构化 `intent`（必须同时带 tag `structured-intent`），harness 把它传给 provider。`acceptableOperations` / `acceptableTargets` 仍只按任务语义标注。
+
+- `routedDecisionProvider(fallback)`：router resolve 且 ref 在候选集内时 CLICK，其余交给 fallback（`escalateProvider` 代表“今天没有 Jev，交还调用方”）；
+- `evaluateRouter({ fixtures })`：独立于 builder 的报告，含 resolve 率、resolve 正确率、`resolvedWrong`（必须为空）、按原因的 defer 计数，以及 `missedClick`（defer、CLICK 可接受且 ESCALATE 不可接受的 fixture 数，即保守的代价）；
+- 第二批 16 个 router fixture（`routerFixtures.ts`）带逐条期望路由结果 `routerExpectations`，测试断言完全相等。
+
+设计见 `docs/DETERMINISTIC-ROUTER.md`。
+
 暂未覆盖的 fixture 家族：SPA navigation 与 disabled→enabled 转换（需要多步序列，归 offline replay）、virtualized lists（需要 scoped / paged observation）、WebMCP tool-description injection（Phase 8）。
 
 ## Required adversarial fixture families
