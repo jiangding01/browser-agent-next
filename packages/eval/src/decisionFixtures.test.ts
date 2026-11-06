@@ -4,6 +4,7 @@ import {
   validateDecisionFixtures,
 } from "./decisionFixture.js";
 import { decisionFixtures } from "./decisionFixtures.js";
+import { candidateFixtures } from "./candidateFixtures.js";
 import { routerFixtures } from "./routerFixtures.js";
 
 describe("first adversarial decision fixture batch", () => {
@@ -12,9 +13,9 @@ describe("first adversarial decision fixture batch", () => {
     expect(decisionFixtures).toHaveLength(14);
   });
 
-  it("covers every fixture tag family across both batches", () => {
+  it("covers every fixture tag family across all batches", () => {
     const covered = new Set(
-      [...decisionFixtures, ...routerFixtures].flatMap((fixture) => fixture.tags),
+      [...decisionFixtures, ...routerFixtures, ...candidateFixtures].flatMap((fixture) => fixture.tags),
     );
     expect([...FIXTURE_TAGS].filter((tag) => !covered.has(tag))).toEqual([]);
   });

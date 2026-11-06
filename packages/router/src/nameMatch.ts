@@ -9,7 +9,7 @@
  */
 
 /** 页面上不可见的字符：控制、格式、默认可忽略，以及常见字体中渲染为空白的 U+2800。 */
-const INVISIBLE_CHARACTERS =
+export const INVISIBLE_CHARACTERS =
   /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2800]/gu;
 
 const WHITESPACE_RUN = /\s+/gu;

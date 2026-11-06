@@ -6,3 +6,4 @@ export * from "./decisionHarness.js";
 export * from "./traceSummary.js";
 export * from "./routerEvaluation.js";
 export * from "./routerFixtures.js";
+export * from "./candidateFixtures.js";

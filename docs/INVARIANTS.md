@@ -172,4 +172,7 @@
 160. Eval 中 router resolve 的 ref 不在候选集内时必须交给 fallback，不得以 CLICK 提交给 harness。
 161. frame 的有效 origin 以 frame 自报的序列化 origin 为准：扩展 content script 在 isolated world 读取 `self.origin`，随按 documentId 定向的 DOM 快照上报，写入 `FrameState.origin`；快照成功但上报缺失或格式不合法时记为 opaque 的 `"null"`。自报为 `"null"` 或不是 http(s) origin 时视为无法判定。子 frame 没有自报 origin 时一律视为无法判定，不按 URL 推导、不继承父 frame（`about:blank` 的 origin 来自导航发起方，sandbox frame 是 opaque，URL 都看不出）；只有顶层 frame 在未自报时按 URL 推导。trusted client 拒绝格式不合法的 `frame.origin`；出境投影对不放行的 frame 同时隐藏 url 与 origin。
 162. Strict 授权的 origin 判定覆盖整条 frame 链：顶层 tab origin，以及目标元素所在 frame 到顶层每一层的有效 origin（不变量 161），都必须在相应 allowlist 内——扩展侧签发（三条签发路径共用）、审批入队与执行使用 auto-act allowlist，MCP act broker 使用 act origin allowlist；任一层无法判定或 `accessible` 不为 true（出境投影把不放行的 frame 标为不可访问）即拒绝；两侧共用 core 的 `allowedFrameOriginChain`。审批 summary 携带这条链（`frameOrigins`），审批页在链中有与顶层不同的 origin 时显示整条链。
+163. CandidateBuilder 只能重排与截断，不得改变候选资格：所有 CandidateBuilder 与 fixture 校验共用 `isClickCandidate`（可见、启用、带 click capability），coverage 规则同不变量 133；deterministic router 为给出分原因的 defer 单独检查 click capability，不属于候选资格定义。
+164. 候选相关度只来自 `microGoal` 与元素 `semantic`（name / description / text）的 unit 匹配及固定概念词表；不读取 `value`，不使用页面声明的能力或任何外部服务。排序、分数与 `ranking.scoredCount` 不构成授权或置信度。
+165. 候选排序是确定的：同一输入得到同一输出，同分按 observation 顺序；没有任何 unit 命中时，结果与参考实现相同。有命中时排序可能把 0 分元素挤出上限——这是排序的固有代价，不得声称“不劣于参考实现”；排序型 builder 必须报告 `ranking.scoredCount` 与 `lexiconVersion`；harness 校验 `ranking.builder` 与 builder 名一致、`lexiconVersion` 非空、`scoredCount` 不超过返回的候选数。
 

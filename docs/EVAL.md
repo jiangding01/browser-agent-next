@@ -92,6 +92,15 @@ Use a set of acceptable targets rather than one exact target where the UI admits
 
 参考 builder `observationOrderCandidateBuilder` 表示“模型今天直接看到的 action space”，作为后续 CandidateBuilder 的对照基线。第一批 14 个 fixture 是 harness 正确性与覆盖面检查，不是质量基准。
 
+## Jev 候选排序评测
+
+Phase 7-2 起，`CandidateSet` / `CandidateBuilder` 与唯一的 CLICK 候选资格 `isClickCandidate` 定义在 `packages/router`，eval 原样再导出。`jevCandidateBuilder` 按 `microGoal` 与元素名称等字段的 unit 匹配重排候选，候选集附带 `ranking`（`builder`、`lexiconVersion`、`scoredCount`），harness 校验 `scoredCount` 不超过返回的候选数。
+
+- 第三批 14 个 fixture（`candidateFixtures.ts`，tag `candidate-ranking`）覆盖深层目标、跨语言概念、复数、数字、汉字二字组、中文停用词、诱饵洪泛，并固定两种已知代价：复述 goal 的诱饵排到第一（`ranking-echo-decoy`），部分命中把 0 分目标挤出上限（`ranking-partial-overlap-pushout`）；
+- `candidateBuilderComparison.test.ts`：上限 500 时逐 fixture 断言 jev 的结果是参考实现的置换；上限 20 时逐条断言两个 builder 的 `targetRank` 与 `missCount`；第一、二批的 CLICK fixture 在 jev 下名次不变差。
+
+设计见 `docs/JEV-CANDIDATE-BUILDER.md`。
+
 ## Deterministic router 评测
 
 Phase 7-1 起 fixture 可带可选的结构化 `intent`（必须同时带 tag `structured-intent`），harness 把它传给 provider。`acceptableOperations` / `acceptableTargets` 仍只按任务语义标注。
