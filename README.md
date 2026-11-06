@@ -50,6 +50,7 @@ PR #1～#24 已合并：Phase 0～6.6（Perception、Identity、Strict Executor�
 - trusted 路径 Strict selectOption / submit / pressKey：原生单选下拉框按 label 精确选择、只提交无提交按钮的表单、由 isolated world 监听器证明按键落在目标上，审批页按动作类型显示且无法识别的动作不可批准（Strict 写入 S2）；
 - model-facing `browser.act` 的写入类动作：模型可以请求 setValue / selectOption / submit / pressKey，写入无论授权模式都必须经 operator 在扩展审批页看到完整参数后批准，参数不出现在模型结果、错误、progress 与 trace 中（Strict 写入 S3）；
 - 离线 deterministic router（`packages/router`）：把结构化的一步（role + 名称 + frame origin）在当前 observation 上确定性解析为唯一 ref，完整性闸门、可疑同名（零宽字符、大小写差异等）与跨源作用域任一不满足都 defer，附第二批 16 个 router fixture 与评测（Phase 7-1）。
+- 离线 Jev 候选排序（`packages/router` 的 `jevCandidateBuilder`）：按 goal 与元素名称的词面相关度（含 20 个中英概念词表）重排 CLICK 候选，只重排不改资格，并报告排序信号在哪里断掉（Phase 7-2）。
 
 真实 Chromium 已验证：
 

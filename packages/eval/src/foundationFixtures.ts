@@ -25,6 +25,7 @@ export function fixtureButton(
     visible?: boolean;
     role?: string;
     description?: string;
+    text?: string;
     hitTestable?: boolean;
     kind?: ElementState["kind"];
     capabilities?: ElementState["capabilities"];
@@ -39,6 +40,7 @@ export function fixtureButton(
       ...(options.description !== undefined
         ? { description: options.description }
         : {}),
+      ...(options.text !== undefined ? { text: options.text } : {}),
     },
     state: {
       visible: options.visible ?? true,

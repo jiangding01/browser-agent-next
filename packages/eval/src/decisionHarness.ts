@@ -201,6 +201,23 @@ function snapshotCandidateSet(
   ) {
     fail("totalKnown must be an integer no smaller than refs.length");
   }
+  // 排序说明（不变量 165）：scoredCount 只能计已返回的候选。
+  const ranking = candidates.ranking as unknown;
+  if (ranking !== undefined) {
+    const record = ranking as Record<string, unknown> | null;
+    if (
+      record === null ||
+      typeof record !== "object" ||
+      record.builder !== builder ||
+      typeof record.lexiconVersion !== "string" ||
+      record.lexiconVersion.length === 0 ||
+      !Number.isInteger(record.scoredCount) ||
+      (record.scoredCount as number) < 0 ||
+      (record.scoredCount as number) > candidates.refs.length
+    ) {
+      fail("ranking must name this builder, carry a lexiconVersion and 0 <= scoredCount <= refs.length");
+    }
+  }
 
   return deepFreeze(candidates);
 }

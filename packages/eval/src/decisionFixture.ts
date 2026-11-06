@@ -2,7 +2,11 @@ import type {
   BrowserObservation,
   Ref,
 } from "@browser-agent-next/core";
-import { parseStepIntent, type StepIntent } from "@browser-agent-next/router";
+import {
+  isClickCandidate,
+  parseStepIntent,
+  type StepIntent,
+} from "@browser-agent-next/router";
 
 /**
  * Jev 初始操作空间（docs/DESIGN.md）。
@@ -31,6 +35,7 @@ export const FIXTURE_TAGS = [
   "form-handoff",
   "verify-handoff",
   "structured-intent",
+  "candidate-ranking",
 ] as const;
 
 export type FixtureTag = (typeof FIXTURE_TAGS)[number];
@@ -123,11 +128,7 @@ function validateDecisionFixture(fixture: DecisionFixture): void {
     if (!element) {
       fail(name, "acceptable target " + target + " is not in the observation");
     }
-    if (
-      !element.capabilities.some((capability) => capability.kind === "click") ||
-      !element.state.visible ||
-      !element.state.enabled
-    ) {
+    if (!isClickCandidate(element)) {
       fail(name, "acceptable target " + target + " must be a visible, enabled clickable element");
     }
   }

@@ -43,7 +43,7 @@ Phase 7（deterministic router / Jev CandidateBuilder / offline replay / shadow 
 |---|---|
 | `decisionFixture.ts` | `DecisionOperation` / `DecisionFixture` / `FixtureTag` 类型与 `validateDecisionFixtures()` |
 | `decisionFixtures.ts` | 第一批 14 个对抗 fixture（`decisionFixtures` 常量数组） |
-| `candidateBuilder.ts` | `CandidateSet` / `CandidateBuilder` 接口与参考实现 `observationOrderCandidateBuilder()` |
+| `candidateBuilder.ts` | `CandidateSet` / `CandidateBuilder` 接口与参考实现 `observationOrderCandidateBuilder()`（Phase 7-2 起接口与 `isClickCandidate` 移到 `packages/router`，这里再导出） |
 | `decisionHarness.ts` | `DecisionProvider` 接口、`runDecisionEvaluation()` 与报告类型 |
 | `foundationFixtures.ts` | `fixtureButton` 增加可选 `role / description / hitTestable / capabilities / kind`，向后兼容 |
 | `index.ts` | 导出 |

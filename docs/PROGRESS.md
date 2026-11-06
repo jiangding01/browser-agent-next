@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-PR #1～#24 已合并，Phase 0～6.6、Phase 7-0、Strict 写入 S1～S3 与 Phase 7-1 deterministic router（离线）完成（S3 经 PR #21 于 2026-11-02 合并；Phase 7-1、frame 自报 origin 修复与 Strict 授权 frame 链 origin 校验分别经 PR #22、#23、#24 于 2026-11-05 合并）；下一阶段为 Phase 7 后续条目（Jev CandidateBuilder 起）。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#24 已合并，Phase 0～6.6、Phase 7-0、Strict 写入 S1～S3 与 Phase 7-1 deterministic router（离线）完成（S3 经 PR #21 于 2026-11-02 合并；Phase 7-1、frame 自报 origin 修复与 Strict 授权 frame 链 origin 校验分别经 PR #22、#23、#24 于 2026-11-05 合并）；Phase 7-2 Jev CandidateBuilder（离线）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -41,6 +41,7 @@ Strict 写入 S3 model-facing 写入（强制 operator 审批）✅
 Phase 7-1 deterministic router（离线）           ✅
 修复：frame 有效 origin 以 frame 自报为准       ✅
 修复：Strict 授权按整条 frame 链校验 origin     ✅
+Phase 7-2 Jev CandidateBuilder（离线）           ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -516,9 +517,29 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - Real Chromium E2E 17/17 ✅（Agent-owned OOPIF 与 nested OOPIF 用例新增对照：只放行顶层 origin 时签发返回 `ORIGIN_NOT_ALLOWED`，放行整条链后照常执行；about:blank 用例新增：劫持方按钮签发被拒、编辑器按钮签发成功）
 - 变异验证：13 种（core 判定忽略链 / 只查目标 / 跳过 tab 检查，链放行不可访问层，frame origin 放行重复 id，链不走父链，签发、审批入队、执行 click、执行写入、broker 各自退回只看 tab，summary 缺链，审批页展示函数隐藏链）全部被单测抓到；把 core 判定退回放行后重建，上述 3 个 E2E 全部变红 ✅
 
+## Phase 7-2：Jev CandidateBuilder（离线）
+
+方案见 `docs/JEV-CANDIDATE-BUILDER.md`（think 编写；check 审查一轮 2 HIGH、4 MEDIUM，Fable 5.1 编排评估一轮 1 HIGH、5 MEDIUM，路线保留，均在实现前并入）。
+
+- router：`CandidateSet` / `CandidateBuilder`、`isClickCandidate`（全仓唯一 CLICK 候选资格）从 eval 迁入；`unitsOf` 把文本切成 unit（概念或原词二选一，英文两词短语在去停用词之前匹配，中文写法最长匹配，再删 5 个中文停用短语，其余切二字组；CJK 段含片假名长音符，拉丁词含组合附加符，句末标点打断英文短语）；20 个中英概念词表与 `LEXICON_VERSION`；`jevCandidateBuilder`：name 3 / description 2 / text 1 的字段权重、按 unit 数平方根归一、每个 goal unit 只取最佳字段、分数量化到 1e-9，分数降序、同分按 observation 顺序，默认上限 50，候选集附带 `ranking`；
+- eval：参考实现与 fixture 校验改用 `isClickCandidate`；harness 校验 `ranking` 形状；`fixtureButton` 增加 `text` 选项；第三批 14 个排序 fixture 与两个 builder 的对照测试；
+- Jev 是 typesafe.ai 的 System One 托管模型：Choice 一次 1～255 个选项并返回概率；官方文档写明它偏向排在前面的选项、默认不把输入当作敌对内容。这两点作为约束写入方案，交给下一项 Jev provider；
+- 运行期行为不变，不新增依赖；新增不变量 163～165。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅（依赖与 lockfile 无改动）
+- TypeScript typecheck ✅
+- Unit / integration tests（1108 个）✅
+- Workspace build ✅
+- Real Chromium E2E：本 PR 无运行期变化，由 CI browser-e2e 覆盖
+- 第三批 14 个 fixture 的名次与方案预期逐条一致（jev 在上限 20 下只漏召回 partial-overlap-pushout，参考实现漏召回 deep-target 与 decoy-flood）；第一、二批 CLICK fixture 在 jev 下名次无一变差 ✅
+- 变异验证：25 种中 24 种被测试抓到；“中文写法不做最长匹配”为等价变异（当前词表没有任何中文写法是另一写法的前缀），排序保留为词表演进的防线，届时由词表自检用例兜底（明细见方案文档「实现记录」）✅
+- 代码经 check 审查（正确性 + 对抗 + 架构）：0 HIGH；1 MEDIUM（片假名长音符被切碎，所有长音词共享一个 unit）与 4 LOW（浮点同分排反、CJK 切分二次复杂度、组合附加符切碎词、NFKC 截断用例空测）已修复，采纳 4 条 advisory（句末标点打断短语、去掉单字停用词、不变量 163 收窄、ranking 署名校验）✅
+
 ## 下一步
 
-1. Phase 7 后续条目（Jev CandidateBuilder → offline replay → shadow mode → fast_step → bounded fast_run）。fast_step 方案需要决定：router 跑在模型可见投影还是 trusted observation 上，以及 router 解析出的 click 是否允许走 `agent-owned-auto`（见 `docs/DETERMINISTIC-ROUTER.md`「残余风险」）。
+1. Phase 7 后续条目（Jev provider → offline replay → shadow mode → fast_step → bounded fast_run）。Jev provider 方案须处理：位置偏好（不按分数顺序直接呈现选项）、输入注入、托管 API 的数据出境与 operator 开关、SDK 需 Node ≥ 22 与项目 engines 的取舍；图片输入目前为预览，默认不依赖。fast_step 方案需要决定：router 跑在模型可见投影还是 trusted observation 上，以及 router 解析出的 click 是否允许走 `agent-owned-auto`（见 `docs/DETERMINISTIC-ROUTER.md`「残余风险」）。
 
 ## 文档
 

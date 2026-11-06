@@ -90,6 +90,8 @@ Use the lowest intelligence level that safely solves the step.
 
 “Deterministic browser primitive” 由 `packages/router` 的 `routeStep` 实现（Phase 7-1，见 `docs/DETERMINISTIC-ROUTER.md`）：只依赖 core，把调用方事先给出的结构化一步（role + 名称 + frame origin）在当前 observation 上解析为唯一 ref，证明不了唯一就 defer 给下一层。它不是授权：resolve 出的 ref 与调用方直接给出的 ref 走同一条 policy / grant / Strict 路径。
 
+“Jev bounded semantic choice” 的输入由 `packages/router` 的 `jevCandidateBuilder` 准备（Phase 7-2，见 `docs/JEV-CANDIDATE-BUILDER.md`）：按与 `microGoal` 的词面相关度对 CLICK 候选重排并截断，资格与参考实现完全相同；Jev 本身是 typesafe.ai 的 System One 托管模型，provider 尚未接入。
+
 ## Workspace test resolution
 
 Published/runtime package exports intentionally point at `dist/`, but repository tests need to execute TypeScript source before packages are built.

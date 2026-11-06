@@ -498,6 +498,15 @@ describe("runDecisionEvaluation", () => {
       () => ({ refs: [1 as never], coverage: "complete" }),
       () => null as never,
       () => ({ refs: ["@e_1"], coverage: "complete", extra: () => 1 }) as never,
+      // 排序说明形状（不变量 165）：每条只违反一条规则，scoredCount 不能超过返回的候选数，也不能为负或非整数。
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "broken", lexiconVersion: "v", scoredCount: 2 } }),
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "broken", lexiconVersion: "v", scoredCount: -1 } }),
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "broken", lexiconVersion: "v", scoredCount: 0.5 } }),
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "broken", scoredCount: 1 } }) as never,
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: null }) as never,
+      // ranking 必须署名为产出它的 builder，且带非空词表版本。
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "other", lexiconVersion: "v", scoredCount: 0 } }),
+      () => ({ refs: ["@e_1"], coverage: "complete", ranking: { builder: "broken", lexiconVersion: "", scoredCount: 0 } }),
     ];
 
     for (const build of invalidSets) {
