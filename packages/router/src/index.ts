@@ -1,4 +1,12 @@
 export {
+  DECISION_OPERATIONS,
+  type Decision,
+  type DecisionOperation,
+  type DecisionProvider,
+  type DecisionProviderInput,
+} from "./decision.js";
+export {
+  hasBlockingLayer,
   routeStep,
   type DeferReason,
   type RouteResult,
@@ -22,3 +30,4 @@ export {
   jevCandidateBuilder,
 } from "./jevCandidateBuilder.js";
 export { LEXICON_VERSION } from "./conceptLexicon.js";
+export { looseKey } from "./nameMatch.js";

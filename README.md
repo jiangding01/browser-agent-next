@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-PR #1～#24 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）与 Strict 写入 S1～S3 全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）；Phase 7-1 交付了离线的 deterministic router；frame 有效 origin 改为以 frame 自报为准，Strict 授权按整条 frame 链校验 origin。
+PR #1～#26 已合并：Phase 0～6.6（Perception、Identity、Strict Executor、Authorization、High-level API、Model-facing Adapter 与 side-effect 授权）与 Strict 写入 S1～S3 全部完成。Phase 7-0（Trace 与评测底座）交付了离线决策评测 harness（7-0a）与默认关闭的 model-facing 脱敏 trace（7-0b）；Phase 7-1 交付了离线的 deterministic router，Phase 7-2 交付了离线的 Jev 候选排序；frame 有效 origin 改为以 frame 自报为准，Strict 授权按整条 frame 链校验 origin。
 
 已经完成：
 
@@ -51,6 +51,7 @@ PR #1～#24 已合并：Phase 0～6.6（Perception、Identity、Strict Executor�
 - model-facing `browser.act` 的写入类动作：模型可以请求 setValue / selectOption / submit / pressKey，写入无论授权模式都必须经 operator 在扩展审批页看到完整参数后批准，参数不出现在模型结果、错误、progress 与 trace 中（Strict 写入 S3）；
 - 离线 deterministic router（`packages/router`）：把结构化的一步（role + 名称 + frame origin）在当前 observation 上确定性解析为唯一 ref，完整性闸门、可疑同名（零宽字符、大小写差异等）与跨源作用域任一不满足都 defer，附第二批 16 个 router fixture 与评测（Phase 7-1）。
 - 离线 Jev 候选排序（`packages/router` 的 `jevCandidateBuilder`）：按 goal 与元素名称的词面相关度（含 20 个中英概念词表）重排 CLICK 候选，只重排不改资格，并报告排序信号在哪里断掉（Phase 7-2）。
+- Jev provider（`packages/jev`，离线评测）：调用 typesafe.ai 的 Jev（System One）在候选集内选择 CLICK / HANDOFF / ESCALATE；按页面顺序与逆序各问一次以抵消位置偏好，确定性闸门挡住不可区分、遮挡、视口外与阻挡层场景；出境字段白名单、模型版本固定，只有显式传入 key 才联网；附第四批注入 fixture 与手动 live 评测命令（Phase 7-3）。
 
 真实 Chromium 已验证：
 
@@ -122,3 +123,4 @@ pnpm e2e
 - [PR #6 最终审查](./docs/PR6-FINAL-REVIEW.md)
 - [PR #7 最终审查](./docs/PR7-FINAL-REVIEW.md)
 - [Phase 7-0 Trace 与评测底座](./docs/TRACE-EVAL-FOUNDATION.md)
+- [Phase 7-3 Jev provider](./docs/JEV-PROVIDER.md)

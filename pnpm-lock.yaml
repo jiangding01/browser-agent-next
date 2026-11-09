@@ -71,12 +71,24 @@ importers:
       '@browser-agent-next/core':
         specifier: workspace:*
         version: link:../core
+      '@browser-agent-next/jev':
+        specifier: workspace:*
+        version: link:../jev
       '@browser-agent-next/router':
         specifier: workspace:*
         version: link:../router
       '@browser-agent-next/runtime':
         specifier: workspace:*
         version: link:../runtime
+
+  packages/jev:
+    dependencies:
+      '@browser-agent-next/core':
+        specifier: workspace:*
+        version: link:../core
+      '@browser-agent-next/router':
+        specifier: workspace:*
+        version: link:../router
 
   packages/perception:
     dependencies:
@@ -617,9 +629,6 @@ packages:
     resolution: {integrity: sha512-u8KszXvGfU68hVcZpRHKG28T0krMuv2G5nDhiHaMLen/gIuFEgIJhaJuO69qjnXg5paSrbPMFfx3brNuN8eVSg==}
     engines: {node: '>=14.0.0'}
 
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
-
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -705,6 +714,9 @@ packages:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
     hasBin: true
+
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
 snapshots:
 

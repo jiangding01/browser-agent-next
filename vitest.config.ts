@@ -14,6 +14,7 @@ export default defineConfig({
       "@browser-agent-next/runtime": workspaceSource("./packages/runtime/src/index.ts"),
       "@browser-agent-next/router": workspaceSource("./packages/router/src/index.ts"),
       "@browser-agent-next/eval": workspaceSource("./packages/eval/src/index.ts"),
+      "@browser-agent-next/jev": workspaceSource("./packages/jev/src/index.ts"),
       "@browser-agent-next/perception": workspaceSource("./packages/perception/src/index.ts"),
     },
   },

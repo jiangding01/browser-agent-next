@@ -96,6 +96,7 @@
 ## Phase 7 — Intelligence
 - [x] deterministic router（7-1 离线：结构化 StepIntent 的确定性解析、完整性闸门与可疑同名检测、第二批 16 个 router fixture；运行期接入随 fast_step）
 - [x] Jev CandidateBuilder（7-2 离线：确定性 unit 匹配 + 20 个中英概念词表的候选排序，只重排不改资格，`ranking.scoredCount` 暴露排序信号；第三批 14 个排序 fixture）
+- [x] Jev provider（7-3 离线评测：typesafe.ai System One，双序同问 + 伴随 Noul + 确定性前后置闸门，固定模型版本、出境白名单；第四批 4 个注入 fixture 与手动 live 评测命令）
 - [ ] offline replay
 - [ ] shadow mode
 - [ ] fast_step

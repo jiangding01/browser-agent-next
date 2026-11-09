@@ -96,7 +96,7 @@ export interface DecisionProvider {
 }
 ```
 
-操作空间直接取自 `docs/DESIGN.md` 的 Jev 初始操作空间。类型先放在 `packages/eval`。Phase 7-1 的 deterministic router 返回自己的 `RouteResult`，不需要共享这两个类型，因此暂不迁到 `packages/core`；Jev provider 需要在运行期共享时再迁。
+操作空间直接取自 `docs/DESIGN.md` 的 Jev 初始操作空间。类型先放在 `packages/eval`。Phase 7-1 的 deterministic router 返回自己的 `RouteResult`，不需要共享这两个类型，因此暂不迁到 `packages/core`；Jev provider 需要在运行期共享时再迁。（Phase 7-3 起 `Decision` / `DecisionProvider` / `DecisionProviderInput` / `DECISION_OPERATIONS` 迁到 `packages/router`，eval 原样再导出；第四批注入 fixture 见 `packages/eval/src/jevAdversarialFixtures.ts` 与 `docs/JEV-PROVIDER.md`。）
 
 ### Fixture 校验（`validateDecisionFixtures`）
 
