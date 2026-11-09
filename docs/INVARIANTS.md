@@ -176,3 +176,8 @@
 164. 候选相关度只来自 `microGoal` 与元素 `semantic`（name / description / text）的 unit 匹配及固定概念词表；不读取 `value`，不使用页面声明的能力或任何外部服务。排序、分数与 `ranking.scoredCount` 不构成授权或置信度。
 165. 候选排序是确定的：同一输入得到同一输出，同分按 observation 顺序；没有任何 unit 命中时，结果与参考实现相同。有命中时排序可能把 0 分元素挤出上限——这是排序的固有代价，不得声称“不劣于参考实现”；排序型 builder 必须报告 `ranking.scoredCount` 与 `lexiconVersion`；harness 校验 `ranking.builder` 与 builder 名一致、`lexiconVersion` 非空、`scoredCount` 不超过返回的候选数。
 
+166. Jev provider 只在本次 CandidateSet 内选择：响应的 model 必须等于固定版本，选项名必须是本次请求发出的标签且其概率等于最大值，每组概率之和与 1 相差不超过 0.1，否则视为无效响应抛错，不得映射到任何 ref；候选 ref 不唯一、不在 observation 中恰好出现一次或不具备 CLICK 候选资格时抛错不发请求；候选为空或页面有阻挡层（blocking overlay / modal dialog）时不发请求、返回 ESCALATE。
+167. 候选的呈现顺序与 CandidateBuilder 分数无关：候选表按 observation 顺序，标签是加 revision 盐的哈希、不含序号；只有 `operation=click` 与 `has_target` 都达到阈值、（多于 1 个候选时）按 observation 顺序与逆序各问一次的目标答案指向同一标签且概率都达到阈值、且选中元素可与页面上其它可点击元素区分（比较键忽略大小写、空白与不可见字符，含被截断到候选集外的元素）、未被标记为不可命中或在视口外、所在 frame 的有效 origin 可判定时才返回 CLICK，否则 ESCALATE。origin 是否放行不在决策层判断，由 origin plane（不变量 119、162）在授权时检查。
+168. Jev 出境载荷是白名单：只含 microGoal、候选的不透明标签与 role / name / description / text 与所属表单标题（均截断）、表单标题与字段数、非 modal 对话框标题与候选集 coverage；不含 element value、URL、origin、tab 标题、ref 原值、frame 与 geometry、非候选元素；模型使用固定版本号，endpoint 为常量，不跟随重定向；错误信息不携带响应体与请求体，调用记录中的 usage 只含数值计数。
+169. `packages/jev` 的库代码不读取环境变量或文件、不导入 `node:` 模块，只有调用方显式传入 apiKey 构造 provider 时才会发起网络请求；live 评测必须同时具备 `TYPESAFE_API_KEY` 与 `--allow-egress`。
+170. Jev 的 confidence 与概率只描述分布集中度，不是正确率，不构成授权；Jev 的 CLICK 进入运行期后仍须经过 policy、grant、审批与 Strict preflight。

@@ -10,6 +10,7 @@
       "@browser-agent-next/runtime": ["packages/runtime/src/index.ts"],
       "@browser-agent-next/router": ["packages/router/src/index.ts"],
       "@browser-agent-next/eval": ["packages/eval/src/index.ts"],
+      "@browser-agent-next/jev": ["packages/jev/src/index.ts"],
       "@browser-agent-next/perception": ["packages/perception/src/index.ts"]
     }
   },

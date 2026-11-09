@@ -3,7 +3,7 @@ import type {
   CoverageStatus,
   Ref,
 } from "@browser-agent-next/core";
-import type { StepIntent } from "@browser-agent-next/router";
+import type { Decision, DecisionProvider } from "@browser-agent-next/router";
 import type {
   CandidateBuilder,
   CandidateSet,
@@ -18,25 +18,12 @@ import {
   type FixtureTag,
 } from "./decisionFixture.js";
 
-export type Decision =
-  | { operation: "CLICK"; ref: Ref; confidence?: number }
-  | {
-      operation: Exclude<DecisionOperation, "CLICK">;
-      confidence?: number;
-    };
-
-export interface DecisionProviderInput {
-  observation: BrowserObservation;
-  microGoal: string;
-  candidates: CandidateSet;
-  /** fixture 带结构化 intent 时传入（运行前冻结的快照的一部分）；其余 fixture 不含该字段。 */
-  intent?: StepIntent;
-}
-
-export interface DecisionProvider {
-  readonly name: string;
-  decide(input: DecisionProviderInput): Decision | Promise<Decision>;
-}
+// 决策类型定义在 router（docs/JEV-PROVIDER.md「类型迁移」）；这里再导出，保持既有导入路径。
+export type {
+  Decision,
+  DecisionProvider,
+  DecisionProviderInput,
+} from "@browser-agent-next/router";
 
 /** 按“第一个失败的层”归因，见 docs/TRACE-EVAL-FOUNDATION.md。 */
 export type FixtureAttribution =

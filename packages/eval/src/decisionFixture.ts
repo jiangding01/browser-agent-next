@@ -3,24 +3,18 @@ import type {
   Ref,
 } from "@browser-agent-next/core";
 import {
+  DECISION_OPERATIONS,
   isClickCandidate,
   parseStepIntent,
+  type DecisionOperation,
   type StepIntent,
 } from "@browser-agent-next/router";
 
-/**
- * Jev 初始操作空间（docs/DESIGN.md）。
- *
- * 先放在 eval 包；Phase 7 router 进入 Runtime 需要共享时再迁到 core。
- */
-export const DECISION_OPERATIONS = [
-  "CLICK",
-  "HANDOFF_FORM",
-  "HANDOFF_VERIFY",
-  "ESCALATE",
-] as const;
-
-export type DecisionOperation = (typeof DECISION_OPERATIONS)[number];
+// 操作空间定义在 router（docs/JEV-PROVIDER.md「类型迁移」）；这里再导出，保持既有导入路径。
+export {
+  DECISION_OPERATIONS,
+  type DecisionOperation,
+} from "@browser-agent-next/router";
 
 export const FIXTURE_TAGS = [
   "duplicate-name",

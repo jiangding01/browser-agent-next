@@ -51,7 +51,10 @@ function isProvablyComplete(observation: BrowserObservation): boolean {
   );
 }
 
-function hasBlockingLayer(observation: BrowserObservation): boolean {
+/** 页面有阻挡层（blocking overlay 或 modal dialog）；Jev provider 的前置闸门复用同一判定。 */
+export function hasBlockingLayer(
+  observation: Pick<BrowserObservation, "overlays" | "dialogs">,
+): boolean {
   return (
     (observation.overlays ?? []).some((overlay) => overlay.blocking) ||
     (observation.dialogs ?? []).some((dialog) => dialog.modal)

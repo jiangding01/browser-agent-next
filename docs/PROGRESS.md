@@ -1,10 +1,10 @@
 # 实现进度
 
-最后更新：2026-11-05
+最后更新：2026-11-09
 
 ## 当前基线
 
-PR #1～#24 已合并，Phase 0～6.6、Phase 7-0、Strict 写入 S1～S3 与 Phase 7-1 deterministic router（离线）完成（S3 经 PR #21 于 2026-11-02 合并；Phase 7-1、frame 自报 origin 修复与 Strict 授权 frame 链 origin 校验分别经 PR #22、#23、#24 于 2026-11-05 合并）；Phase 7-2 Jev CandidateBuilder（离线）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
+PR #1～#26 已合并，Phase 0～6.6、Phase 7-0、Strict 写入 S1～S3、Phase 7-1 deterministic router（离线）与 Phase 7-2 Jev CandidateBuilder（离线）完成（S3 经 PR #21 于 2026-11-02 合并；Phase 7-1、frame 自报 origin 修复与 Strict 授权 frame 链 origin 校验分别经 PR #22、#23、#24 于 2026-11-05 合并；Phase 7-2 经 PR #26 于 2026-11-06 合并）。Phase 7-3 Jev provider（离线评测）为当前 PR。本文档描述仓库阶段状态，不绑定具体 checkout 分支。
 
 ## 当前阶段
 
@@ -42,6 +42,7 @@ Phase 7-1 deterministic router（离线）           ✅
 修复：frame 有效 origin 以 frame 自报为准       ✅
 修复：Strict 授权按整条 frame 链校验 origin     ✅
 Phase 7-2 Jev CandidateBuilder（离线）           ✅
+Phase 7-3 Jev provider（离线评测）              ✅
 ```
 
 ## PR #5 第一阶段已完成
@@ -537,9 +538,32 @@ child-frame actuation / OOPIF session exact mapping 仍按既有 Roadmap 独立�
 - 变异验证：25 种中 24 种被测试抓到；“中文写法不做最长匹配”为等价变异（当前词表没有任何中文写法是另一写法的前缀），排序保留为词表演进的防线，届时由词表自检用例兜底（明细见方案文档「实现记录」）✅
 - 代码经 check 审查（正确性 + 对抗 + 架构）：0 HIGH；1 MEDIUM（片假名长音符被切碎，所有长音词共享一个 unit）与 4 LOW（浮点同分排反、CJK 切分二次复杂度、组合附加符切碎词、NFKC 截断用例空测）已修复，采纳 4 条 advisory（句末标点打断短语、去掉单字停用词、不变量 163 收窄、ranking 署名校验）✅
 
+## Phase 7-3：Jev provider（离线评测）
+
+方案见 `docs/JEV-PROVIDER.md`（think 编写；check 审查一轮 1 HIGH、4 MEDIUM、4 LOW，Fable 5.1 编排评估一轮 1 HIGH、7 MEDIUM，think 复核一轮 1 HIGH、4 LOW，路线保留，均在实现前并入）。
+
+- router：`Decision` / `DecisionProvider` / `DecisionProviderInput` / `DECISION_OPERATIONS` 从 eval 迁入（eval 原样再导出）；导出 `hasBlockingLayer` 供 Jev 前置闸门复用；
+- 新包 `packages/jev`（只依赖 core 与 router，不引入外部依赖，不用官方 SDK，engines 保持 ≥ 20.19）：`createJevDecisionProvider({ apiKey, fetch?, onCall? })`。一次请求问 4 个问题——`operation`（escalate 置首）、伴随 Noul `has_target`、按 observation 顺序与逆序各一次的 `target`；候选表放在所有问题共享的 state 里，标签是 `sha256(revision.id + ref)` 前缀，与 CandidateBuilder 分数无关；`operation=click`、`has_target` 与两序 target 概率都 ≥ 0.7 且两序一致才点；前置闸门（无候选、阻挡层）不发请求，后置闸门（与页面上任一可点击元素不可区分、遮挡、视口外、frame origin 不可判定）一律 ESCALATE；响应须是固定版本 `jev-1.14.0` 且概率归一；endpoint 常量、单次请求 3 s 超时、不重试不跟随重定向，错误只含固定文案与 status；
+- eval：第四批 4 个注入 fixture（`inject-choose-me`、`inject-fake-system`、`inject-escalate-suppression`、`inject-form-bypass`）；手动 live 评测命令 `jev:live`（需同时有 `TYPESAFE_API_KEY` 与 `--allow-egress`，对四批 48 个 fixture 跑 `jev` 与 `deterministic-router+jev` 两种组合，出现 unsafeClick 时退出码 2，有 provider error 时退出码 3）；
+- 运行期行为不变；新增不变量 166～170。
+
+### 门禁
+
+- `pnpm install --frozen-lockfile` ✅（lockfile 只多 workspace 链接，无外部依赖）
+- TypeScript typecheck ✅
+- Unit / integration tests（1203 个；jev 包 86 个，第四批 9 个）✅
+- Workspace build ✅；构建后的 `jev:live` 在缺 key 时拒绝运行、不发请求 ✅
+- Real Chromium E2E：本 PR 无运行期变化，由 CI browser-e2e 覆盖
+- 确定性闸门对前三批 fixture 的影响（假设 Jev 总答对）：`deterministic-router+jev` 组合无必错 fixture；`jev` 单独只有 `intent-cross-origin-explicit` 必然 ESCALATE（需要 intent 区分，设计如此）✅
+- 变异验证：36 种中 35 种被测试抓到（审查修复后对最终代码全部重跑）；“不校验选项名”为等价变异（概率键集合必须等于发出的选项、且选中项概率须等于最大值，未知选项名必然被判无效），显式检查保留为纵深防御 ✅
+- 代码经 check 审查（Deep：正确性 + 对抗、安全 + 架构两路独立审查）：0 HIGH；2 MEDIUM（概率未校验归一时并列高概率能放行 CLICK——两路独立发现；候选集被截断时候选集外的同名元素绕过不可区分检查）与 5 LOW（输入形状未校验、比较键要求逐字相同、live 命令把抛错记成 not-called 且全失败时退出码 0、经符号链接调用时不执行、usage / model 原样透传）已修复，采纳 3 条 advisory（不跟随重定向、源码边界扫描递归并覆盖裸内建模块与 process、报告路径写准确），补 11 种变异全部被抓到 ✅
+- 第二轮 check 审查（只审修复部分，构建产物实算四批 48 个 fixture 无一抛 invalid-request）：0 HIGH；1 LOW（候选 A 重复、B 缺失时数量相等，“恰好出现一次”校验被绕过并发出请求）已修复；概率容差从 0.01 放宽到 0.1 以容纳逐项舍入（小于 0.4，两个选项仍不可能同时越过 0.7）✅
+- live 基线：未运行（没有 `TYPESAFE_API_KEY`）。拿到 key 后执行 `pnpm build && TYPESAFE_API_KEY=… pnpm --filter @browser-agent-next/eval jev:live -- --allow-egress`，结果补写到这里；出现 unsafeClick 时 shadow mode 不能开始
+
 ## 下一步
 
-1. Phase 7 后续条目（Jev provider → offline replay → shadow mode → fast_step → bounded fast_run）。Jev provider 方案须处理：位置偏好（不按分数顺序直接呈现选项）、输入注入、托管 API 的数据出境与 operator 开关、SDK 需 Node ≥ 22 与项目 engines 的取舍；图片输入目前为预览，默认不依赖。fast_step 方案需要决定：router 跑在模型可见投影还是 trusted observation 上，以及 router 解析出的 click 是否允许走 `agent-owned-auto`（见 `docs/DETERMINISTIC-ROUTER.md`「残余风险」）。
+1. Jev live 基线（需要 `TYPESAFE_API_KEY`）：按上一节命令运行，记录两种组合的 conditional accuracy、unsafeClick、prompt-injection 指标与各 `rule` 比例。
+2. Phase 7 后续条目（offline replay → shadow mode → fast_step → bounded fast_run）。shadow mode 方案须回答：Jev 出境的 operator 开关（默认关闭、按 origin 放行、与 model act origin 同类的配置文件约束）、`microGoal` 与候选文本中个人信息的处理、router 与 runtime 两个同名 `DecisionProvider` 的收敛。fast_step 方案需要决定：router 跑在模型可见投影还是 trusted observation 上，以及 router 解析出的 click 是否允许走 `agent-owned-auto`（见 `docs/DETERMINISTIC-ROUTER.md`「残余风险」）。
 
 ## 文档
 
